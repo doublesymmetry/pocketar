@@ -14,7 +14,7 @@ else
     source_url="https://raw.githubusercontent.com/google-ar/arcore-android-sdk/v$version/libraries/include/arcore_c_api.h"
     curl --fail --location --retry 3 --output "$work_dir/arcore_c_api.h" "$source_url"
 fi
-if ! rg -q '^#define ARCORE_C_API_H_' "$work_dir/arcore_c_api.h"; then
+if ! grep -q '^#define ARCORE_C_API_H_' "$work_dir/arcore_c_api.h"; then
     echo 'Downloaded file is not an ARCore C API header' >&2
     exit 1
 fi

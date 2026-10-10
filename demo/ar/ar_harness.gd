@@ -92,7 +92,7 @@ func _run() -> void:
 	baseline = _diagnostics()
 	var started: int = Time.get_ticks_usec()
 	if selected_steps.has("no-gl") or selected_steps.has("camera-image"):
-		print("ARCORE OBSERVATION duration=%.1f seconds" % duration)
+		HarnessLog.write_line("ARCORE OBSERVATION duration=%.1f seconds" % duration)
 		await _observe()
 	observed_seconds = float(Time.get_ticks_usec() - started) / 1000000.0
 	observed = _diagnostics()
@@ -128,7 +128,7 @@ func _observe() -> void:
 
 func _run_probes() -> void:
 	var sampled: Dictionary = observed.get("extras", {})
-	_step("repeated-frame-probe", "INFO", "observation=%s" % JSON.stringify(sampled))
+	_step("repeated-frame-probe", "INFO", "count=%s updated_planes=%s image_status=%s details=diagnostics.json" % [sampled.get("repeated_frame_probe_count", 0), sampled.get("repeated_frame_updated_plane_count", -1), sampled.get("repeated_frame_image_status", "unavailable")])
 	if view.interface.has_method("set_frame_probes_enabled"):
 		view.interface.call("set_frame_probes_enabled", false)
 		view.interface.call("set_point_cloud_enabled", false)
@@ -140,7 +140,7 @@ func _run_probes() -> void:
 		if bool(request.get("ok", false)):
 			complete = await _wait_for_probe("image_capacity_probe_active", 20.0)
 		var diagnostics: Dictionary = _diagnostics().get("extras", {})
-		_step("image-capacity-probe", "INFO", "request=%s wait_completed=%s results=%s" % [JSON.stringify(request), complete, JSON.stringify(diagnostics)])
+		_step("image-capacity-probe", "INFO", "requested=%s wait_completed=%s max_held=%s details=diagnostics.json" % [request.get("ok", false), complete, diagnostics.get("image_capacity_max_held", 0)])
 		if not complete and view.interface.has_method("cancel_image_capacity_probe"):
 			view.interface.call("cancel_image_capacity_probe")
 	if result_printed:
@@ -158,11 +158,11 @@ func _run_probes() -> void:
 	view.interface.call("begin_old_frame_probe")
 	extras = _diagnostics().get("extras", {})
 	if not bool(extras.get("old_frame_probe_pending", false)):
-		_step("old-frame-probe", "INFO", "not started: results=%s" % JSON.stringify(extras))
+		_step("old-frame-probe", "INFO", "not started; details=diagnostics.json")
 		return
 	var complete: bool = await _wait_for_probe("old_frame_probe_pending", 5.0)
 	var diagnostics: Dictionary = _diagnostics().get("extras", {})
-	_step("old-frame-probe", "INFO", "wait_completed=%s results=%s" % [complete, JSON.stringify(diagnostics)])
+	_step("old-frame-probe", "INFO", "wait_completed=%s probe_complete=%s details=diagnostics.json" % [complete, diagnostics.get("old_frame_probe_complete", false)])
 
 
 func _wait_for_probe(pending_key: String, seconds: float) -> bool:
@@ -199,7 +199,7 @@ func _session() -> bool:
 	var packet: ARFramePacket = view.interface.call("get_current_packet") as ARFramePacket
 	var ok: bool = ready_index >= 0 and (initialized_index > ready_index or tracking_index > ready_index) and bool(diagnostics["configured"]) and packet != null
 	ok = ok and RenderingServer.get_current_rendering_method() == "mobile" and RenderingServer.get_current_rendering_driver_name() == "vulkan"
-	_step("arcore-session", "OK" if ok else "FAIL", "history=%s availability=%s sdk=%s apk=%s renderer=%s config=%s" % [JSON.stringify(history), diagnostics.get("availability_detail", "unavailable"), diagnostics["arcore_sdk_version"], diagnostics["arcore_apk_version"], diagnostics["renderer"], JSON.stringify(diagnostics["config"])])
+	_step("arcore-session", "OK" if ok else "FAIL", "ready=%s initialized=%s tracking=%s sdk=%s apk=%s renderer=%s details=diagnostics.json" % [ready_index, initialized_index, tracking_index, diagnostics["arcore_sdk_version"], diagnostics["arcore_apk_version"], diagnostics["renderer"]])
 	return ok
 
 
@@ -216,7 +216,7 @@ func _no_gl() -> void:
 
 
 func _camera_image() -> void:
-	var required: Array[String] = ["config", "config_list", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "timestamp_regressions", "image_plane_layout", "image_acquire_p50_us", "image_acquire_p99_us", "repack_upload_p50_us", "repack_upload_p95_us"]
+	var required: Array[String] = ["config", "config_list", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "image_timestamp_far_count", "image_timestamp_delta_min_ns", "image_timestamp_delta_mean_ns", "image_timestamp_delta_max_ns", "timestamp_regressions", "image_plane_layout", "image_acquire_p50_us", "image_acquire_p99_us", "repack_p50_us", "repack_p95_us", "stats_p50_us", "stats_p95_us", "upload_p50_us", "upload_p95_us", "repack_upload_p50_us", "repack_upload_p95_us"]
 	if not _require("camera-image", observed, required):
 		return
 	var config: Dictionary = observed["config"]
@@ -234,8 +234,13 @@ func _camera_image() -> void:
 	for plane: Dictionary in layout:
 		layout_valid = layout_valid and int(plane.get("row_stride", 0)) > 0 and int(plane.get("pixel_stride", 0)) > 0 and int(plane.get("data_length", 0)) > 0
 	var ok: bool = frames > 0 and images > 0 and missing_per_1000 <= 50.0 and minimum_hz > 0 and image_hz >= minimum_hz
-	ok = ok and int(observed["image_timestamp_mismatches"]) == 0 and int(observed["timestamp_regressions"]) == 0 and layout_valid and not Array(observed["config_list"]).is_empty()
-	_step("camera-image", "OK" if ok else "FAIL", "frames=%d images=%d hz=%.2f minimum_hz=%.2f missing_per_1000=%.2f acquire_us_p50=%s p99=%s repack_upload_us_p50=%s p95=%s timestamp_mismatches=%s regressions=%s strides=%s configs=%s" % [frames, images, image_hz, minimum_hz, missing_per_1000, observed["image_acquire_p50_us"], observed["image_acquire_p99_us"], observed["repack_upload_p50_us"], observed["repack_upload_p95_us"], observed["image_timestamp_mismatches"], observed["timestamp_regressions"], JSON.stringify(layout), JSON.stringify(observed["config_list"])])
+	ok = ok and int(observed["image_timestamp_far_count"]) == 0 and int(observed["timestamp_regressions"]) == 0 and layout_valid and not Array(observed["config_list"]).is_empty()
+	var summary: String = "frames=%d images=%d hz=%.2f minimum_hz=%.2f missing_per_1000=%.2f cpu=%sx%s layout=%s" % [frames, images, image_hz, minimum_hz, missing_per_1000, config["cpu_width"], config["cpu_height"], observed.get("image_layout", "unknown")]
+	summary += " acquire_us_p50/p99=%.1f/%.1f" % [observed["image_acquire_p50_us"], observed["image_acquire_p99_us"]]
+	for stage: String in ["repack", "stats", "upload", "repack_upload"]:
+		summary += " %s_us_p50/p95=%.1f/%.1f" % [stage, observed[stage + "_p50_us"], observed[stage + "_p95_us"]]
+	summary += " timestamp_mismatches=%s far=%s regressions=%s delta_ns_min/mean/max=%.0f/%.1f/%.0f" % [observed["image_timestamp_mismatches"], observed["image_timestamp_far_count"], observed["timestamp_regressions"], observed["image_timestamp_delta_min_ns"], observed["image_timestamp_delta_mean_ns"], observed["image_timestamp_delta_max_ns"]]
+	_step("camera-image", "OK" if ok else "FAIL", summary)
 
 
 func _diagnostic_check(name: String, valid_key: String, samples_key: String) -> void:
@@ -342,7 +347,9 @@ func _lifecycle() -> void:
 		return
 	var statuses: Dictionary = after["update_status_counts"]
 	ok = ok and int(after["egl_context_violations"]) == 0 and int(statuses.get("-7", statuses.get(-7, 0))) == 0 and int(statuses.get("-6", statuses.get(-6, 0))) == 0
-	_step("lifecycle", "OK" if ok else "FAIL", "cycles=%s updates_while_paused=%s stale_trackers=%s timings=%s" % [JSON.stringify(durations), after["updates_while_paused"], after["stale_tracker_count"], JSON.stringify(after.get("timings", {}))])
+	for index: int in range(durations.size()):
+		HarnessLog.write_line("ARCORE lifecycle %d %s" % [index, JSON.stringify(durations[index])])
+	_step("lifecycle", "OK" if ok else "FAIL", "pauses=%s resumes=%s resets=%s updates_while_paused=%s stale_trackers=%s" % [after["pause_count"], after["resume_count"], after["reset_count"], after["updates_while_paused"], after["stale_tracker_count"]])
 
 
 func _wait_for_packet(generation: int, after_frame: int) -> bool:
@@ -371,19 +378,20 @@ func _tracking() -> void:
 	if not hits.is_empty():
 		var hit: ARRaycastHit = hits[0] as ARRaycastHit
 		hit_info = {"plane_id": hit.plane_id, "distance": hit.distance, "frame_id": hit.frame_id, "session_generation": hit.session_generation}
-	_step("tracking", "INFO", "state=%s reason=%s time_to_first_tracking_ms=%.3f clock=harness_start planes=%s centre_hit=%s timings=%s" % [view.interface.call("get_session_state"), view.interface.call("get_tracking_reason"), first_tracking_ms, diagnostics.get("plane_count", "unavailable"), JSON.stringify(hit_info), JSON.stringify(diagnostics.get("timings", {}))])
+	_step("tracking", "INFO", "state=%s reason=%s time_to_first_tracking_ms=%.3f clock=harness_start planes=%s centre_hit=%s" % [view.interface.call("get_session_state"), view.interface.call("get_tracking_reason"), first_tracking_ms, diagnostics.get("plane_count", "unavailable"), JSON.stringify(hit_info)])
 
 
 func _log_device_diagnostics(phase: String) -> void:
 	if not Engine.has_singleton("HandheldARPlugin"):
-		print("ARCORE DEVICE %s unavailable" % phase)
+		HarnessLog.write_line("ARCORE DEVICE %s unavailable" % phase)
 		return
 	var plugin: Object = Engine.get_singleton("HandheldARPlugin")
 	if not bool(plugin.call("has_java_method", "getDiagnostics")):
-		print("ARCORE DEVICE %s getDiagnostics unavailable" % phase)
+		HarnessLog.write_line("ARCORE DEVICE %s getDiagnostics unavailable" % phase)
 		return
 	var diagnostics: String = String(plugin.call("getDiagnostics"))
-	print("ARCORE DEVICE %s %s" % [phase, diagnostics])
+	var values: Dictionary = JSON.parse_string(diagnostics) as Dictionary
+	HarnessLog.write_line("ARCORE DEVICE %s pss_kib=%s thermal=%s plugged=%s details=device-%s.json" % [phase, values.get("process_pss_kib", "unavailable"), values.get("thermal_status", "unavailable"), values.get("battery_plugged", "unavailable"), phase])
 	var file: FileAccess = FileAccess.open(output_dir.path_join("device-%s.json" % phase), FileAccess.WRITE)
 	if file != null:
 		file.store_string(diagnostics)
@@ -426,7 +434,7 @@ func _step(name: String, level: String, message: String) -> void:
 	if result_printed:
 		return
 	failed = failed or level == "FAIL"
-	print("HARNESS STEP %s %s %s" % [name, level, message])
+	HarnessLog.write_line("HARNESS STEP %s %s %s" % [name, level, message])
 
 
 func _timeout() -> void:
@@ -447,12 +455,12 @@ func _finish() -> void:
 		_log_device_diagnostics("end")
 	if view != null and view.interface != null and view.interface.has_method("get_diagnostics"):
 		var diagnostics: Dictionary = _diagnostics()
-		print("ARCORE DIAGNOSTICS " + JSON.stringify(diagnostics))
 		var file: FileAccess = FileAccess.open(output_dir.path_join("diagnostics.json"), FileAccess.WRITE)
 		if file != null:
 			file.store_string(JSON.stringify(diagnostics, "\t"))
+			HarnessLog.write_line("ARCORE DIAGNOSTICS saved=diagnostics.json")
 		else:
 			_step("output", "FAIL", "cannot save diagnostics: " + error_string(FileAccess.get_open_error()))
 	result_printed = true
-	print("HARNESS RESULT " + ("FAIL" if failed else "PASS"))
+	HarnessLog.write_line("HARNESS RESULT " + ("FAIL" if failed else "PASS"))
 	get_tree().quit(1 if failed else 0)

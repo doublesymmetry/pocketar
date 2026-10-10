@@ -55,6 +55,21 @@ def android_launch(device, args):
     return device + ["shell", shlex.join(command)]
 
 
+def android_process_failure(device, pid):
+    try:
+        status = subprocess.run(device + ["shell", "pidof", PACKAGE],
+                                capture_output=True, text=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        return "Android process check failed: pidof timed out"
+    if status.returncode == 1 and not status.stdout.strip():
+        return f"Android app exited before a harness result: {PACKAGE} (pid {pid}) is no longer running"
+    if status.returncode != 0:
+        return f"Android process check failed: pidof exited {status.returncode}: {status.stderr.strip()}"
+    if pid not in status.stdout.split():
+        return f"Android app process disappeared or restarted: {PACKAGE} (pid {pid})"
+    return None
+
+
 def parse_log(data):
     results = re.findall(rb"HARNESS RESULT (PASS|FAIL)\s*$", data, re.MULTILINE)
     steps = [(name.decode(), status.decode()) for name, status in re.findall(
@@ -189,9 +204,10 @@ def main():
         subprocess.run(device + ["shell", "run-as", package, "rm", "-rf", "files/harness"], check=True)
         launch = android_launch(device, (["-harness-ar"] if ar else ["-harness"]) + harness_args)
         subprocess.run(launch, check=True)
-        pid = subprocess.check_output(device + ["shell", "pidof", "-s", package], text=True).strip()
-        if not pid.isdigit():
-            raise SystemExit("Android demo has no running process")
+        status = subprocess.run(device + ["shell", "pidof", "-s", package], capture_output=True, text=True, timeout=5)
+        pid = status.stdout.strip()
+        if status.returncode != 0 or not pid.isdigit():
+            raise SystemExit("Android app exited or failed to start: no running process for " + package)
         command = device + ["logcat", "--pid=" + pid, "-v", "brief", "godot:V", "*:S"]
     else:
         command = args[1:] if args[:1] == ["--"] else args
@@ -203,12 +219,20 @@ def main():
     engine_error = False
     pending = b""
     deadline = time.monotonic() + timeout
+    next_pid_check = time.monotonic() + 1
+    app_failure = None
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
     try:
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ)
         with (output / "latest.log").open("wb") as log:
             while time.monotonic() < deadline:
+                if launch and not results and not app_failure and time.monotonic() >= next_pid_check:
+                    app_failure = android_process_failure(device, pid)
+                    next_pid_check = time.monotonic() + 1
+                    if app_failure:
+                        # Drain logcat so a normal quit immediately after the result can still pass.
+                        deadline = min(deadline, time.monotonic() + 1)
                 events = selector.select(timeout=min(0.5, max(0, deadline - time.monotonic())))
                 if not events:
                     if process.poll() is not None:
@@ -233,20 +257,27 @@ def main():
                         steps.append((step.group(1).decode(), step.group(2).decode()))
                     if b"SCRIPT ERROR:" in line or b"Shader compilation failed" in line:
                         engine_error = True
-        timed_out = time.monotonic() >= deadline and not results
+        timed_out = time.monotonic() >= deadline and not results and not app_failure
         if not launch and process.poll() is None and time.monotonic() < deadline:
             try:
                 process.wait(timeout=min(5, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
                 pass
         exit_code = process.poll()
-        if launch:
-            capture = subprocess.run(device + ["exec-out", "run-as", package, "tar", "-cf", "-", "files"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if capture.returncode == 0:
-                (output / "android-userdata.tar").write_bytes(capture.stdout)
-            else:
-                sys.stderr.write("Could not retrieve debug app captures: " + capture.stderr.decode(errors="replace"))
         bad_exit = exit_code not in (None, 0) if launch else exit_code != 0
+        if app_failure and not results:
+            sys.stderr.write(app_failure + "\n")
+            bad_exit = True
+        if launch:
+            try:
+                capture = subprocess.run(device + ["exec-out", "run-as", package, "tar", "-cf", "-", "files"],
+                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+                if capture.returncode == 0:
+                    (output / "android-userdata.tar").write_bytes(capture.stdout)
+                else:
+                    sys.stderr.write("Could not retrieve debug app captures: " + capture.stderr.decode(errors="replace"))
+            except subprocess.TimeoutExpired:
+                sys.stderr.write("Could not retrieve debug app captures: adb timed out\n")
         return verify_log(results, steps, engine_error, timed_out, bad_exit, required_steps)
     finally:
         if process.poll() is None:

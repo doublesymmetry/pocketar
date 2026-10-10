@@ -38,8 +38,8 @@ func _ready() -> void:
 	if not await _prepare_dataset(args):
 		placement_message = dataset_error
 		if args.has("-harness-ar") or args.has("-harness"):
-			print("HARNESS STEP dataset FAIL " + dataset_error)
-			print("HARNESS RESULT FAIL")
+			HarnessLog.write_line("HARNESS STEP dataset FAIL " + dataset_error)
+			HarnessLog.write_line("HARNESS RESULT FAIL")
 			get_tree().quit(1)
 		return
 	if args.has("-harness-ar") or args.has("-harness"):
@@ -87,7 +87,7 @@ func _prepare_dataset(args: PackedStringArray) -> bool:
 	if record_index >= 0:
 		var result: Dictionary = view.interface.call("start_recording", uri) as Dictionary
 		recording_active = bool(result.get("ok", false))
-		print("HARNESS STEP dataset-record INFO uri=%s result=%s" % [uri, JSON.stringify(result)])
+		HarnessLog.write_line("HARNESS STEP dataset-record INFO uri=%s result=%s" % [uri, JSON.stringify(result)])
 		if not recording_active:
 			dataset_error = "ARCore recording did not start: " + JSON.stringify(result)
 			return false
@@ -95,7 +95,7 @@ func _prepare_dataset(args: PackedStringArray) -> bool:
 	else:
 		playback_active = true
 		view.interface.call("start_playback", uri)
-		print("HARNESS STEP dataset-playback INFO uri=%s" % uri)
+		HarnessLog.write_line("HARNESS STEP dataset-playback INFO uri=%s" % uri)
 	return true
 
 
@@ -108,7 +108,7 @@ func finish_dataset() -> void:
 	if recording_active:
 		var result: Dictionary = view.interface.call("stop_recording") as Dictionary
 		recording_active = false
-		print("HARNESS STEP dataset-record-end INFO " + JSON.stringify(result))
+		HarnessLog.write_line("HARNESS STEP dataset-record-end INFO " + JSON.stringify(result))
 
 
 func _consume_playback_inputs() -> void:
@@ -117,12 +117,12 @@ func _consume_playback_inputs() -> void:
 		var payload: PackedByteArray = entry.get("payload", PackedByteArray())
 		var decoded: Variant = JSON.parse_string(payload.get_string_from_utf8())
 		if not decoded is Dictionary:
-			print("HARNESS STEP dataset-input INFO invalid JSON payload")
+			HarnessLog.write_line("HARNESS STEP dataset-input INFO invalid JSON payload")
 			continue
 		var event: Dictionary = decoded
 		var coordinates: Variant = event.get("uv", [])
 		if int(event.get("version", 0)) != 1 or event.get("type", "") != "tap" or not coordinates is Array or coordinates.size() != 2:
-			print("HARNESS STEP dataset-input INFO unsupported input payload")
+			HarnessLog.write_line("HARNESS STEP dataset-input INFO unsupported input payload")
 			continue
 		if not (coordinates[0] is float or coordinates[0] is int) or not (coordinates[1] is float or coordinates[1] is int):
 			continue
@@ -133,7 +133,7 @@ func _consume_playback_inputs() -> void:
 	var diagnostics: Dictionary = view.interface.call("get_dataset_diagnostics") as Dictionary
 	if bool(diagnostics.get("playback_finished", false)) and not playback_finished_logged:
 		playback_finished_logged = true
-		print("HARNESS STEP dataset-playback-end INFO " + JSON.stringify(diagnostics))
+		HarnessLog.write_line("HARNESS STEP dataset-playback-end INFO status=%s inputs_read=%s inputs_dropped=%s" % [diagnostics.get("playback_status", -1), diagnostics.get("playback_inputs_read", 0), diagnostics.get("playback_inputs_dropped", 0)])
 
 
 func _make_hud() -> void:
@@ -245,14 +245,14 @@ func _apply_tap(point: Vector2, replay: bool, recorded: Dictionary) -> void:
 		var uv: Vector2 = point / view.size
 		var event: Dictionary = {"version": 1, "type": "tap", "uv": [uv.x, uv.y], "expected_distance_m": distance}
 		var result: Dictionary = view.interface.call("record_input", JSON.stringify(event).to_utf8_buffer()) as Dictionary
-		print("HARNESS STEP dataset-input INFO recorded=%s result=%s" % [JSON.stringify(event), JSON.stringify(result)])
+		HarnessLog.write_line("HARNESS STEP dataset-input INFO recorded=%s result=%s" % [JSON.stringify(event), JSON.stringify(result)])
 	if replay:
 		var expected: float = float(recorded.get("expected_distance_m", -1.0))
 		var tolerance: float = maxf(0.15, expected * 0.25)
 		var agrees: bool = expected < 0 or (distance >= 0 and absf(expected - distance) <= tolerance)
 		if not agrees:
 			dataset_failures += 1
-		print("HARNESS STEP dataset-input %s replay_distance_m=%.3f recorded_distance_m=%.3f tolerance_m=%.3f agrees=%s" % ["INFO" if agrees else "FAIL", distance, expected, tolerance, agrees])
+		HarnessLog.write_line("HARNESS STEP dataset-input %s replay_distance_m=%.3f recorded_distance_m=%.3f tolerance_m=%.3f agrees=%s" % ["INFO" if agrees else "FAIL", distance, expected, tolerance, agrees])
 	if hits.is_empty():
 		placement_message = "No tracked plane at this point."
 		return

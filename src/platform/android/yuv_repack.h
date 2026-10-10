@@ -41,10 +41,25 @@ inline bool repack_yuv(int p_width, int p_height, const ImagePlane (&p_planes)[3
 	for (int y = 0; y < ch; ++y) {
 		uint8_t *dst = r_uv + size_t(y) * cw * 2;
 		const size_t offset = size_t(y) * u.row_stride;
-		if (r_layout == YUVLayout::NV12 && offset + size_t(cw) * 2 <= u.length) {
-			std::memcpy(dst, u.data + offset, size_t(cw) * 2);
+		if (r_layout != YUVLayout::GENERIC) {
+			const auto &first = r_layout == YUVLayout::NV12 ? u : v;
+			const auto &second = r_layout == YUVLayout::NV12 ? v : u;
+			const size_t row_bytes = size_t(cw) * 2;
+			// plane_fits proves all but the final byte; that byte may belong only to the second plane.
+			if (row_bytes <= first.length - offset) {
+				std::memcpy(dst, first.data + offset, row_bytes);
+			} else {
+				std::memcpy(dst, first.data + offset, row_bytes - 1);
+				dst[row_bytes - 1] = second.data[offset + row_bytes - 2];
+			}
+			if (r_layout == YUVLayout::NV21) {
+				for (int x = 0; x < cw; ++x) {
+					const uint8_t value = dst[2 * x];
+					dst[2 * x] = dst[2 * x + 1];
+					dst[2 * x + 1] = value;
+				}
+			}
 		} else {
-			// The final Android chroma row need not include the other plane's last byte.
 			for (int x = 0; x < cw; ++x) {
 				dst[2 * x] = u.data[size_t(y) * u.row_stride + size_t(x) * u.pixel_stride];
 				dst[2 * x + 1] = v.data[size_t(y) * v.row_stride + size_t(x) * v.pixel_stride];

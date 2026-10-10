@@ -75,23 +75,29 @@ class HandheldARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.Displa
     override fun getCommandLineParams(unmodifiableOriginalCommandLineParams: List<String>): List<String> {
         val host = activity ?: return emptyList()
         if (host.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return emptyList()
-        val arguments = host.intent.getStringArrayExtra("handheld_ar_harness_args")?.toList()
+        val arguments = host.intent.getStringArrayExtra("handheld_ar_harness_args")?.map(::unescapeHarnessArgument)
             ?: return emptyList()
         if (!validHarnessArguments(arguments)) {
             Log.e(TAG, "Rejected malformed handheld_ar_harness_args")
             return emptyList()
         }
-        if ("--" in unmodifiableOriginalCommandLineParams) return arguments
-        val prefix = if (arguments.first() == "-harness-ar") {
-            listOf("res://ar/ar_demo.tscn", "--")
-        } else {
-            listOf("--")
+        return listOf("--") + arguments
+    }
+
+    private fun unescapeHarnessArgument(argument: String): String = buildString {
+        var index = 0
+        while (index < argument.length) {
+            val character = argument[index++]
+            if (character == '\\' && argument.getOrNull(index) in listOf('\\', ',')) {
+                append(argument[index++])
+            } else {
+                append(character)
+            }
         }
-        return prefix + arguments
     }
 
     private fun validHarnessArguments(arguments: List<String>): Boolean {
-        if (arguments.firstOrNull() !in listOf("-harness", "-harness-ar")) return false
+        if (arguments.firstOrNull() !in listOf("-harness", "-harness-ar", "-ar-demo")) return false
         var index = 1
         var datasetSelected = false
         while (index < arguments.size) {

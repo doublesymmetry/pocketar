@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -15,6 +16,20 @@ SPEC = importlib.util.spec_from_file_location(
 )
 RUNNER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(RUNNER)
+
+
+def kotlin_unescape(argument):
+    result = []
+    index = 0
+    while index < len(argument):
+        character = argument[index]
+        index += 1
+        if character == "\\" and index < len(argument) and argument[index] in ("\\", ","):
+            result.append(argument[index])
+            index += 1
+        else:
+            result.append(character)
+    return "".join(result)
 
 
 class AndroidHarnessTest(unittest.TestCase):
@@ -57,8 +72,61 @@ class AndroidHarnessTest(unittest.TestCase):
             "-harness-ar,-harness-steps,no-gl\\,camera-image,-harness-out,user://camera captures;literal",
         ])
 
+    def test_android_list_arguments_round_trip_through_am_and_plugin(self):
+        arguments = ["-harness-ar", "-harness-steps", "a,b", "-harness-out", r"user://a\,b\folder"]
+        extra = shlex.split(RUNNER.android_launch(["adb"], arguments)[-1])[-1]
+        # am's negative lookbehind splits the array but preserves the escape bytes.
+        received = re.split(r"(?<!\\),", extra)
+        self.assertEqual([kotlin_unescape(value) for value in received], arguments)
+        self.assertEqual(kotlin_unescape(r"\\,"), "\\,")
+        self.assertEqual(kotlin_unescape("a\\q\\"), "a\\q\\")
+
+    def test_process_check_distinguishes_exit_restart_and_transport_error(self):
+        for code, stdout, stderr, cause in [
+            (1, "", "", "exited before a harness result"),
+            (0, "456\n", "", "disappeared or restarted"),
+            (2, "", "device offline", "device offline"),
+        ]:
+            with self.subTest(cause=cause), patch.object(RUNNER.subprocess, "run", return_value=subprocess.CompletedProcess([], code, stdout, stderr)):
+                self.assertIn(cause, RUNNER.android_process_failure(["adb"], "123"))
+        with patch.object(RUNNER.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "123 456\n", "")):
+            self.assertIsNone(RUNNER.android_process_failure(["adb"], "123"))
+
 
 class HarnessMonitorTest(unittest.TestCase):
+    def test_dead_android_app_stops_even_when_logcat_remains_running(self):
+        for noisy, late_result in [(False, False), (True, False), (False, True)]:
+            with self.subTest(noisy=noisy, late_result=late_result), tempfile.TemporaryDirectory() as directory:
+                fake_adb = Path(directory) / "device-transport"
+                fake_adb.write_text(
+                    "#!" + sys.executable + "\n"
+                    "import pathlib, sys, time\n"
+                    "args = sys.argv[1:]\n"
+                    "if 'pidof' in args:\n"
+                    "    marker = pathlib.Path('launched')\n"
+                    "    if marker.exists(): sys.exit(1)\n"
+                    "    marker.touch(); print('123')\n"
+                    "elif 'logcat' in args:\n"
+                    + ("    time.sleep(1.2)\n"
+                       "    print('HARNESS STEP arcore-session OK initialized')\n"
+                       "    print('HARNESS STEP camera-image OK images=30')\n"
+                       "    print('HARNESS RESULT PASS', flush=True)\n" if late_result else "")
+                    + "    while True:\n"
+                    + ("        print('ARCORE waiting', flush=True)\n" if noisy else "")
+                    + "        time.sleep(0.05)\n"
+                )
+                fake_adb.chmod(0o755)
+                result = subprocess.run(
+                    [sys.executable, str(Path(RUNNER.__file__).resolve()), "--android-ar", str(fake_adb), "test-device", "-harness-steps", "camera-image"],
+                    cwd=directory, env={**os.environ, "HARNESS_TIMEOUT": "60"},
+                    text=True, capture_output=True, timeout=8,
+                )
+                self.assertEqual(result.returncode, 0 if late_result else 1, result.stderr)
+                if not late_result:
+                    self.assertIn("Android app exited before a harness result", result.stderr)
+                    self.assertIn(RUNNER.PACKAGE, result.stderr)
+                    self.assertIn("timeout=False", result.stderr)
+
     def run_monitor(self, script):
         with tempfile.TemporaryDirectory() as directory:
             return subprocess.run(

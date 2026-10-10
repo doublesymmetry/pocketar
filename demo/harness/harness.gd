@@ -20,12 +20,12 @@ var timeout_seconds: float = 240.0
 
 func _ready() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
-	if args.has("-harness-ar"):
+	if args.has("-harness-ar") or args.has("-ar-demo"):
 		get_tree().change_scene_to_file.call_deferred("res://ar/ar_demo.tscn")
 		return
 	for index: int in range(args.size()):
 		if args[index] == "-harness-run-id" and index + 1 < args.size():
-			print("HARNESS RUN " + args[index + 1])
+			HarnessLog.write_line("HARNESS RUN " + args[index + 1])
 		elif args[index] == "-harness-out" and index + 1 < args.size():
 			output_dir = args[index + 1]
 		elif args[index] == "-harness-steps" and index + 1 < args.size():
@@ -79,14 +79,14 @@ func _run() -> void:
 
 func _step(name: String, ok: bool, message: String) -> void:
 	failed = failed or not ok
-	print("HARNESS STEP %s %s %s" % [name, "OK" if ok else "FAIL", message])
+	HarnessLog.write_line("HARNESS STEP %s %s %s" % [name, "OK" if ok else "FAIL", message])
 
 
 func _finish() -> void:
 	if result_printed:
 		return
 	result_printed = true
-	print("HARNESS RESULT " + ("FAIL" if failed else "PASS"))
+	HarnessLog.write_line("HARNESS RESULT " + ("FAIL" if failed else "PASS"))
 	get_tree().quit(1 if failed else 0)
 
 
@@ -497,7 +497,7 @@ func _transparency() -> bool:
 			var color: Color = scene_image.get_pixel(x, y)
 			if color.a < 0.001 and maxf(color.r, maxf(color.g, color.b)) > 0.01:
 				alpha_zero_light += 1
-	print("HARNESS STEP glow-over-camera KNOWN alpha-zero glow is discarded by the composite; %d lit alpha-zero pixels" % alpha_zero_light)
+	HarnessLog.write_line("HARNESS STEP glow-over-camera KNOWN alpha-zero glow is discarded by the composite; %d lit alpha-zero pixels" % alpha_zero_light)
 	detail = "bright BG_COLOR ignored; opaque and 50%% cubes <= 3/255; %d MSAA samples <= %.3f/255" % [edge_samples, worst * 255]
 	return true
 

@@ -319,6 +319,12 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	int64_t image_timestamp = 0;
 	api.ArImage_getTimestamp(session, image, &image_timestamp);
 	if (image_timestamp != p_timestamp) increment("image_timestamp_mismatches");
+	const int64_t timestamp_delta = image_timestamp - p_timestamp;
+	diagnostics["image_timestamp_delta_min_ns"] = std::min(int64_t(diagnostics.get("image_timestamp_delta_min_ns", timestamp_delta)), timestamp_delta);
+	diagnostics["image_timestamp_delta_max_ns"] = std::max(int64_t(diagnostics.get("image_timestamp_delta_max_ns", timestamp_delta)), timestamp_delta);
+	const double previous_mean = diagnostics.get("image_timestamp_delta_mean_ns", 0.0);
+	diagnostics["image_timestamp_delta_mean_ns"] = previous_mean + (double(timestamp_delta) - previous_mean) / double(diagnostics["camera_image_count"]);
+	if (fps_range.y > 0 && std::abs(double(timestamp_delta)) >= 500000000.0 / fps_range.y) increment("image_timestamp_far_count");
 	int32_t width, height, count;
 	ArImageFormat format;
 	api.ArImage_getWidth(session, image, &width); api.ArImage_getHeight(session, image, &height);
@@ -341,20 +347,31 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		plane["row_stride"] = image_planes[i].row_stride; plane["pixel_stride"] = image_planes[i].pixel_stride; plane["data_length"] = length;
 		strides.append(plane);
 	}
-	PackedByteArray luma, chroma;
-	luma.resize(width * height); chroma.resize(((width + 1) / 2) * ((height + 1) / 2) * 2);
+	if (staging_size != Vector2i(width, height)) {
+		luma.resize(width * height);
+		chroma.resize(((width + 1) / 2) * ((height + 1) / 2) * 2);
+		staging_size = Vector2i(width, height);
+	}
 	handheld_ar::YUVLayout layout;
 	const bool repacked = handheld_ar::repack_yuv(width, height, image_planes, luma.ptrw(), chroma.ptrw(), layout);
 	api.ArImage_release(image);
 	if (!repacked) { fail(AR_ERROR_FATAL, "camera image plane bounds"); return; }
+	const uint64_t repack_usec = tick_usec() - copy_start;
+	const uint64_t stats_start = tick_usec();
 	const String layout_name = layout == handheld_ar::YUVLayout::NV12 ? "NV12" : layout == handheld_ar::YUVLayout::NV21 ? "NV21" : "generic";
-	if (!diagnostics.has("image_plane_layout") || diagnostics["image_plane_layout"] != Variant(strides)) UtilityFunctions::print("ARCORE planes=", strides, " layout=", layout_name);
+	if (!diagnostics.has("image_plane_layout") || diagnostics["image_plane_layout"] != Variant(strides)) {
+		for (int i = 0; i < strides.size(); ++i) UtilityFunctions::print("ARCORE plane ", i, " ", strides[i], " layout=", layout_name);
+	}
 	diagnostics["image_plane_layout"] = strides;
 	diagnostics["image_layout"] = layout_name;
 	uint64_t sum = 0;
-	for (int64_t i = 0; i < luma.size(); ++i) sum += luma[i];
-	diagnostics["mean_y"] = double(sum) / luma.size();
-	const uint64_t repack_usec = tick_usec() - copy_start;
+	const uint8_t *pixels = luma.ptr();
+	for (int y = 0; y < height; y += 4) {
+		const uint8_t *row = pixels + size_t(y) * width;
+		for (int x = 0; x < width; x += 4) sum += row[x];
+	}
+	diagnostics["mean_y"] = double(sum) / (((width + 3) / 4) * ((height + 3) / 4));
+	const uint64_t stats_usec = tick_usec() - stats_start;
 	copy_planes(**packet);
 	const Transform3D camera_from_world = packet->physical_camera_transform.affine_inverse();
 	const Transform3D display_from_world = packet->camera_transform.affine_inverse();
@@ -429,6 +446,10 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		slot->y->update(y_image);
 		slot->uv->update(uv_image);
 	}
+	// Safe rendering uploads synchronously; drop Image aliases before the next staging write.
+	y_image.unref();
+	uv_image.unref();
+	const uint64_t upload_usec = tick_usec() - upload_start;
 	packet->image_size = Vector2i(width, height);
 	packet->y_texture = slot->y;
 	packet->cbcr_texture = slot->uv;
@@ -438,7 +459,10 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	head->set_pose("default", last_good_pose, Vector3(), Vector3(), packet->tracking_valid ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_NONE);
 	increment("textures_updated");
 	increment("packets_published");
-	sample(upload_times, upload_cursor, double(repack_usec + tick_usec() - upload_start));
+	sample(repack_times, repack_cursor, double(repack_usec));
+	sample(stats_times, stats_cursor, double(stats_usec));
+	sample(upload_times, upload_cursor, double(upload_usec));
+	sample(repack_upload_times, repack_upload_cursor, double(repack_usec + stats_usec + upload_usec));
 }
 
 int64_t ARCoreInterface::ensure_plane(ArPlane *p_plane, bool p_acquired) {

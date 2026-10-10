@@ -313,10 +313,10 @@ scons platform=android target=template_debug arch=arm64 api_version=4.7 ndk_vers
 scons platform=android target=template_release arch=arm64 api_version=4.7 ndk_version=29.0.14206865 -j8
 ```
 
-The checked-in header is the supplied local 1.44-era snapshot; its provenance is
-in `thirdparty/arcore/README.md`. `tools/update-arcore-header.sh` downloads the
-pinned 1.56.0 AAR and extracts its header if present, otherwise the exact SDK tag's
-header. Gradle extracts the AAR's arm64 shim for inspection; Godot's Maven export
+The checked-in header comes from the SDK `v1.56.0` GitHub tag; its provenance is
+in `thirdparty/arcore/README.md`. The 1.56.0 AAR has no header, so
+`tools/update-arcore-header.sh` uses the exact SDK tag after checking the AAR.
+Gradle extracts the AAR's arm64 shim for inspection; Godot's Maven export
 dependency packages it once. Do not add the shim to both the plugin AAR and the
 exported Maven dependency.
 
@@ -337,16 +337,35 @@ compatibility; the lifecycle step itself always exercises two pauses/resumes
 through the owner callbacks and two resets. Real Android home/relaunch cycles
 remain necessary to verify OS callback ordering.
 
+To launch the plain AR demo from an installed debug APK, after checking and
+unlocking the shared Pixel, use the same host `$ADB` and `ANDROID_SERIAL`:
+
+```bash
+"$ADB" shell am force-stop org.doublesymmetry.handheldar.demo
+"$ADB" shell am start -W -n org.doublesymmetry.handheldar.demo/com.godot.game.GodotAppLauncher --esa handheld_ar_harness_args -ar-demo
+```
+
+`-ar-demo` selects `ar_demo.tscn` without attaching the device harness. Scene
+selection happens in GDScript because official templates disable path overrides.
+
 The steps print `HARNESS STEP <name> OK|FAIL|INFO <detail>` under logcat's `godot`
 tag: arcore-session, no-gl, camera-image, projection-form, display-transform,
 composite, lifecycle and tracking. The no-GL step asserts EGL_NO_CONTEXT on the
 update owner and counts every status code. Camera checks include image rate,
-missing-image fraction (at most 5%), timestamp equality, strides/layout,
-acquire p50/p99 and repack/upload p50/p95. A dark camera image is INFO only after
+missing-image fraction (at most 5%), timestamp equality and signed delta min/mean/max,
+strides/layout, acquire p50/p99, and separate repack, statistics, upload and total
+p50/p95 timings. Timestamp equality is measured; the pass condition rejects frame
+timestamp regressions and image offsets of at least half a frame period at the
+chosen config's upper fps. A dark camera image is INFO only after
 presentation/upload/capture checks pass. Tracking and centre hits are INFO on a
 desk. Screen/camera PNGs, diagnostics and device telemetry are retrieved with the
 existing run-as capture archive. Native timing samples retain up to 131072 values,
 enough for 30 minutes at 60fps; longer runs report a rolling window.
+
+HARNESS and ARCORE lines stay below 1000 bytes. Step lines contain summaries;
+full camera configs and native diagnostics are in `diagnostics.json`, and device
+telemetry is in `device-<phase>.json`. Plane layouts log one plane per line. The
+host monitor polls the app PID and fails promptly if it exits before a result.
 
 Rotate through all four physical orientations to exercise the DisplayListener,
 including reverse orientations. Diagnostics include CPU/GPU intrinsics, UV affine

@@ -46,35 +46,45 @@ This inspection does not certify the final APK or Google's shim alignment.
 The macOS arm64 debug extension also compiled. `TMPDIR=/tmp tools/test-native.sh`
 passed 73,260 projection/ray checks, 40 plane checks, and YUV tests covering NV12,
 NV21, generic strides, short final chroma rows and Q=2–4 retirement boundaries.
+The round-2 YUV cases include the Pixel's exact 1920×1080 layout, odd dimensions,
+truncated planes and identical output across all three layouts. They also pass
+with AddressSanitizer and UndefinedBehaviorSanitizer.
 
 Godot headless checks passed for packet lifetime/metadata, ARView backend
-selection, mapped composite samples and dataset replay assertions. The separate
+selection, mapped composite samples, dataset replay assertions and camera
+timestamp/rate acceptance. Camera summaries in the fixture stay within 372 bytes
+and retain the runner's step syntax. The plain `-ar-demo` launch routes without
+attaching the harness in a headless desktop check. The separate
 ARCore extras fixture passed 31 checks using real Godot resources and a mock C API.
 It covers stale generations/handles, plane rebasing/subsumption, repeated frames,
 query expiry, recording input retries/file boundaries and native reference release.
 The dataset assertion fixture deliberately emits a failing sample before its own
 `DATASET REPLAY RESULT PASS`.
 
-`python3 -B -m unittest discover -s tests/tools` passed 10 host harness checks.
+`python3 -B -m unittest discover -s tests/tools` passed 18 host harness checks,
+including escaped argument round trips, app exit with idle or busy logcat, and
+draining a final result after the app exits.
 The demo/harness GDScript parser checks, shell syntax and `git diff --check` pass.
 Headless runs report the known sandbox system-certificate error; native fixture
 linking warns about the installed macOS SDK deployment target. These runs cannot
 verify rendering. Kotlin and Godot v2 signatures were checked against local
 sources, but Kotlin was not compiled and manifest merging was not run.
 
+The header now matches the SDK `v1.56.0` GitHub tag (SHA-256
+`aa21558d0ffe73e99d06cbf67a399841e3d9b5fdfec286fc91dcb948c3e3cd3d`).
+Android debug and release native builds pass against it. Pixel verification of
+the Kotlin launch fixes and the revised upload timings remains with Claude;
+the 4 ms p95 budget has not been verified for this revision.
+
 ## Differences from the brief
 
-1. The checked-in header remains the supplied 1.44-era snapshot, as allowed by the
-   task. `tools/update-arcore-header.sh` replaces it from SDK 1.56.0 when network
-   access is available. The Gradle and exported Maven dependency are pinned to
-   1.56.0 now. Rebuild after updating the header.
-2. Safe rendering thread mode remains mandatory. Separate-mode packet delivery
+1. Safe rendering thread mode remains mandatory. Separate-mode packet delivery
    from the brief is deferred with milestone 1's render-thread activation work.
-3. Resume is synchronous on the owner and timed. The conditional worker path for
+2. Resume is synchronous on the owner and timed. The conditional worker path for
    resume calls exceeding roughly 100ms is deferred pending Pixel measurements;
    it needs session locking and lifecycle/reset coordination. Destroy already
    runs on a detached JVM-attached worker, with no shutdown join.
-4. Restarting dataset playback creates a fresh session/generation instead of
+3. Restarting dataset playback creates a fresh session/generation instead of
    pausing and reusing the session with the same URI. This keeps stale plane,
    query, anchor and packet rejection consistent with reset.
 

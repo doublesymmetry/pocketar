@@ -69,6 +69,8 @@ private:
 	int rotation = 0;
 	Vector2i viewport_size = Vector2i(1, 1);
 	Vector2i cpu_size, gpu_size, fps_range;
+	Vector2i staging_size;
+	PackedByteArray luma, chroma;
 	double near_plane = 0.05, far_plane = 100.0;
 	Transform3D last_good_pose;
 	SessionState state = CHECKING;
@@ -80,8 +82,8 @@ private:
 	Dictionary timings;
 	Dictionary update_counts;
 	Array state_history;
-	std::vector<double> acquire_times, upload_times;
-	size_t acquire_cursor = 0, upload_cursor = 0;
+	std::vector<double> acquire_times, repack_times, stats_times, upload_times, repack_upload_times;
+	size_t acquire_cursor = 0, repack_cursor = 0, stats_cursor = 0, upload_cursor = 0, repack_upload_cursor = 0;
 	size_t bridge_history_size = 0;
 
 	bool on_owner_thread() const;

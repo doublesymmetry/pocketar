@@ -67,7 +67,7 @@ void ARCoreInterface::set_state(SessionState p_state) {
 }
 void ARCoreInterface::fail(ArStatus p_status, const String &p_operation) {
 	diagnostics["last_error"] = p_operation + String(" status=") + String::num_int64(p_status);
-	UtilityFunctions::printerr("ARCORE ", diagnostics["last_error"]);
+	UtilityFunctions::printerr("ARCORE ", String(diagnostics["last_error"]).replace("\n", "\\n").replace("\r", "\\r").left(200));
 	set_state((p_status == AR_ERROR_UNSUPPORTED_CONFIGURATION || p_status == AR_UNAVAILABLE_DEVICE_NOT_COMPATIBLE) ? UNSUPPORTED :
 		(p_status == AR_UNAVAILABLE_ARCORE_NOT_INSTALLED || p_status == AR_UNAVAILABLE_APK_TOO_OLD) ? NEEDS_INSTALL :
 		p_status == AR_ERROR_CAMERA_PERMISSION_NOT_GRANTED ? PERMISSION_DENIED : FAILED);
@@ -82,7 +82,8 @@ bool ARCoreInterface::_initialize() {
 	ERR_FAIL_NULL_V_MSG(rd, false, "ARCore CPU upload requires the Mobile/Vulkan renderer.");
 	frame_delay = rd->get_frame_delay();
 	texture_slots.resize(frame_delay + 3);
-	for (const char *key : {"successful_updates", "egl_context_violations", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "timestamp_regressions", "projection_form_samples", "display_transform_samples", "packets_published", "packets_presented", "textures_updated", "pause_count", "resume_count", "reset_count", "updates_while_paused", "retired_tracker_count", "stale_tracker_count", "ring_drops", "image_resource_exhausted", "image_deadline_exceeded", "repeated_updates"}) diagnostics[key] = int64_t(0);
+	for (const char *key : {"successful_updates", "egl_context_violations", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "image_timestamp_far_count", "timestamp_regressions", "projection_form_samples", "display_transform_samples", "packets_published", "packets_presented", "textures_updated", "pause_count", "resume_count", "reset_count", "updates_while_paused", "retired_tracker_count", "stale_tracker_count", "ring_drops", "image_resource_exhausted", "image_deadline_exceeded", "repeated_updates"}) diagnostics[key] = int64_t(0);
+	for (const char *key : {"image_timestamp_delta_min_ns", "image_timestamp_delta_max_ns", "image_timestamp_delta_mean_ns"}) diagnostics.erase(key);
 	diagnostics["arcore_sdk_version"] = "1.56.0";
 	diagnostics["renderer"] = String(ProjectSettings::get_singleton()->get_setting_with_override("rendering/renderer/rendering_method")) + "/" + rd->get_device_name();
 	diagnostics["frame_delay"] = int(frame_delay);
@@ -210,7 +211,7 @@ bool ARCoreInterface::choose_camera_config() {
 	api.ArCameraConfigList_destroy(list);
 	api.ArCameraConfigFilter_destroy(filter);
 	if (status != AR_SUCCESS) { fail(status, "camera config"); return false; }
-	UtilityFunctions::print("ARCORE configs=", available, " selected=", selected);
+	UtilityFunctions::print("ARCORE config_count=", available.size(), " selected=", selected, " details=diagnostics.json");
 	return true;
 }
 
@@ -487,8 +488,14 @@ Dictionary ARCoreInterface::get_diagnostics() const {
 	result["timing_sample_count"] = int64_t(acquire_times.size());
 	result["image_acquire_p50_us"] = percentile(acquire_times, 0.50);
 	result["image_acquire_p99_us"] = percentile(acquire_times, 0.99);
-	result["repack_upload_p50_us"] = percentile(upload_times, 0.50);
-	result["repack_upload_p95_us"] = percentile(upload_times, 0.95);
+	result["repack_p50_us"] = percentile(repack_times, 0.50);
+	result["repack_p95_us"] = percentile(repack_times, 0.95);
+	result["stats_p50_us"] = percentile(stats_times, 0.50);
+	result["stats_p95_us"] = percentile(stats_times, 0.95);
+	result["upload_p50_us"] = percentile(upload_times, 0.50);
+	result["upload_p95_us"] = percentile(upload_times, 0.95);
+	result["repack_upload_p50_us"] = percentile(repack_upload_times, 0.50);
+	result["repack_upload_p95_us"] = percentile(repack_upload_times, 0.95);
 	return result;
 }
 }
