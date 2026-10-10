@@ -279,7 +279,7 @@ func _projection() -> bool:
 				worst = maxf(worst, error)
 				if error >= 0.5:
 					return false
-	detail = "24 cases, 25 markers each; worst centroid error %.6f rendered pixels; rays < 0.0001 m" % worst
+	detail = "24 cases, at least 9 on-screen markers each; worst centroid error %.6f rendered pixels; rays < 0.0001 m" % worst
 	return true
 
 
@@ -302,8 +302,13 @@ func _projection_case(requested: Vector2i, turns: int, k: Vector4) -> float:
 	var scene_image: Image = view.virtual_scene.get_texture().get_image()
 	_save(scene_image, capture_name + "-scene-alpha")
 	var worst: float = 0.0
+	var visible: int = 0
 	for point: Vector3 in points:
 		var predicted: Vector2 = _predict(point, k, IMAGE_SIZE, turns)
+		# The grid is fixed in world space, so the aspect-fill crop puts some markers off-screen.
+		if not Rect2(Vector2(12, 12), view.size - Vector2(24, 24)).has_point(predicted):
+			continue
+		visible += 1
 		var centroid: Vector3 = _centroid(scene_image, predicted)
 		var error: float = Vector2(centroid.x, centroid.y).distance_to(predicted)
 		worst = maxf(worst, error)
@@ -317,6 +322,9 @@ func _projection_case(requested: Vector2i, turns: int, k: Vector4) -> float:
 		if error >= 0.5 or distance >= 0.0001:
 			detail = "%s point=%s predicted=%s centroid=%s error=%.6f ray_distance=%.8f" % [capture_name, point, predicted, centroid, error, distance]
 			return INF
+	if visible < 9:
+		detail = "%s only %d of %d markers on screen" % [capture_name, visible, points.size()]
+		return INF
 	return worst
 
 
