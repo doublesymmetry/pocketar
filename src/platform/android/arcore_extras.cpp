@@ -105,7 +105,7 @@ void ARCoreExtras::close() {
 	playback_status = AR_PLAYBACK_NONE;
 }
 
-void ARCoreExtras::on_tick(ArFrame *p_frame) {
+void ARCoreExtras::on_tick(ArFrame *p_frame, bool p_probe_cpu_image) {
 	ERR_FAIL_COND(!usable() || !p_frame);
 	recording_frame = p_frame;
 	api.ArSession_getRecordingStatus(session, &recording_status);
@@ -115,7 +115,7 @@ void ARCoreExtras::on_tick(ArFrame *p_frame) {
 	if (old_probe_frame && timestamp > 0 && timestamp != old_probe_timestamp) {
 		probe_old_frame(p_frame);
 	}
-	if (frame_probes_enabled && !image_capacity_probe && timestamp > 0 && timestamp == last_track_timestamp) {
+	if (p_probe_cpu_image && frame_probes_enabled && !image_capacity_probe && timestamp > 0 && timestamp == last_track_timestamp) {
 		probe_repeated_frame(p_frame, timestamp);
 	}
 	if (timestamp <= 0 || timestamp == last_track_timestamp) {

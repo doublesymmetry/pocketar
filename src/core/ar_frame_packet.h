@@ -39,6 +39,7 @@ private:
 	Transform2D display_transform;
 	Ref<Texture2D> y_texture;
 	Ref<Texture2D> cbcr_texture;
+	Ref<Texture2D> rgb_texture;
 	ColorEncoding color_encoding = BT601_FULL;
 	bool imported_chroma = false;
 	bool tracking_valid = false;
@@ -66,6 +67,7 @@ public:
 	Transform2D get_display_transform() const { return display_transform; }
 	Ref<Texture2D> get_y_texture() const { return y_texture; }
 	Ref<Texture2D> get_cbcr_texture() const { return cbcr_texture; }
+	Ref<Texture2D> get_rgb_texture() const { return rgb_texture; }
 	ColorEncoding get_color_encoding() const { return color_encoding; }
 	bool get_imported_chroma() const { return imported_chroma; }
 	bool get_tracking_valid() const { return tracking_valid; }

@@ -8,6 +8,7 @@
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/xr_interface_extension.hpp>
 #include <atomic>
+#include <array>
 #include <map>
 #include <memory>
 #include <thread>
@@ -54,6 +55,18 @@ private:
 	bool geometry_dirty = true;
 	bool focus_auto = true;
 	int camera_config_index = -1;
+	String camera_path = "auto";
+	Ref<Texture2D> gpu_texture;
+	bool gpu_active = false;
+	bool gpu_validate = false;
+	bool gpu_validation_pending = false;
+	int gpu_color_model = 2;
+	int gpu_color_range = 1;
+	uint64_t gpu_validation_swap = 0;
+	int64_t gpu_validation_timestamp = 0;
+	Vector2i gpu_validation_size;
+	std::array<std::array<std::array<double, 3>, 9>, 4> gpu_cpu_means{};
+	std::array<double, 4> gpu_validation_worst{}, gpu_validation_sum{};
 	int64_t generation = 0;
 	int64_t sequence = 0;
 	int64_t plane_sequence = 0;
@@ -84,6 +97,8 @@ private:
 	std::vector<double> acquire_times, repack_times, stats_times, upload_times, repack_upload_times;
 	size_t acquire_cursor = 0, repack_cursor = 0, stats_cursor = 0, upload_cursor = 0, repack_upload_cursor = 0;
 	size_t bridge_history_size = 0;
+	std::vector<double> gpu_submit_times;
+	size_t gpu_submit_cursor = 0;
 
 	bool on_owner_thread() const;
 	void set_state(SessionState p_state);
@@ -105,6 +120,10 @@ private:
 	void inspect_projection(const ArCamera *p_camera, const float *p_projection);
 	void inspect_intrinsics(const ArCamera *p_camera, ARFramePacket &r_packet);
 	void inspect_hardware_buffer();
+	void detect_gpu_camera();
+	bool submit_gpu_camera();
+	void capture_gpu_validation(int64_t p_timestamp);
+	void finish_gpu_validation();
 	static void sample(std::vector<double> &r_values, size_t &r_cursor, double p_value);
 	static double percentile(const std::vector<double> &p_values, double p_fraction);
 
@@ -120,6 +139,8 @@ public:
 	void reset();
 	void set_focus_auto(bool p_auto);
 	void set_camera_config_index(int p_index);
+	void set_camera_path(const String &p_path);
+	void set_gpu_validation_enabled(bool p_enabled);
 	void set_display_geometry(const Vector2i &p_size, int p_turns, double p_near, double p_far);
 	Ref<ARFramePacket> get_current_packet() const { return current_packet; }
 	Ref<ARFramePacket> get_presented_packet() const { return presented_packet; }
@@ -139,7 +160,7 @@ public:
 	Dictionary record_input(const PackedByteArray &p_data) { return extras.record_input(p_data); }
 	Array get_playback_inputs() { return extras.get_playback_inputs(); }
 	void set_point_cloud_enabled(bool p_enabled) { extras.set_point_cloud_enabled(p_enabled); }
-	Dictionary begin_image_capacity_probe() { return extras.begin_image_capacity_probe(); }
+	Dictionary begin_image_capacity_probe();
 	void cancel_image_capacity_probe() { extras.cancel_image_capacity_probe(); }
 	void begin_old_frame_probe();
 	void set_frame_probes_enabled(bool p_enabled) { extras.set_frame_probes_enabled(p_enabled); }

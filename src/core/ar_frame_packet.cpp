@@ -32,6 +32,8 @@ void ARFramePacket::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "y_texture"), "", "get_y_texture");
 	ClassDB::bind_method(D_METHOD("get_cbcr_texture"), &ARFramePacket::get_cbcr_texture);
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "cbcr_texture"), "", "get_cbcr_texture");
+	ClassDB::bind_method(D_METHOD("get_rgb_texture"), &ARFramePacket::get_rgb_texture);
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "rgb_texture"), "", "get_rgb_texture");
 	ClassDB::bind_method(D_METHOD("get_color_encoding"), &ARFramePacket::get_color_encoding);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "color_encoding"), "", "get_color_encoding");
 	ClassDB::bind_method(D_METHOD("get_imported_chroma"), &ARFramePacket::get_imported_chroma);

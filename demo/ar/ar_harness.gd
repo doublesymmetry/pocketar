@@ -1,6 +1,6 @@
 extends Node
 
-const STEPS: Array[String] = ["arcore-session", "no-gl", "camera-image", "projection-form", "display-transform", "composite", "packet-retention", "tracking", "lifecycle"]
+const STEPS: Array[String] = ["arcore-session", "no-gl", "camera-image", "gpu-vs-cpu", "projection-form", "display-transform", "composite", "packet-retention", "tracking", "lifecycle"]
 
 var view: ARView
 var dataset_owner: Node
@@ -39,6 +39,8 @@ func _ready() -> void:
 		return
 	if not args.has("-harness-timeout"):
 		timeout_seconds = duration + (145.0 if probes_requested else 120.0)
+	if args.has("-harness-gpu-validate") and not selected_steps.has("gpu-vs-cpu"):
+		selected_steps.append("gpu-vs-cpu")
 	if selected_steps.is_empty():
 		_step("arguments", "FAIL", "no checks selected")
 		_finish()
@@ -91,7 +93,7 @@ func _run() -> void:
 		view.interface.call("set_point_cloud_enabled", true)
 	baseline = _diagnostics()
 	var started: int = Time.get_ticks_usec()
-	if selected_steps.has("no-gl") or selected_steps.has("camera-image"):
+	if selected_steps.has("no-gl") or selected_steps.has("camera-image") or (selected_steps.has("gpu-vs-cpu") and OS.get_cmdline_user_args().has("-harness-gpu-validate")):
 		HarnessLog.write_line("ARCORE OBSERVATION duration=%.1f seconds" % duration)
 		await _observe()
 	observed_seconds = float(Time.get_ticks_usec() - started) / 1000000.0
@@ -104,6 +106,7 @@ func _run() -> void:
 		match name:
 			"no-gl": _no_gl()
 			"camera-image": _camera_image()
+			"gpu-vs-cpu": _gpu_vs_cpu()
 			"projection-form": _diagnostic_check(name, "projection_form_valid", "projection_form_samples")
 			"display-transform": _diagnostic_check(name, "display_transform_valid", "display_transform_samples")
 			"composite": await _composite()
@@ -219,6 +222,9 @@ func _no_gl() -> void:
 
 
 func _camera_image() -> void:
+	if String(observed.get("camera_path", "cpu")) == "gpu":
+		_gpu_camera_image()
+		return
 	var required: Array[String] = ["config", "config_list", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "image_timestamp_far_count", "image_timestamp_delta_min_ns", "image_timestamp_delta_mean_ns", "image_timestamp_delta_max_ns", "timestamp_regressions", "image_plane_layout", "image_acquire_p50_us", "image_acquire_p99_us", "repack_p50_us", "repack_p95_us", "stats_p50_us", "stats_p95_us", "upload_p50_us", "upload_p95_us", "repack_upload_p50_us", "repack_upload_p95_us", "texture_refusals", "ring_drops", "staging_block_size_kb", "texture_upload_region_size_px"]
 	if not _require("camera-image", observed, required):
 		return
@@ -245,7 +251,43 @@ func _camera_image() -> void:
 		summary += " %s_us_p50/p95=%.1f/%.1f" % [stage, observed[stage + "_p50_us"], observed[stage + "_p95_us"]]
 	summary += " timestamp_mismatches=%s far=%s regressions=%s delta_ns_min/mean/max=%.0f/%.1f/%.0f" % [observed["image_timestamp_mismatches"], observed["image_timestamp_far_count"], observed["timestamp_regressions"], observed["image_timestamp_delta_min_ns"], observed["image_timestamp_delta_mean_ns"], observed["image_timestamp_delta_max_ns"]]
 	summary += " staging_kb=%s region_px=%s refusals=%s" % [observed.get("staging_block_size_kb", "missing"), observed.get("texture_upload_region_size_px", "missing"), observed.get("texture_refusals", "missing")]
+	summary = "path=cpu " + summary
 	_step("camera-image", "OK" if ok else "FAIL", summary)
+
+
+func _gpu_camera_image() -> void:
+	if not _require("camera-image", observed, ["config", "new_frame_count", "gpu_submissions", "gpu_buffer_missing", "gpu_submit_errors", "gpu_submit_p50_us", "gpu_submit_p95_us", "timestamp_regressions", "texture_refusals"]):
+		return
+	var config: Dictionary = observed["config"]
+	if not _require("camera-image", config, ["fps_min", "texture_width", "texture_height"]):
+		return
+	var frames: int = _delta("new_frame_count")
+	var images: int = _delta("gpu_submissions")
+	var missing: int = maxi(_delta("gpu_buffer_missing"), frames - images)
+	var fraction: float = float(missing) / float(maxi(1, frames))
+	var hz: float = float(images) / maxf(0.001, observed_seconds)
+	var minimum_hz: float = float(config["fps_min"]) * 0.8
+	var ok: bool = frames > 0 and images > 0 and fraction <= 0.05 and minimum_hz > 0 and hz >= minimum_hz
+	ok = ok and int(observed["gpu_submit_errors"]) == 0 and int(observed["timestamp_regressions"]) == 0 and int(observed["texture_refusals"]) == 0
+	var summary: String = "path=gpu frames=%d submissions=%d hz=%.2f minimum_hz=%.2f missing_per_1000=%.2f gpu=%sx%s submit_us_p50/p95=%.1f/%.1f" % [frames, images, hz, minimum_hz, fraction * 1000, config["texture_width"], config["texture_height"], observed["gpu_submit_p50_us"], observed["gpu_submit_p95_us"]]
+	for stage: String in ["repack", "upload"]:
+		summary += " %s_us_p50/p95=%.1f/%.1f" % [stage, observed.get(stage + "_p50_us", 0.0), observed.get(stage + "_p95_us", 0.0)]
+	summary += " cpu_images=%s validation_wait_frames=%s reason=%s" % [observed.get("camera_image_count", 0), observed.get("gpu_validation_wait_frames", 0), observed.get("camera_path_reason", "")]
+	_step("camera-image", "OK" if ok else "FAIL", summary)
+
+
+func _gpu_vs_cpu() -> void:
+	if not bool(observed.get("gpu_validation_enabled", false)):
+		_step("gpu-vs-cpu", "INFO", "not requested; use -harness-gpu-validate")
+		return
+	if String(observed.get("camera_path", "cpu")) != "gpu":
+		_step("gpu-vs-cpu", "FAIL", "GPU path unavailable: " + String(observed.get("camera_path_reason", "unknown")))
+		return
+	if not _require("gpu-vs-cpu", observed, ["gpu_validation_samples", "gpu_validation_failures", "gpu_validation_best", "gpu_validation_worst_block_error_255", "gpu_validation_candidates"]):
+		return
+	var error: float = float(observed["gpu_validation_worst_block_error_255"])
+	var ok: bool = int(observed["gpu_validation_samples"]) >= 3 and int(observed["gpu_validation_failures"]) == 0 and is_finite(error) and error >= 0 and error <= 6.0
+	_step("gpu-vs-cpu", "OK" if ok else "FAIL", "samples=%s best=%s worst_block_error_255=%.3f threshold=6 failures=%s candidates=diagnostics.json" % [observed["gpu_validation_samples"], observed["gpu_validation_best"], error, observed["gpu_validation_failures"]])
 
 
 func _diagnostic_check(name: String, valid_key: String, samples_key: String) -> void:
@@ -276,13 +318,15 @@ func _composite() -> void:
 	var visibility: Dictionary = {"valid": false, "dark": false, "expected_y": -1.0, "rendered_y": -1.0}
 	if packet != null and packet.y_texture != null:
 		visibility = _camera_layer_check(camera_image, packet.y_texture.get_image(), packet.display_transform, Rect2(view.global_position, view.size))
+	elif packet != null and packet.rgb_texture != null:
+		visibility = _camera_layer_check(camera_image, packet.rgb_texture.get_image(), packet.display_transform, Rect2(view.global_position, view.size), true)
 	var ok: bool = screen_saved and camera_saved and int(diagnostics["packets_presented"]) > 0 and int(diagnostics["textures_updated"]) > 0 and String(diagnostics["last_error"]).is_empty()
-	ok = ok and packet != null and packet.y_texture != null and packet.cbcr_texture != null and bool(visibility["valid"])
+	ok = ok and packet != null and (packet.rgb_texture != null or (packet.y_texture != null and packet.cbcr_texture != null)) and bool(visibility["valid"])
 	var level: String = "FAIL" if not ok else ("INFO" if bool(visibility["dark"]) else "OK")
 	_step("composite", level, "mean_y=%.3f mapped_mean_y=%.3f rendered_mean_y=%.3f presented=%s textures_updated=%s error=%s captures=%s" % [diagnostics["mean_y"], visibility["expected_y"], visibility["rendered_y"], diagnostics["packets_presented"], diagnostics["textures_updated"], diagnostics["last_error"], output_dir])
 
 
-func _camera_layer_check(rendered: Image, source_y: Image, mapping: Transform2D, camera_rect: Rect2) -> Dictionary:
+func _camera_layer_check(rendered: Image, source_y: Image, mapping: Transform2D, camera_rect: Rect2, rgb_input: bool = false) -> Dictionary:
 	var result: Dictionary = {"valid": false, "dark": false, "expected_y": -1.0, "rendered_y": -1.0}
 	if rendered == null or source_y == null or rendered.is_empty() or source_y.is_empty():
 		return result
@@ -296,7 +340,8 @@ func _camera_layer_check(rendered: Image, source_y: Image, mapping: Transform2D,
 			if not source_uv.is_finite() or not Rect2(Vector2.ZERO, Vector2.ONE).has_point(source_uv) or not Rect2(Vector2.ZERO, Vector2(rendered.get_size())).has_point(pixel):
 				return result
 			var source_pixel := Vector2i(source_uv * Vector2(source_y.get_size()))
-			source_sum += source_y.get_pixelv(source_pixel).r * 255.0
+			var source_color: Color = source_y.get_pixelv(source_pixel)
+			source_sum += (0.299 * source_color.r + 0.587 * source_color.g + 0.114 * source_color.b) * 255.0 if rgb_input else source_color.r * 255.0
 			var color: Color = rendered.get_pixelv(Vector2i(pixel))
 			rendered_sum += (0.299 * color.r + 0.587 * color.g + 0.114 * color.b) * 255.0
 	result["expected_y"] = source_sum / 432.0

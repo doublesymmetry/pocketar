@@ -67,6 +67,7 @@ func _exit_tree() -> void:
 		var shader: ShaderMaterial = background.material as ShaderMaterial
 		shader.set_shader_parameter("y_texture", null)
 		shader.set_shader_parameter("cbcr_texture", null)
+		shader.set_shader_parameter("rgb_texture", null)
 		applied_packet = null
 		if interface.is_initialized() and interface.has_method("mark_applied"):
 			interface.call("mark_applied", null)
@@ -107,6 +108,7 @@ func _apply_packet() -> void:
 		if applied_packet != null:
 			shader.set_shader_parameter("y_texture", null)
 			shader.set_shader_parameter("cbcr_texture", null)
+			shader.set_shader_parameter("rgb_texture", null)
 			applied_packet = null
 			waiting_for_packet = true
 			background.hide()
@@ -121,6 +123,8 @@ func _apply_packet() -> void:
 	virtual_scene.size = Vector2i(packet.viewport_size)
 	shader.set_shader_parameter("y_texture", packet.y_texture)
 	shader.set_shader_parameter("cbcr_texture", packet.cbcr_texture)
+	shader.set_shader_parameter("rgb_texture", packet.rgb_texture)
+	shader.set_shader_parameter("rgb_input", packet.rgb_texture != null)
 	var uv: Transform2D = packet.display_transform
 	var uv_matrix := Basis(Vector3(uv.x.x, uv.x.y, 0), Vector3(uv.y.x, uv.y.y, 0), Vector3(uv.origin.x, uv.origin.y, 1))
 	shader.set_shader_parameter("display_transform", uv_matrix)
@@ -133,7 +137,7 @@ func _apply_packet() -> void:
 	if waiting_for_packet:
 		waiting_for_packet = false
 		composite.show()
-	background.visible = packet.y_texture != null and packet.cbcr_texture != null
+	background.visible = packet.rgb_texture != null or (packet.y_texture != null and packet.cbcr_texture != null)
 	packet_applied.emit(packet)
 
 

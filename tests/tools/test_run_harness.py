@@ -33,6 +33,16 @@ def kotlin_unescape(argument):
 
 
 class AndroidHarnessTest(unittest.TestCase):
+    def test_camera_path_options(self):
+        for value in ["cpu", "auto"]:
+            RUNNER.validate_harness_options(["-harness-camera-path", value])
+        RUNNER.validate_harness_options(["-harness-gpu-validate"])
+        for args in [["-harness-camera-path"], ["-harness-camera-path", "gpu"],
+                     ["-harness-camera-path", "cpu", "-harness-gpu-validate"]]:
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                RUNNER.validate_harness_options(args)
+        self.assertIn("gpu-vs-cpu", RUNNER.AR_STEPS)
+
     def test_ar_duration_extends_monitor_deadline(self):
         self.assertEqual(RUNNER.harness_timeout(["-harness-duration", "1800"], True), 1980)
 

@@ -29,12 +29,22 @@ func _ready() -> void:
 		return
 	view = AR_VIEW.instantiate() as ARView
 	view.backend = 2 if OS.get_name() == "iOS" else (1 if OS.get_name() == "Android" else 0)
+	var path_index: int = args.find("-harness-camera-path")
+	if view.backend == 1 and ClassDB.class_exists("ARCoreInterface"):
+		view.interface = ClassDB.instantiate("ARCoreInterface") as XRInterfaceExtension
+		if path_index >= 0:
+			if path_index + 1 >= args.size() or args[path_index + 1] not in ["auto", "cpu"]:
+				dataset_error = "camera path must be auto or cpu"
+			elif args[path_index + 1] == "cpu" and args.has("-harness-gpu-validate"):
+				dataset_error = "GPU validation requires the auto camera path"
+			else:
+				view.interface.call("set_camera_path", args[path_index + 1])
+		view.interface.call("set_gpu_validation_enabled", args.has("-harness-gpu-validate"))
 	var config_index: int = args.find("-harness-camera-config")
 	if config_index >= 0:
 		if config_index + 1 >= args.size() or not args[config_index + 1].is_valid_int() or args[config_index + 1].to_int() < 0:
 			dataset_error = "camera config must be a nonnegative integer"
 		elif view.backend == 1 and ClassDB.class_exists("ARCoreInterface"):
-			view.interface = ClassDB.instantiate("ARCoreInterface") as XRInterfaceExtension
 			view.interface.call("set_camera_config_index", args[config_index + 1].to_int())
 		else:
 			dataset_error = "camera config requires ARCore on Android"

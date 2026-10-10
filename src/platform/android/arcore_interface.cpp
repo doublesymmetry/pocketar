@@ -24,6 +24,8 @@ void ARCoreInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reset"), &ARCoreInterface::reset);
 	ClassDB::bind_method(D_METHOD("set_focus_auto", "auto"), &ARCoreInterface::set_focus_auto);
 	ClassDB::bind_method(D_METHOD("set_camera_config_index", "index"), &ARCoreInterface::set_camera_config_index);
+	ClassDB::bind_method(D_METHOD("set_camera_path", "path"), &ARCoreInterface::set_camera_path);
+	ClassDB::bind_method(D_METHOD("set_gpu_validation_enabled", "enabled"), &ARCoreInterface::set_gpu_validation_enabled);
 	ClassDB::bind_method(D_METHOD("set_display_geometry", "size", "turns", "near", "far"), &ARCoreInterface::set_display_geometry);
 	ClassDB::bind_method(D_METHOD("get_current_packet"), &ARCoreInterface::get_current_packet);
 	ClassDB::bind_method(D_METHOD("get_presented_packet"), &ARCoreInterface::get_presented_packet);
@@ -97,6 +99,10 @@ bool ARCoreInterface::_initialize() {
 	diagnostics["display_transform_valid"] = true;
 	diagnostics["last_error"] = "";
 	diagnostics["mean_y"] = 0.0;
+	for (const char *key : {"gpu_submissions", "gpu_buffer_missing", "gpu_submit_errors", "gpu_validation_samples", "gpu_validation_failures", "gpu_validation_image_missing", "gpu_validation_wait_frames"}) diagnostics[key] = int64_t(0);
+	gpu_validation_worst = {}; gpu_validation_sum = {};
+	gpu_validation_pending = false;
+	detect_gpu_camera();
 	std::string error;
 	if (!api.load(error)) {
 		diagnostics["last_error"] = String(error.c_str());
@@ -127,6 +133,8 @@ void ARCoreInterface::_uninitialize() {
 	presented_packet.unref();
 	applied_packet.unref();
 	texture_slots.clear();
+	gpu_texture.unref();
+	gpu_active = false;
 	XRServer::get_singleton()->remove_tracker(head);
 	head.unref();
 	set_primary(false);
@@ -194,7 +202,9 @@ bool ARCoreInterface::choose_camera_config() {
 		available.append(item);
 		const int64_t area = int64_t(w) * h, texture_area = int64_t(tw) * th;
 		const bool aspect_matches = int64_t(w) * th == int64_t(tw) * h;
-		if (aspect_matches && (area > best_area || (area == best_area && texture_area < best_gpu_area))) {
+		const bool prefer_gpu = gpu_texture.is_valid();
+		if ((prefer_gpu && (selected < 0 || texture_area > best_gpu_area || (texture_area == best_gpu_area && area > best_area))) ||
+			(!prefer_gpu && aspect_matches && (area > best_area || (area == best_area && texture_area < best_gpu_area)))) {
 			selected = i; best_area = area; best_gpu_area = texture_area;
 		}
 	}
@@ -216,7 +226,7 @@ bool ARCoreInterface::choose_camera_config() {
 	api.ArCameraConfigList_destroy(list);
 	api.ArCameraConfigFilter_destroy(filter);
 	if (status != AR_SUCCESS) { fail(status, "camera config"); return false; }
-	UtilityFunctions::print("ARCORE config_count=", available.size(), " selected=", selected, " details=diagnostics.json");
+	UtilityFunctions::print("ARCORE config_count=", available.size(), " selected=", selected, " selection=", camera_config_index >= 0 ? "explicit" : gpu_texture.is_valid() ? "largest_gpu" : "largest_cpu", " cpu=", cpu_size, " gpu=", gpu_size, " details=diagnostics.json");
 	return true;
 }
 
@@ -327,6 +337,7 @@ void ARCoreInterface::resume_session() {
 }
 
 void ARCoreInterface::pause_session() {
+	gpu_validation_pending = false;
 	if (!session || !running) return;
 	extras.cancel_image_capacity_probe();
 	extras.before_update();
@@ -513,6 +524,12 @@ Dictionary ARCoreInterface::get_diagnostics() const {
 	result["upload_p95_us"] = percentile(upload_times, 0.95);
 	result["repack_upload_p50_us"] = percentile(repack_upload_times, 0.50);
 	result["repack_upload_p95_us"] = percentile(repack_upload_times, 0.95);
+	result["gpu_submit_p50_us"] = percentile(gpu_submit_times, 0.50);
+	result["gpu_submit_p95_us"] = percentile(gpu_submit_times, 0.95);
+	result["gpu_submit_sample_count"] = int64_t(gpu_submit_times.size());
+	result["gpu_validation_enabled"] = gpu_validate;
+	result["gpu_color_model"] = gpu_color_model;
+	result["gpu_color_range"] = gpu_color_range;
 	return result;
 }
 }

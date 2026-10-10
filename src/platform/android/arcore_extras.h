@@ -70,7 +70,7 @@ public:
 	void setup(ArSession *p_session, int64_t p_generation);
 	void close();
 	void before_update();
-	void on_tick(ArFrame *p_frame);
+	void on_tick(ArFrame *p_frame, bool p_probe_cpu_image = true);
 	void on_frame(ArFrame *p_frame, int64_t p_frame_id, const Ref<ARFramePacket> &p_latest, const std::map<int64_t, ArPlane *> &p_planes);
 	void on_repeated_frame(ArFrame *p_frame, const std::map<int64_t, ArPlane *> &p_planes);
 	Dictionary diagnostics() const;

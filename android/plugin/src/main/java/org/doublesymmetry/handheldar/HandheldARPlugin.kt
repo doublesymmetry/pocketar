@@ -102,7 +102,12 @@ class HandheldARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.Displa
         var datasetSelected = false
         while (index < arguments.size) {
             when (arguments[index++]) {
-                "-harness-lifecycle", "-harness-probes" -> Unit
+                "-harness-lifecycle", "-harness-probes", "-harness-gpu-validate" -> Unit
+                "-harness-camera-path" -> {
+                    val value = arguments.getOrNull(index++) ?: return false
+                    if (value !in listOf("auto", "cpu")) return false
+                    if (value == "cpu" && "-harness-gpu-validate" in arguments) return false
+                }
                 "-harness-camera-config" -> {
                     val value = arguments.getOrNull(index++)?.toIntOrNull() ?: return false
                     if (value < 0) return false

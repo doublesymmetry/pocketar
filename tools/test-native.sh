@@ -19,4 +19,6 @@ build/tests/test_arkit_math
 xcrun clang++ -std=c++17 -arch "$arch" -Isrc tests/native/test_import_retirement.cpp -o build/tests/test_import_retirement
 build/tests/test_import_retirement
 xcrun clang++ -std=c++17 -arch "$arch" -Isrc tests/native/test_yuv.cpp -o build/tests/test_yuv
-exec build/tests/test_yuv
+build/tests/test_yuv
+xcrun clang++ -std=c++17 -arch "$arch" -Isrc tests/native/test_gpu_camera.cpp -o build/tests/test_gpu_camera
+exec build/tests/test_gpu_camera

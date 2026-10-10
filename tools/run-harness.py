@@ -15,7 +15,7 @@ import uuid
 
 
 PACKAGE = "org.doublesymmetry.handheldar.demo"
-AR_STEPS = {"arcore-session", "no-gl", "camera-image", "projection-form", "display-transform", "composite", "packet-retention", "lifecycle", "tracking"}
+AR_STEPS = {"arcore-session", "no-gl", "camera-image", "gpu-vs-cpu", "projection-form", "display-transform", "composite", "packet-retention", "lifecycle", "tracking"}
 IOS_SPEC = importlib.util.spec_from_file_location("ios_device", Path(__file__).with_name("ios-device.py"))
 IOS_DEVICE = importlib.util.module_from_spec(IOS_SPEC)
 IOS_SPEC.loader.exec_module(IOS_DEVICE)
@@ -37,12 +37,17 @@ def harness_timeout(args, ar):
 def validate_harness_options(args):
     dataset_selected = False
     for index, option in enumerate(args):
-        if option not in {"-harness-record", "-harness-playback", "-harness-camera-config"}:
+        if option not in {"-harness-record", "-harness-playback", "-harness-camera-config", "-harness-camera-path"}:
             continue
         if index + 1 == len(args):
             raise ValueError(option + " needs a value")
         value = args[index + 1]
-        if option == "-harness-camera-config":
+        if option == "-harness-camera-path":
+            if value not in {"auto", "cpu"}:
+                raise ValueError("camera path must be auto or cpu")
+            if value == "cpu" and "-harness-gpu-validate" in args:
+                raise ValueError("GPU validation requires the auto camera path")
+        elif option == "-harness-camera-config":
             if not re.fullmatch(r"[0-9]+", value):
                 raise ValueError("camera config must be a nonnegative integer")
         else:
@@ -255,6 +260,8 @@ def main():
         if not required_steps or not required_steps <= AR_STEPS:
             raise SystemExit("Unknown or empty ARCore harness steps")
         required_steps.add("arcore-session")
+    if ar and "-harness-gpu-validate" in harness_args:
+        required_steps.add("gpu-vs-cpu")
     platform = "android-ar" if ar else "android" if android else "ios" if ios else "desktop"
     output = Path("build/harness") / platform
     output.mkdir(parents=True, exist_ok=True)

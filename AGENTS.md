@@ -294,14 +294,14 @@ other native reference has been released. Shutdown never waits for destroy.
 
 The config explicitly uses EXPOSE_HARDWARE_BUFFER, LATEST_CAMERA_IMAGE, horizontal
 and vertical planes, auto focus and disabled light/depth/instant placement/cloud/
-geospatial/semantic/face/stabilization/streetscape modes. Camera selection uses a
+geospatial/semantic/face/stabilization/streetscape modes. CPU camera selection uses a
 non-null back-camera/30fps/no-depth/no-stereo filter, largest matching-aspect CPU
 image and smallest GPU image on ties. `set_camera_config_index(index)` selects a
 listed configuration (including VGA); -1 restores automatic selection.
 `set_focus_auto(false)` selects fixed focus. Both settings reset an active session.
 Do not enable Godot CameraServer feeds while an ARSession runs: both open Camera2.
 
-A new timestamp yields one copied packet. CPU YUV_420_888 is repacked using each
+A new timestamp yields one copied packet. On the CPU path, YUV_420_888 is repacked using each
 plane's strides and released in the same tick. Missing images drop the whole
 packet. CPU R8/RG8 textures keep the existing shader's `.rg` chroma convention and
 full-range BT.601 conversion. The ring contains Q+3 pairs, where Q is
@@ -446,6 +446,50 @@ The brief's conditional worker-resume path for calls exceeding about 100ms is
 deferred until Pixel timings establish the need. If triggered, it requires a
 session lock and update suppression, including coordination with reset/shutdown.
 See `docs/milestone-3-validation.md` for offline evidence and the device handoff.
+
+## ARCore GPU camera path
+
+The zero-copy Vulkan path needs the patched `doublesymmetry/godot` 4.8-dev build
+and matching templates until `ExternalTexture.submit_hardware_buffer` ships upstream.
+The extension still builds against godot-cpp 4.7: ClassDB detects and instantiates
+ExternalTexture, then a dynamic call supplies only buffer, color model and range.
+The first `OK` enables GPU presentation. Stock 4.7.2 uses CPU; a rejected submission,
+including `ERR_UNAVAILABLE`, restores CPU config selection through a session reset.
+`camera_path` and `camera_path_reason` report the choice. `OK` means queued;
+device checks must verify conversion succeeded.
+
+GPU selection prefers the largest GPU texture under the existing camera filter;
+an explicit config index still wins. Each new frame submits its borrowed hardware
+buffer before the next ARCore update; the engine retains it through GPU completion.
+One stable `rgb_texture` replaces Y/CbCr textures, with the display transform
+mapping into `TEXTURE_NORMALIZED`. Ordinary GPU operation never acquires a CPU
+image; CPU-image probes also require GPU validation on this path.
+
+The explicit color default is BT.601 full (camera JFIF). `-harness-gpu-validate`
+samples three frames, 60 submissions apart. ARCore maps every texel centre in a
+3×3 grid of 16×16 GPU blocks into `IMAGE_NORMALIZED`; strided, bilinear CPU samples
+there account for resolution, crop and FOV differences. The CPU image is released
+that tick. Submissions and packet updates wait Q+2 completed swaps before
+synchronous `get_image()` readback to keep both samples paired. `gpu-vs-cpu` compares
+BT.601/709 full/narrow block means, requiring three samples, no failures and a best
+candidate's worst block/channel error at most 6/255. A passing candidate becomes
+the explicit model/range for that interface; it does not persist across launches.
+All four candidate errors and the override appear in `diagnostics.json`.
+
+After Claude builds the AAR/APK with patched templates and checks/unlocks the
+shared Pixel, use the host `ADB` and `ANDROID_SERIAL` described above:
+
+```bash
+tools/harness.sh android-ar -harness-duration 60 -harness-gpu-validate
+tools/harness.sh android-ar -harness-duration 60
+tools/harness.sh android-ar -harness-duration 60 -harness-camera-path cpu
+```
+
+First check GPU config dimensions, all four orientations, RGB captures and color
+errors in a well-lit scene with colored objects. Measure submit p50/p95 against
+CPU repack/upload without validation pauses, then run retention/lifecycle and the
+long soak. Check stock 4.7.2 fallback too. Requested validation fails on a CPU
+fallback; ordinary CPU runs report `gpu-vs-cpu INFO`.
 
 ## ARKit backend and iPhone diagnostics
 

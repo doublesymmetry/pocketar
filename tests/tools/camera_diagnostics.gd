@@ -49,6 +49,30 @@ func _initialize() -> void:
 		harness.set("failed", false)
 		harness.call("_camera_image")
 		_check(bool(harness.get("failed")), "invalid diagnostics must fail: " + str(invalid))
+	var gpu: Dictionary = {"camera_path": "gpu", "camera_path_reason": "submission accepted", "config": {"fps_min": 30, "texture_width": 1920, "texture_height": 1080}, "new_frame_count": 1800, "gpu_submissions": 1800, "gpu_buffer_missing": 0, "gpu_submit_errors": 0, "gpu_submit_p50_us": 20.0, "gpu_submit_p95_us": 40.0, "timestamp_regressions": 0, "texture_refusals": 0}
+	harness.set("observed", gpu)
+	harness.set("failed", false)
+	harness.call("_camera_image")
+	_check(not bool(harness.get("failed")), "GPU camera needs no CPU image diagnostics")
+	for invalid: Dictionary in [{"gpu_submissions": 1000}, {"gpu_buffer_missing": 100}, {"gpu_submit_errors": 1}, {"timestamp_regressions": 1}]:
+		var data: Dictionary = gpu.duplicate(true)
+		data.merge(invalid, true)
+		harness.set("observed", data)
+		harness.set("failed", false)
+		harness.call("_camera_image")
+		_check(bool(harness.get("failed")), "invalid GPU diagnostics must fail: " + str(invalid))
+	var validation: Dictionary = {"camera_path": "gpu", "gpu_validation_enabled": true, "gpu_validation_samples": 3, "gpu_validation_failures": 0, "gpu_validation_best": "bt601_full", "gpu_validation_worst_block_error_255": 6.0, "gpu_validation_candidates": {}}
+	harness.set("observed", validation)
+	harness.set("failed", false)
+	harness.call("_gpu_vs_cpu")
+	_check(not bool(harness.get("failed")), "6/255 validation boundary passes")
+	for invalid: Dictionary in [{"camera_path": "cpu"}, {"gpu_validation_samples": 0}, {"gpu_validation_samples": 2}, {"gpu_validation_failures": 1}, {"gpu_validation_worst_block_error_255": 6.01}, {"gpu_validation_worst_block_error_255": NAN}]:
+		var data: Dictionary = validation.duplicate(true)
+		data.merge(invalid, true)
+		harness.set("observed", data)
+		harness.set("failed", false)
+		harness.call("_gpu_vs_cpu")
+		_check(bool(harness.get("failed")), "invalid GPU comparison must fail: " + str(invalid))
 	harness.free()
 	for prefix: String in ["HARNESS STEP camera-image OK ", "ARCORE DIAGNOSTICS "]:
 		for payload: String in ["a".repeat(900), "🙂".repeat(500), "a\nb\rc", "short"]:

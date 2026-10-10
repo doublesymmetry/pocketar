@@ -132,6 +132,14 @@ void ARCoreInterface::_process() {
 	if (!session || !running || application_suspended || state == FAILED || state == UNSUPPORTED || state == PERMISSION_DENIED) return;
 	const auto bridge = arcore_bridge_snapshot();
 	if (!bridge.resumed || bridge.state != READY) return;
+	if (gpu_validation_pending) {
+		// Freeze submissions and the packet until synchronous readback observes this frame's resolve.
+		if (rd_swaps - gpu_validation_swap < frame_delay + 2) {
+			increment("gpu_validation_wait_frames");
+			return;
+		}
+		finish_gpu_validation();
+	}
 	if (geometry_dirty || geometry_revision != bridge.geometry_revision) {
 		rotation = bridge.rotation;
 		api.ArSession_setDisplayGeometry(session, rotation, viewport_size.x, viewport_size.y);
@@ -160,8 +168,9 @@ void ARCoreInterface::_process() {
 		return;
 	}
 	increment("successful_updates");
-	extras.on_tick(frame);
-	if (extras.probe_images(frame)) return;
+	extras.on_tick(frame, !gpu_active || gpu_validate);
+	if (gpu_active && !gpu_validate) extras.cancel_image_capacity_probe();
+	else if (extras.probe_images(frame)) return;
 	int64_t timestamp = 0;
 	api.ArFrame_getTimestamp(session, frame, &timestamp);
 	if (timestamp == 0 || timestamp == last_timestamp) {
@@ -250,6 +259,7 @@ void ARCoreInterface::inspect_hardware_buffer() {
 }
 
 void ARCoreInterface::build_packet(int64_t p_timestamp) {
+	if (gpu_texture.is_valid() && !submit_gpu_camera()) return;
 	ArCamera *camera = nullptr;
 	api.ArFrame_acquireCamera(session, frame, &camera);
 	if (!camera) { fail(AR_ERROR_FATAL, "acquire camera"); return; }
@@ -290,6 +300,8 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	const float corners[] = {0,0, 1,0, 0,1, 1,1};
 	float mapped[8];
 	api.ArFrame_transformCoordinates2d(session, frame, AR_COORDINATES_2D_VIEW_NORMALIZED, 4, corners, AR_COORDINATES_2D_IMAGE_NORMALIZED, mapped);
+	const Transform2D cpu_display_transform(Vector2(mapped[2] - mapped[0], mapped[3] - mapped[1]), Vector2(mapped[4] - mapped[0], mapped[5] - mapped[1]), Vector2(mapped[0], mapped[1]));
+	if (gpu_active) api.ArFrame_transformCoordinates2d(session, frame, AR_COORDINATES_2D_VIEW_NORMALIZED, 4, corners, AR_COORDINATES_2D_TEXTURE_NORMALIZED, mapped);
 	const Vector2 origin(mapped[0], mapped[1]);
 	const Vector2 x = Vector2(mapped[2], mapped[3]) - origin, y = Vector2(mapped[4], mapped[5]) - origin;
 	bool affine = (origin + x + y).distance_to(Vector2(mapped[6], mapped[7])) <= 1e-4;
@@ -304,78 +316,82 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	packet->camera_fps = fps_range;
 	packet->color_encoding = ARFramePacket::BT601_FULL;
 	inspect_hardware_buffer();
-	ArImage *image = nullptr;
-	const uint64_t acquire_start = tick_usec();
-	const ArStatus status = api.ArFrame_acquireCameraImage(session, frame, &image);
-	sample(acquire_times, acquire_cursor, double(tick_usec() - acquire_start));
-	if (status != AR_SUCCESS) {
-		if (status == AR_ERROR_NOT_YET_AVAILABLE) increment("image_not_yet_available");
-		else if (status == AR_ERROR_RESOURCE_EXHAUSTED) increment("image_resource_exhausted");
-		else if (status == AR_ERROR_DEADLINE_EXCEEDED) { increment("image_deadline_exceeded"); fail(status, "acquireCameraImage latest-frame invariant"); }
-		else fail(status, "acquireCameraImage");
-		return;
-	}
-	increment("camera_image_count");
-	int64_t image_timestamp = 0;
-	api.ArImage_getTimestamp(session, image, &image_timestamp);
-	if (image_timestamp != p_timestamp) increment("image_timestamp_mismatches");
-	const int64_t timestamp_delta = image_timestamp - p_timestamp;
-	diagnostics["image_timestamp_delta_min_ns"] = std::min(int64_t(diagnostics.get("image_timestamp_delta_min_ns", timestamp_delta)), timestamp_delta);
-	diagnostics["image_timestamp_delta_max_ns"] = std::max(int64_t(diagnostics.get("image_timestamp_delta_max_ns", timestamp_delta)), timestamp_delta);
-	const double previous_mean = diagnostics.get("image_timestamp_delta_mean_ns", 0.0);
-	diagnostics["image_timestamp_delta_mean_ns"] = previous_mean + (double(timestamp_delta) - previous_mean) / double(diagnostics["camera_image_count"]);
-	if (fps_range.y > 0 && std::abs(double(timestamp_delta)) >= 500000000.0 / fps_range.y) increment("image_timestamp_far_count");
-	int32_t width, height, count;
-	ArImageFormat format;
-	api.ArImage_getWidth(session, image, &width); api.ArImage_getHeight(session, image, &height);
-	api.ArImage_getNumberOfPlanes(session, image, &count); api.ArImage_getFormat(session, image, &format);
-	if (format != AR_IMAGE_FORMAT_YUV_420_888 || count != 3 || width <= 0 || height <= 0 || width > 8192 || height > 8192) {
+	int32_t width = 0, height = 0;
+	uint64_t repack_usec = 0, stats_usec = 0;
+	if (!gpu_active) {
+		ArImage *image = nullptr;
+		const uint64_t acquire_start = tick_usec();
+		const ArStatus status = api.ArFrame_acquireCameraImage(session, frame, &image);
+		sample(acquire_times, acquire_cursor, double(tick_usec() - acquire_start));
+		if (status != AR_SUCCESS) {
+			if (status == AR_ERROR_NOT_YET_AVAILABLE) increment("image_not_yet_available");
+			else if (status == AR_ERROR_RESOURCE_EXHAUSTED) increment("image_resource_exhausted");
+			else if (status == AR_ERROR_DEADLINE_EXCEEDED) { increment("image_deadline_exceeded"); fail(status, "acquireCameraImage latest-frame invariant"); }
+			else fail(status, "acquireCameraImage");
+			return;
+		}
+		increment("camera_image_count");
+		int64_t image_timestamp = 0;
+		api.ArImage_getTimestamp(session, image, &image_timestamp);
+		if (image_timestamp != p_timestamp) increment("image_timestamp_mismatches");
+		const int64_t timestamp_delta = image_timestamp - p_timestamp;
+		diagnostics["image_timestamp_delta_min_ns"] = std::min(int64_t(diagnostics.get("image_timestamp_delta_min_ns", timestamp_delta)), timestamp_delta);
+		diagnostics["image_timestamp_delta_max_ns"] = std::max(int64_t(diagnostics.get("image_timestamp_delta_max_ns", timestamp_delta)), timestamp_delta);
+		const double previous_mean = diagnostics.get("image_timestamp_delta_mean_ns", 0.0);
+		diagnostics["image_timestamp_delta_mean_ns"] = previous_mean + (double(timestamp_delta) - previous_mean) / double(diagnostics["camera_image_count"]);
+		if (fps_range.y > 0 && std::abs(double(timestamp_delta)) >= 500000000.0 / fps_range.y) increment("image_timestamp_far_count");
+		int32_t count;
+		ArImageFormat format;
+		api.ArImage_getWidth(session, image, &width); api.ArImage_getHeight(session, image, &height);
+		api.ArImage_getNumberOfPlanes(session, image, &count); api.ArImage_getFormat(session, image, &format);
+		if (format != AR_IMAGE_FORMAT_YUV_420_888 || count != 3 || width <= 0 || height <= 0 || width > 8192 || height > 8192) {
+			api.ArImage_release(image);
+			fail(AR_ERROR_FATAL, "camera image format/dimensions");
+			return;
+		}
+		const uint64_t copy_start = tick_usec();
+		handheld_ar::ImagePlane image_planes[3];
+		Array strides;
+		for (int i = 0; i < 3; ++i) {
+			int32_t length = 0;
+			api.ArImage_getPlaneData(session, image, i, &image_planes[i].data, &length);
+			image_planes[i].length = std::max(0, length);
+			api.ArImage_getPlaneRowStride(session, image, i, &image_planes[i].row_stride);
+			api.ArImage_getPlanePixelStride(session, image, i, &image_planes[i].pixel_stride);
+			Dictionary plane;
+			plane["row_stride"] = image_planes[i].row_stride; plane["pixel_stride"] = image_planes[i].pixel_stride; plane["data_length"] = length;
+			strides.append(plane);
+		}
+		if (staging_size != Vector2i(width, height)) {
+			luma.resize(width * height);
+			chroma.resize(((width + 1) / 2) * ((height + 1) / 2) * 2);
+			staging_size = Vector2i(width, height);
+		}
+		handheld_ar::YUVLayout layout;
+		const bool repacked = handheld_ar::repack_yuv(width, height, image_planes, luma.ptrw(), chroma.ptrw(), layout);
 		api.ArImage_release(image);
-		fail(AR_ERROR_FATAL, "camera image format/dimensions");
-		return;
+		if (!repacked) { fail(AR_ERROR_FATAL, "camera image plane bounds"); return; }
+		repack_usec = tick_usec() - copy_start;
+		const uint64_t stats_start = tick_usec();
+		const String layout_name = layout == handheld_ar::YUVLayout::NV12 ? "NV12" : layout == handheld_ar::YUVLayout::NV21 ? "NV21" : "generic";
+		if (!diagnostics.has("image_plane_layout") || diagnostics["image_plane_layout"] != Variant(strides)) {
+			for (int i = 0; i < strides.size(); ++i) UtilityFunctions::print("ARCORE plane ", i, " ", strides[i], " layout=", layout_name);
+		}
+		diagnostics["image_plane_layout"] = strides;
+		diagnostics["image_layout"] = layout_name;
+		uint64_t sum = 0;
+		const uint8_t *pixels = luma.ptr();
+		for (int y = 0; y < height; y += 4) {
+			const uint8_t *row = pixels + size_t(y) * width;
+			for (int x = 0; x < width; x += 4) sum += row[x];
+		}
+		diagnostics["mean_y"] = double(sum) / (((width + 3) / 4) * ((height + 3) / 4));
+		stats_usec = tick_usec() - stats_start;
 	}
-	const uint64_t copy_start = tick_usec();
-	handheld_ar::ImagePlane image_planes[3];
-	Array strides;
-	for (int i = 0; i < 3; ++i) {
-		int32_t length = 0;
-		api.ArImage_getPlaneData(session, image, i, &image_planes[i].data, &length);
-		image_planes[i].length = std::max(0, length);
-		api.ArImage_getPlaneRowStride(session, image, i, &image_planes[i].row_stride);
-		api.ArImage_getPlanePixelStride(session, image, i, &image_planes[i].pixel_stride);
-		Dictionary plane;
-		plane["row_stride"] = image_planes[i].row_stride; plane["pixel_stride"] = image_planes[i].pixel_stride; plane["data_length"] = length;
-		strides.append(plane);
-	}
-	if (staging_size != Vector2i(width, height)) {
-		luma.resize(width * height);
-		chroma.resize(((width + 1) / 2) * ((height + 1) / 2) * 2);
-		staging_size = Vector2i(width, height);
-	}
-	handheld_ar::YUVLayout layout;
-	const bool repacked = handheld_ar::repack_yuv(width, height, image_planes, luma.ptrw(), chroma.ptrw(), layout);
-	api.ArImage_release(image);
-	if (!repacked) { fail(AR_ERROR_FATAL, "camera image plane bounds"); return; }
-	const uint64_t repack_usec = tick_usec() - copy_start;
-	const uint64_t stats_start = tick_usec();
-	const String layout_name = layout == handheld_ar::YUVLayout::NV12 ? "NV12" : layout == handheld_ar::YUVLayout::NV21 ? "NV21" : "generic";
-	if (!diagnostics.has("image_plane_layout") || diagnostics["image_plane_layout"] != Variant(strides)) {
-		for (int i = 0; i < strides.size(); ++i) UtilityFunctions::print("ARCORE plane ", i, " ", strides[i], " layout=", layout_name);
-	}
-	diagnostics["image_plane_layout"] = strides;
-	diagnostics["image_layout"] = layout_name;
-	uint64_t sum = 0;
-	const uint8_t *pixels = luma.ptr();
-	for (int y = 0; y < height; y += 4) {
-		const uint8_t *row = pixels + size_t(y) * width;
-		for (int x = 0; x < width; x += 4) sum += row[x];
-	}
-	diagnostics["mean_y"] = double(sum) / (((width + 3) / 4) * ((height + 3) / 4));
-	const uint64_t stats_usec = tick_usec() - stats_start;
 	copy_planes(**packet);
 	const Transform3D camera_from_world = packet->physical_camera_transform.affine_inverse();
 	const Transform3D display_from_world = packet->camera_transform.affine_inverse();
-	const Transform2D image_to_view = packet->display_transform.affine_inverse();
+	const Transform2D image_to_view = cpu_display_transform.affine_inverse();
 	auto point_reprojection_error = [&](const Vector3 &p_world, double &r_error) {
 		if (!packet->tracking_valid) return false;
 		const Vector3 physical = camera_from_world.xform(p_world);
@@ -432,6 +448,15 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		const String key = String::num_int64(rotation);
 		rotations[key] = int64_t(rotations.get(key, 0)) + reprojection_samples;
 		diagnostics["projection_reprojection_rotation_samples"] = rotations;
+	}
+	if (gpu_active) {
+		packet->rgb_texture = gpu_texture;
+		packet->image_size = gpu_size;
+		current_packet = packet;
+		head->set_pose("default", last_good_pose, Vector3(), Vector3(), packet->tracking_valid ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_NONE);
+		increment("textures_updated");
+		increment("packets_published");
+		return;
 	}
 	TextureSlot *slot = find_texture_slot();
 	if (!slot) {
