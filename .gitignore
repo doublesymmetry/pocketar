@@ -9,3 +9,11 @@ devenv.local.nix
 *.dylib
 .sconsign*.dblite
 /bin/
+local.properties
+
+/build/
+/android/.gradle/
+/android/plugin/build/
+/demo/android/
+/demo/addons/handheld_ar/bin/
+*.uid

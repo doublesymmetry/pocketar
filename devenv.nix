@@ -17,6 +17,10 @@ in
   # Godot 4.7 builds Android with JDK 17; the android module enables Java with a newer default.
   languages.java.jdk.package = pkgs.jdk17;
 
+  scripts.build.exec = ''exec "$DEVENV_ROOT/tools/build.sh" "$@"'';
+  scripts.export.exec = ''exec "$DEVENV_ROOT/tools/export.sh" "$@"'';
+  scripts.harness.exec = ''exec "$DEVENV_ROOT/tools/harness.sh" "$@"'';
+
   android = {
     enable = true;
     platforms.version = [ "36" ];

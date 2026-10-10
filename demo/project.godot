@@ -1,0 +1,29 @@
+config_version=5
+
+[application]
+config/name="Handheld AR harness"
+run/main_scene="res://harness/harness.tscn"
+config/features=PackedStringArray("4.7", "Mobile")
+
+[display]
+window/size/viewport_width=960
+window/size/viewport_height=720
+window/size/window_width_override=960
+window/size/window_height_override=720
+window/stretch/mode="disabled"
+window/handheld/orientation=6
+
+[editor_plugins]
+enabled=PackedStringArray("res://addons/handheld_ar/plugin.cfg")
+
+[rendering]
+renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
+rendering_device/driver.ios="metal"
+rendering_device/driver.macos="metal"
+rendering_device/driver.android="vulkan"
+rendering_device/fallback_to_opengl3=false
+textures/default_filters/use_nearest_mipmap_filter=false
+viewport/hdr_2d=false
+driver/threads/thread_model=1
+anti_aliasing/quality/use_debanding=false
