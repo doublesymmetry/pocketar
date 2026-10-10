@@ -6,32 +6,45 @@ namespace godot {
 
 static constexpr double RAY_EPSILON = 1e-6;
 
-static bool contains_convex_point(const ARPlaneRaycastInput &p_plane, const Vector2 &p_point) {
+static bool contains_polygon_point(const ARPlaneRaycastInput &p_plane, const Vector2 &p_point) {
 	if (p_plane.polygon == nullptr || p_plane.polygon_size < 3) {
 		return false;
 	}
 	double area = 0;
-	int sign = 0;
 	for (size_t i = 0; i < p_plane.polygon_size; i++) {
 		const Vector2 &a = p_plane.polygon[i];
 		const Vector2 &b = p_plane.polygon[(i + 1) % p_plane.polygon_size];
 		if (!a.is_finite() || !b.is_finite()) {
 			return false;
 		}
-		const Vector2 edge = b - a;
 		area += double(a.x) * b.y - double(a.y) * b.x;
-		const double cross = double(edge.x) * (p_point.y - a.y) - double(edge.y) * (p_point.x - a.x);
-		const double tolerance = RAY_EPSILON * edge.length();
-		if (std::abs(cross) <= tolerance) {
+	}
+	if (!std::isfinite(area) || std::abs(area) <= RAY_EPSILON * RAY_EPSILON) {
+		return false;
+	}
+	bool inside = false;
+	for (size_t i = 0; i < p_plane.polygon_size; i++) {
+		const Vector2 &a = p_plane.polygon[i];
+		const Vector2 &b = p_plane.polygon[(i + 1) % p_plane.polygon_size];
+		const Vector2 edge = b - a;
+		const double edge_length = edge.length();
+		if (edge_length <= RAY_EPSILON) {
 			continue;
 		}
-		const int edge_sign = cross > 0 ? 1 : -1;
-		if (sign != 0 && sign != edge_sign) {
-			return false;
+		const double cross = double(edge.x) * (p_point.y - a.y) - double(edge.y) * (p_point.x - a.x);
+		const double along = double(p_point.x - a.x) * edge.x + double(p_point.y - a.y) * edge.y;
+		const double tolerance = RAY_EPSILON * edge_length;
+		if (std::abs(cross) <= tolerance && along >= -tolerance && along <= edge_length * edge_length + tolerance) {
+			return true;
 		}
-		sign = edge_sign;
+		if ((a.y > p_point.y) != (b.y > p_point.y)) {
+			const double intersection_x = double(a.x) + double(b.x - a.x) * (p_point.y - a.y) / double(b.y - a.y);
+			if (p_point.x < intersection_x) {
+				inside = !inside;
+			}
+		}
 	}
-	return std::isfinite(area) && std::abs(area) > RAY_EPSILON * RAY_EPSILON;
+	return inside;
 }
 
 std::vector<ARPlaneIntersection> raycast_plane_polygons(const std::vector<ARPlaneRaycastInput> &p_planes, const ARRay &p_ray) {
@@ -52,7 +65,7 @@ std::vector<ARPlaneIntersection> raycast_plane_polygons(const std::vector<ARPlan
 		}
 		const double distance = -double(local_origin.y) / local_direction.y;
 		const Vector3 local_hit = local_origin + local_direction * distance;
-		if (!std::isfinite(distance) || !local_hit.is_finite() || !contains_convex_point(plane, Vector2(local_hit.x, local_hit.z))) {
+		if (!std::isfinite(distance) || !local_hit.is_finite() || !contains_polygon_point(plane, Vector2(local_hit.x, local_hit.z))) {
 			continue;
 		}
 		const Vector3 y = plane.transform.basis.get_column(1).normalized();

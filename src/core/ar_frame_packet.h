@@ -12,11 +12,13 @@ namespace godot {
 
 class SyntheticARInterface;
 class ARCoreInterface;
+class ARKitInterface;
 
 class ARFramePacket : public RefCounted {
 	GDCLASS(ARFramePacket, RefCounted)
 	friend class SyntheticARInterface;
 	friend class ARCoreInterface;
+	friend class ARKitInterface;
 
 public:
 	enum ColorEncoding { BT601_FULL, BT601_VIDEO, BT709_FULL };
@@ -37,6 +39,7 @@ private:
 	Ref<Texture2D> y_texture;
 	Ref<Texture2D> cbcr_texture;
 	ColorEncoding color_encoding = BT601_FULL;
+	bool imported_chroma = false;
 	bool tracking_valid = false;
 	Vector2 viewport_size;
 	ARIntrinsics intrinsics;
@@ -63,6 +66,7 @@ public:
 	Ref<Texture2D> get_y_texture() const { return y_texture; }
 	Ref<Texture2D> get_cbcr_texture() const { return cbcr_texture; }
 	ColorEncoding get_color_encoding() const { return color_encoding; }
+	bool get_imported_chroma() const { return imported_chroma; }
 	bool get_tracking_valid() const { return tracking_valid; }
 	Vector2 get_viewport_size() const { return viewport_size; }
 	int get_quarter_turns() const { return quarter_turns; }

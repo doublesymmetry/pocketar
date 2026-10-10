@@ -3,7 +3,8 @@
 MIT handheld AR library for Godot 4.7.2. One GDExtension presents ARKit on iOS and
 ARCore on Android through a shared Godot API. The synthetic backend supplies the
 desktop rendering harness. Milestone 3 adds the ARCore CPU-image backend and Pixel
-diagnostics; the iOS provider remains a compile-only unsupported stub.
+diagnostics. Milestone 2 adds the ARKit Metal-import backend and iOS device checks;
+the iPhone 12 validation is still pending.
 
 ## Requirements
 
@@ -77,7 +78,7 @@ settings/cache or reading system certificates are separate from script errors.
 
 - `src/core/`: read-only frame packets, synthetic XR provider, singleton, projection and ray math.
 - `src/platform/android/`: ARCore session owner, JNI bridge, CPU upload and live queries.
-- `src/platform/ios/`: unsupported provider stub, compiled only on iOS.
+- `src/platform/ios/`: Objective-C++ ARKit session, Metal imports and swap-based retirement.
 - `demo/ar/`: runtime-selected AR demo and device diagnostics.
 - `thirdparty/arcore/`: C API header and its provenance.
 - `demo/addons/handheld_ar/`: ARView, shaders, extension descriptor and editor export plugin.
@@ -206,8 +207,9 @@ The Metal import over-release is recorded for milestone 2: the same-format
 native-texture branch does not retain the imported MTLTexture, while destruction
 releases it (`drivers/metal/rendering_device_driver_metal.cpp:416`, `:527`).
 Compensation must target the affected engine and branch; retaining a
-CVMetalTexture wrapper is a different operation. Milestone 1 does not import
-Metal textures and must not add a retain workaround.
+CVMetalTexture wrapper is a different operation. The synthetic backend does not
+import Metal textures. ARKit's runtime probe gates its own workaround; never
+apply it to the CPU-upload backends.
 
 The adb version rule also applies to scripts and manual one-liners. Always use
 `"$ADB"`. `harness android` installs only this demo, launches its exported
@@ -429,3 +431,121 @@ The brief's conditional worker-resume path for calls exceeding about 100ms is
 deferred until Pixel timings establish the need. If triggered, it requires a
 session lock and update suppression, including coordination with reset/shutdown.
 See `docs/milestone-3-validation.md` for offline evidence and the device handoff.
+
+## ARKit backend and iPhone diagnostics
+
+`ARKitInterface` (`HandheldARKit`) is the iOS Metal backend. `ARView.backend = 2`
+selects it; the AR demo selects it on iOS. One primary monoscopic camera publishes
+`head` / `default`. All ARKit/UIKit access, imports and texture changes happen on
+the main thread in Safe rendering mode. Other rendering drivers are unsupported.
+The separate internal `HandheldARKitRetirement` interface has zero views and is
+never primary; it keeps swap callbacks alive after an ARView has been removed.
+
+The session polls `currentFrame` once per `_process` inside an autorelease pool.
+Packets copy values and plane boundaries; no ARFrame, ARCamera or ARAnchor enters
+a packet. Horizontal and vertical plane detection, autofocus and gravity alignment
+are the defaults. Light estimation and HDR video are off. `set_plane_detection`
+accepts a horizontal/vertical bitmask (0–3); `set_focus_auto` and
+`set_light_estimation_enabled` reconfigure through reset.
+
+Interface orientation comes from the Godot view's window scene `effectiveGeometry`.
+LandscapeRight is identity; portrait, LandscapeLeft and upside-down rotate the
+sensor pose around local Z by +90, +180 and +270 degrees. ARKit supplies upright
+projection rows; the backend rebuilds GL row 2 from every requested near/far pair
+and adjusts aspect-fill crop for a different requested aspect without changing
+the packet's calibration.
+The packet maps viewport UV to image UV using the inverse ARKit display transform.
+Intrinsics add 0.5 to the principal point as required by the SDK's pixel-centre
+convention. Orientation, viewport, pose and calibration are committed together;
+orientation/viewport aspect mismatches retain the previous packet until resize.
+The inherited identity XROrigin/reference-frame and unit-world-scale limits apply.
+
+Only two-plane full-range BT.601 (`420f` plus the matrix attachment) is accepted.
+`CVMetalTextureCache` wraps R8 and RG8 planes without CPU image copies, then RD
+imports and `Texture2DRD` expose them to the existing camera composite. The packet's
+`imported_chroma` flag selects `.ra`; CPU-uploaded synthetic/ARCore frames keep `.rg`.
+Unsupported colour encodings fail with a diagnostic instead of using a wrong matrix.
+
+The texture pool owns every CVPixelBuffer and both CVMetalTextureRefs independently
+of packet lifetime. A pair is eligible for retirement only after every external
+packet/texture/material reference is gone. On the render thread, clear/free the RS
+wrappers first, then free the imported RD RIDs at swap count s. Release CoreVideo
+owners at s+Q, where Q is `RenderingDevice.get_frame_delay()`. Only `_end_frame`
+increments the counter, as its first statement, after RD's actual swap. The pool
+survives reset, uninitialize and interface recreation. Process shutdown stops
+sessions before the pool releases owners; Godot's own import retains remain until
+RD finalization. Never synchronously drain the GPU on reset.
+
+A one-time same-format R8 import probe records CF retain-count delta, the native
+pointer branch and engine version/hash. Only a missing engine retain enables one
+compensating CFRetain per successful same-format import. Godot's deferred free
+consumes that retain; the library must not balance it. Fixed 4.8 imports must
+produce a positive delta and disable the workaround. Version strings alone do not
+decide ownership. Device validation of this probe with Metal API Validation is
+required. The flush policy is `CVMetalTextureCacheFlush(cache, 0)` after swaps that
+release retired owners. At most seven camera buffers are held; retaining packets
+can cause whole new frames to be dropped, never early retirement.
+
+The debug canary checks each submitted packet's imported RIDs and refuses sampling
+after retirement; releases assert the s+Q boundary and absence of wrapper owners.
+Any violation increments a harness-failing counter. A swap lasting at least 900ms
+extends every pending native retirement by another Q swaps. Godot's Metal fence
+wait still times out at 1s and ignores the failure: this mitigation cannot prove
+safe GPU work beyond that engine limit. Run the long-stall validation on the phone.
+
+AVFoundation authorization is polled on the main thread; an async permission request
+does not capture the interface. Denial, including after Settings changes, pauses
+the session and clears presentation. Application pause/resume notifications call
+pause/run. ARKit delegate interruption events use the main queue, hide presentation
+and resume relocalization without calling pause themselves. State/reason values match
+ARCore. Relocalization defaults on; `set_relocalization_enabled` changes the delegate
+policy. Diagnostics report progress and `relocalization_timeout(generation)` is
+deferred after 30 seconds without recovery. The game decides whether to reset.
+Reset increments the process-wide generation immediately, removes trackers,
+invalidates presentation, and runs ResetTracking|RemoveExistingAnchors. Frames with
+timestamps at or before the reset's host-time cutoff are discarded.
+
+Planes keep UUID-derived opaque IDs within a generation and copy boundary vertices
+in local XZ with +Y normal. Removed anchors remove trackers. The core raycast handles
+simple non-convex polygons in either winding. `live_hit_test(view_pixels)` uses a
+native ExistingPlaneGeometry query and returns generation, source timestamp, query
+ID and the packet frame ID when that native frame has been published (otherwise 0).
+It is a live query; copied packet polygons remain the placement API.
+
+`get_diagnostics()` reports ARKit bundle/iOS versions, model, renderer/driver, video
+format, colour attachments, retain probe, buffer/import/retirement counters, timing
+percentiles, first-frame/normal-tracking and pause/resume/reset timings. It also
+reports native depth coefficients, intrinsics/UV/pose cross-check errors and the
+host-minus-frame clock offset. Those device assertions decide whether Apple's
+projection actually follows the documented principal-point convention.
+
+Use the iOS 17+ lane from ci4's GUI session after building/signing the exported app:
+
+```bash
+IOS_DEVICE=<udid> tools/device.sh ios preflight
+IOS_DEVICE=<udid> tools/device.sh ios install /path/to/signed.app
+IOS_DEVICE=<udid> tools/harness.sh ios-ar -harness-duration 60
+IOS_DEVICE=<udid> tools/harness.sh ios-ar -harness-duration 1800
+```
+
+Preflight checks pairing, tunnel, Developer Mode and DDI (requesting its mount),
+plus OS/lock state. Launch uses devicectl's `--` separator and a validated debug-only
+`HANDHELD_AR_ARGS` JSON array. A unique pulled Godot file log is authoritative;
+exactly one result and all requested ARKit steps must be present. The host terminates
+the app and pulls individual lossless capture files. No console mirroring or iOS
+`quit()` behavior is assumed. See `docs/ios-device.md` for the commands. Full-screen
+grabs remain follow-up work; pymobiledevice3 is not in the environment.
+
+One-time iPhone 12 setup, performed by its owner: finish Setup Assistant without a
+passcode, Face ID, Apple ID or Workspace account; connect to ci4 and tap Trust;
+set Auto-Lock to Never; disable automatic OS updates; enable Developer Mode and
+complete its restart/confirmation; enable Settings > Developer > UI Automation;
+set Privacy & Security > Wired Accessories to Always Allow. Silence notifications
+with a Focus. If a passcode is required, a human must unlock after every reboot.
+Register the UDID with signing team L7G7TF62MC during the first Xcode device build.
+
+The iPhone 7 Plus is a documented legacy libimobiledevice/XCUITest lane only. Its
+A10/iOS 15 cannot run this iOS 16+/Metal target. A separate Compatibility/iOS 15
+export and guarded library would be needed for a library-load smoke test there;
+do not lower the certified preset. See `docs/milestone-2-validation.md` for the
+compilation evidence, deviations and the iPhone 12 handoff.

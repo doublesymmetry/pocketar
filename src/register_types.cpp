@@ -8,7 +8,7 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #ifdef IOS_ENABLED
-#include "platform/ios/interface_stub.h"
+#include "platform/ios/arkit_interface.h"
 #elif defined(ANDROID_ENABLED)
 #include "platform/android/arcore_interface.h"
 #endif
@@ -28,6 +28,7 @@ static void initialize_handheld_ar(ModuleInitializationLevel p_level) {
 	GDREGISTER_CLASS(SyntheticARInterface);
 #ifdef IOS_ENABLED
 	GDREGISTER_CLASS(ARKitInterface);
+	GDREGISTER_INTERNAL_CLASS(ARKitTexturePool);
 #elif defined(ANDROID_ENABLED)
 	GDREGISTER_CLASS(ARCoreInterface);
 #endif
@@ -38,6 +39,10 @@ static void initialize_handheld_ar(ModuleInitializationLevel p_level) {
 
 static void uninitialize_handheld_ar(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+#ifdef IOS_ENABLED
+		shutdown_arkit_interfaces();
+		shutdown_arkit_texture_pool();
+#endif
 		Engine::get_singleton()->unregister_singleton("HandheldAR");
 		memdelete(handheld_ar);
 		handheld_ar = nullptr;

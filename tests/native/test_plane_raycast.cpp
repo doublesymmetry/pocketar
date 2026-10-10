@@ -38,6 +38,43 @@ int main() {
 		check(raycast_plane_polygons({ plane }, { point, Vector3(0, -1, 0) }).size() == 1, "edge and vertex included");
 	}
 	check(raycast_plane_polygons({ plane }, { Vector3(1.01, 2, 0), Vector3(0, -1, 0) }).empty(), "outside polygon rejected");
+	std::vector<Vector2> concave = {
+		Vector2(0, 0), Vector2(3, 0), Vector2(3, 1),
+		Vector2(1, 1), Vector2(1, 3), Vector2(0, 3)
+	};
+	plane.polygon = concave.data();
+	plane.polygon_size = concave.size();
+	check(raycast_plane_polygons({ plane }, { Vector3(2, 2, 2), Vector3(0, -1, 0) }).empty(), "concave notch rejected");
+	check(raycast_plane_polygons({ plane }, { Vector3(2, 2, 0.5), Vector3(0, -1, 0) }).size() == 1, "concave horizontal arm included");
+	check(raycast_plane_polygons({ plane }, { Vector3(0.5, 2, 2), Vector3(0, -1, 0) }).size() == 1, "concave vertical arm included");
+	for (const Vector3 &point : { Vector3(1, 2, 1), Vector3(2, 2, 1), Vector3(1, 2, 2) }) {
+		check(raycast_plane_polygons({ plane }, { point, Vector3(0, -1, 0) }).size() == 1, "reentrant corner and edges included");
+	}
+	std::reverse(concave.begin(), concave.end());
+	check(raycast_plane_polygons({ plane }, { Vector3(2, 2, 2), Vector3(0, -1, 0) }).empty(), "clockwise concave notch rejected");
+	check(raycast_plane_polygons({ plane }, { Vector3(0.5, 2, 2), Vector3(0, -1, 0) }).size() == 1, "clockwise concave arm included");
+	std::vector<Vector2> u_shape = {
+		Vector2(0, 0), Vector2(3, 0), Vector2(3, 3), Vector2(2, 3),
+		Vector2(2, 1), Vector2(1, 1), Vector2(1, 3), Vector2(0, 3)
+	};
+	plane.polygon = u_shape.data();
+	plane.polygon_size = u_shape.size();
+	check(raycast_plane_polygons({ plane }, { Vector3(1.5, 2, 2), Vector3(0, -1, 0) }).empty(), "U-shaped notch rejected");
+	check(raycast_plane_polygons({ plane }, { Vector3(0.5, 2, 2), Vector3(0, -1, 0) }).size() == 1, "U-shaped left arm included");
+	check(raycast_plane_polygons({ plane }, { Vector3(2.5, 2, 2), Vector3(0, -1, 0) }).size() == 1, "U-shaped right arm included");
+	std::reverse(u_shape.begin(), u_shape.end());
+	check(raycast_plane_polygons({ plane }, { Vector3(1.5, 2, 2), Vector3(0, -1, 0) }).empty(), "clockwise U-shaped notch rejected");
+	check(raycast_plane_polygons({ plane }, { Vector3(2.5, 2, 2), Vector3(0, -1, 0) }).size() == 1, "clockwise U-shaped arm included");
+	std::vector<Vector2> repeated = {
+		Vector2(0, 0), Vector2(3, 0), Vector2(3, 1), Vector2(3, 1),
+		Vector2(1, 1), Vector2(1, 3), Vector2(0, 3), Vector2(0, 3)
+	};
+	plane.polygon = repeated.data();
+	plane.polygon_size = repeated.size();
+	check(raycast_plane_polygons({ plane }, { Vector3(0.5, 2, 2), Vector3(0, -1, 0) }).size() == 1, "repeated vertices preserve concave interior");
+	check(raycast_plane_polygons({ plane }, { Vector3(2, 2, 2), Vector3(0, -1, 0) }).empty(), "zero-length edges preserve concave notch");
+	plane.polygon = square.data();
+	plane.polygon_size = square.size();
 	check(raycast_plane_polygons({ plane }, { Vector3(0, -2, 0), Vector3(0, 1, 0) }).empty(), "back side rejected");
 	check(raycast_plane_polygons({ plane }, { Vector3(), Vector3(0, -1, 0) }).empty(), "origin on surface rejected");
 	check(raycast_plane_polygons({ plane }, { Vector3(0, 2, 0), Vector3(0, 1, 0) }).empty(), "ray moving away rejected");

@@ -19,8 +19,9 @@ var timeout_seconds: float = 240.0
 
 
 func _ready() -> void:
-	var args: PackedStringArray = OS.get_cmdline_user_args()
-	if args.has("-harness-ar") or args.has("-ar-demo"):
+	var launch: Dictionary = preload("res://ar/harness_args.gd").read()
+	var args: PackedStringArray = launch["args"]
+	if args.has("-harness-ar") or args.has("-ar-demo") or not String(launch["error"]).is_empty():
 		get_tree().change_scene_to_file.call_deferred("res://ar/ar_demo.tscn")
 		return
 	for index: int in range(args.size()):

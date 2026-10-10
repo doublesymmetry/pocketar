@@ -23,8 +23,14 @@ if platform not in ("macos", "ios", "android"):
     Exit("Supported platforms: macos, ios, android")
 if platform in ("ios", "android"):
     sources += Glob("src/platform/" + platform + "/*.cpp")
+if platform == "ios":
+    sources += Glob("src/platform/ios/*.mm")
+    objc_env = env.Clone()
+    objc_env.Append(CXXFLAGS=["-fobjc-arc", "-fmodules", "-fcxx-modules",
+                             "-fmodules-cache-path=" + Dir("build/clang-module-cache").abspath])
 output = "demo/addons/handheld_ar/bin/{}/{}/{}".format(platform, env["target"], env["arch"])
-objects = [env.SharedObject("build/" + env["suffix"] + "/" + str(s) + ".os", s) for s in sources]
+objects = [(objc_env if str(s).endswith(".mm") else env).SharedObject(
+    "build/" + env["suffix"] + "/" + str(s) + ".os", s) for s in sources]
 if platform == "ios":
     # StaticLibrary does not absorb LIBS; the XCFramework must also contain godot-cpp.
     archive = env.StaticLibrary(output + "/libhandheld_ar_objects", objects)

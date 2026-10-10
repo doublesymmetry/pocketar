@@ -13,7 +13,7 @@ func _supports_platform(platform: EditorExportPlatform) -> bool:
 
 
 func _get_export_options(platform: EditorExportPlatform) -> Array[Dictionary]:
-	if platform is EditorExportPlatformAndroid:
+	if _supports_platform(platform):
 		return [{"option": {"name": AR_REQUIRED_OPTION, "type": TYPE_BOOL}, "default_value": false}]
 	return []
 
@@ -21,7 +21,22 @@ func _get_export_options(platform: EditorExportPlatform) -> Array[Dictionary]:
 func _get_export_options_overrides(platform: EditorExportPlatform) -> Dictionary:
 	if platform is EditorExportPlatformAndroid:
 		return {"gradle_build/use_gradle_build": true}
+	if platform is EditorExportPlatformIOS:
+		var capabilities: PackedStringArray = get_option("capabilities/additional")
+		while capabilities.has("arkit"):
+			capabilities.remove_at(capabilities.find("arkit"))
+		if get_option(AR_REQUIRED_OPTION):
+			capabilities.append("arkit")
+		var overrides: Dictionary = {"capabilities/additional": capabilities}
+		if String(get_option("privacy/camera_usage_description")).strip_edges().is_empty():
+			overrides["privacy/camera_usage_description"] = "Use the camera to place augmented reality content in your surroundings."
+		return overrides
 	return {}
+
+
+func _export_begin(features: PackedStringArray, _is_debug: bool, _path: String, _flags: int) -> void:
+	if features.has("ios"):
+		add_apple_embedded_platform_linker_flags("-framework ARKit -framework Metal -framework CoreVideo -framework AVFoundation")
 
 
 func _get_android_libraries(_platform: EditorExportPlatform, debug: bool) -> PackedStringArray:

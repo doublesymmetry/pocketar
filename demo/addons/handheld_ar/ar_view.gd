@@ -5,7 +5,7 @@ signal screen_pressed(screen_point: Vector2, ray: Dictionary)
 signal packet_applied(packet: ARFramePacket)
 
 @export_range(-1, 3) var orientation_quarter_turns: int = -1
-@export_enum("Synthetic", "ARCore") var backend: int = 0
+@export_enum("Synthetic", "ARCore", "ARKit") var backend: int = 0
 @export var environment: Environment:
 	set(value):
 		environment = value
@@ -38,11 +38,12 @@ func _ready() -> void:
 	background.hide()
 	composite.hide()
 	if interface == null:
-		if backend == 1:
-			if not ClassDB.class_exists("ARCoreInterface"):
-				push_error("ARCoreInterface is unavailable on this platform")
+		if backend in [1, 2]:
+			var native_class: String = "ARCoreInterface" if backend == 1 else "ARKitInterface"
+			if not ClassDB.class_exists(native_class):
+				push_error("%s is unavailable on this platform" % native_class)
 				return
-			interface = ClassDB.instantiate("ARCoreInterface") as XRInterfaceExtension
+			interface = ClassDB.instantiate(native_class) as XRInterfaceExtension
 		else:
 			interface = SyntheticARInterface.new()
 	XRServer.add_interface(interface)
@@ -110,6 +111,7 @@ func _apply_packet() -> void:
 	var uv_matrix := Basis(Vector3(uv.x.x, uv.x.y, 0), Vector3(uv.y.x, uv.y.y, 0), Vector3(uv.origin.x, uv.origin.y, 1))
 	shader.set_shader_parameter("display_transform", uv_matrix)
 	shader.set_shader_parameter("color_encoding", packet.color_encoding)
+	shader.set_shader_parameter("imported_chroma", packet.imported_chroma)
 	applied_packet = packet
 	if waiting_for_packet:
 		waiting_for_packet = false

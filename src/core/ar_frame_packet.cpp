@@ -34,6 +34,8 @@ void ARFramePacket::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "cbcr_texture"), "", "get_cbcr_texture");
 	ClassDB::bind_method(D_METHOD("get_color_encoding"), &ARFramePacket::get_color_encoding);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "color_encoding"), "", "get_color_encoding");
+	ClassDB::bind_method(D_METHOD("get_imported_chroma"), &ARFramePacket::get_imported_chroma);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "imported_chroma"), "", "get_imported_chroma");
 	ClassDB::bind_method(D_METHOD("get_tracking_valid"), &ARFramePacket::get_tracking_valid);
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "tracking_valid"), "", "get_tracking_valid");
 	ClassDB::bind_method(D_METHOD("get_viewport_size"), &ARFramePacket::get_viewport_size);

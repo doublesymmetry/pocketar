@@ -6,6 +6,9 @@ config/icon="res://icon.png"
 run/main_scene="res://harness/harness.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 
+[debug]
+file_logging/enable_file_logging.ios=true
+
 [display]
 window/size/viewport_width=960
 window/size/viewport_height=720
@@ -16,9 +19,6 @@ window/handheld/orientation=6
 
 [editor_plugins]
 enabled=PackedStringArray("res://addons/handheld_ar/plugin.cfg")
-
-[debug]
-file_logging/enable_file_logging.ios=true
 
 [rendering]
 renderer/rendering_method="mobile"

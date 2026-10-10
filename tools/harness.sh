@@ -13,8 +13,10 @@ case "$platform" in
         apk=${APK:-build/exports/android/handheld_ar-debug.apk}
         "$ADB" -s "$ANDROID_SERIAL" install -r "$apk"
         exec python3 tools/run-harness.py "--$platform" "$ADB" "$ANDROID_SERIAL" -- "$@" ;;
+    ios-ar)
+        exec python3 tools/ios-device.py harness -- "$@" ;;
     ios)
         : "${IOS_DEVICE:?Set IOS_DEVICE to the connected device identifier}"
         exec python3 tools/run-harness.py --ios "$IOS_DEVICE" -- "$@" ;;
-    *) echo "Usage: $0 [desktop|android|android-ar|ios] [-harness-out dir] [-harness-steps names] [-harness-duration seconds] [-harness-probes] [-harness-camera-config index] [-harness-record name.mp4|-harness-playback name.mp4]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [desktop|android|android-ar|ios|ios-ar] [-harness-out dir] [-harness-steps names] [-harness-duration seconds] [-harness-probes] [-harness-camera-config index] [-harness-record name.mp4|-harness-playback name.mp4]" >&2; exit 2 ;;
 esac

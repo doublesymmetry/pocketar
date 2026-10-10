@@ -1,6 +1,8 @@
 extends Node
 
 const AR_VIEW: PackedScene = preload("res://addons/handheld_ar/ar_view.tscn")
+const IOS_HARNESS: Script = preload("res://ar/ios_ar_harness.gd")
+const HARNESS_ARGS: Script = preload("res://ar/harness_args.gd")
 const DEVICE_HARNESS: Script = preload("res://ar/ar_harness.gd")
 const SESSION_STATES: Array[String] = ["unsupported", "checking", "needs-install", "installing", "permission-denied", "ready", "initializing", "tracking", "paused", "failed"]
 
@@ -18,9 +20,15 @@ var dataset_failures: int = 0
 
 
 func _ready() -> void:
-	var args: PackedStringArray = OS.get_cmdline_user_args()
+	var launch: Dictionary = HARNESS_ARGS.read()
+	var args: PackedStringArray = launch["args"]
+	if not String(launch["error"]).is_empty():
+		print("HARNESS STEP arguments FAIL " + String(launch["error"]))
+		print("HARNESS RESULT FAIL")
+		get_tree().quit(1)
+		return
 	view = AR_VIEW.instantiate() as ARView
-	view.backend = 1 if OS.get_name() == "Android" else 0
+	view.backend = 2 if OS.get_name() == "iOS" else (1 if OS.get_name() == "Android" else 0)
 	var config_index: int = args.find("-harness-camera-config")
 	if config_index >= 0:
 		if config_index + 1 >= args.size() or not args[config_index + 1].is_valid_int() or args[config_index + 1].to_int() < 0:
@@ -43,9 +51,13 @@ func _ready() -> void:
 			get_tree().quit(1)
 		return
 	if args.has("-harness-ar") or args.has("-harness"):
-		var harness: Node = DEVICE_HARNESS.new() as Node
+		var harness_script: Script = IOS_HARNESS if OS.get_name() == "iOS" else DEVICE_HARNESS
+		var harness: Node = harness_script.new() as Node
 		harness.set("view", view)
-		harness.set("dataset_owner", self)
+		if OS.get_name() == "iOS":
+			harness.set("args", args)
+		else:
+			harness.set("dataset_owner", self)
 		add_child(harness)
 
 

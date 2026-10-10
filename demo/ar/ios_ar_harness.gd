@@ -1,0 +1,352 @@
+extends Node
+
+const HARNESS_ARGS: Script = preload("res://ar/harness_args.gd")
+const CAMERA_SHADER: Shader = preload("res://addons/handheld_ar/camera.gdshader")
+const STEPS: PackedStringArray = HARNESS_ARGS.STEPS
+
+var view: ARView
+var args: PackedStringArray
+var duration: float = 60.0
+var timeout_seconds: float = 180.0
+var output_dir: String = "user://harness-ios"
+var selected_steps: PackedStringArray = STEPS
+var failed: bool = false
+var result_printed: bool = false
+var baseline: Dictionary = {}
+var observed: Dictionary = {}
+var observed_seconds: float = 0.0
+var reference_material: ShaderMaterial
+var reference_frame: int = -1
+
+
+func _ready() -> void:
+	var validation: Dictionary = HARNESS_ARGS.validate(args)
+	if not String(validation["error"]).is_empty():
+		_step("arguments", "FAIL", String(validation["error"]))
+		_finish()
+		return
+	for index: int in range(args.size()):
+		match args[index]:
+			"-harness-duration": duration = args[index + 1].to_float()
+			"-harness-timeout": timeout_seconds = args[index + 1].to_float()
+			"-harness-out": output_dir = args[index + 1]
+			"-harness-steps": selected_steps = args[index + 1].split(",", false)
+	if not args.has("-harness-timeout"):
+		timeout_seconds = duration + 150.0
+	var error: Error = DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(output_dir))
+	if error != OK:
+		_step("output", "FAIL", error_string(error))
+		_finish()
+		return
+	if OS.get_name() != "iOS" or DisplayServer.get_name() == "headless" or not OS.is_debug_build():
+		_step("arkit-session", "FAIL", "ARKit checks require a debug iOS device build with Metal rendering")
+		_finish()
+		return
+	if view.interface == null or not view.interface.has_method("get_diagnostics"):
+		_step("arkit-session", "FAIL", "ARKitInterface unavailable")
+		_finish()
+		return
+	Engine.max_fps = 60
+	get_tree().create_timer(timeout_seconds).timeout.connect(_timeout)
+	_run.call_deferred()
+
+
+func _run() -> void:
+	if not await _session():
+		for name: String in selected_steps:
+			if name != "arkit-session":
+				_step(name, "INFO" if name == "tracking" else "FAIL", "session prerequisite failed")
+		_finish()
+		return
+	baseline = _diagnostics()
+	var started: int = Time.get_ticks_usec()
+	await get_tree().create_timer(duration).timeout
+	if result_printed:
+		return
+	observed_seconds = float(Time.get_ticks_usec() - started) / 1000000.0
+	observed = _diagnostics()
+	for name: String in selected_steps:
+		if result_printed:
+			return
+		match name:
+			"camera-image": _camera_image()
+			"projection-form": _projection()
+			"display-transform": _display_transform()
+			"composite": await _composite()
+			"lifecycle": await _lifecycle()
+			"tracking": _tracking()
+	_finish()
+
+
+func _session() -> bool:
+	var deadline: int = Time.get_ticks_msec() + 45000
+	while Time.get_ticks_msec() < deadline and not result_printed:
+		var state: int = int(view.interface.call("get_session_state"))
+		if state in [0, 4, 9] or (state in [6, 7] and _current_frame() >= 0):
+			break
+		await get_tree().create_timer(0.1).timeout
+	var diagnostics: Dictionary = _diagnostics()
+	if not _require("arkit-session", diagnostics, ["state_history", "configured", "renderer", "driver", "arkit_version", "ios_version", "device_model", "config"]):
+		return false
+	var history: Array = diagnostics["state_history"]
+	var ready: int = history.find(5)
+	var ok: bool = ready >= 0 and (history.find(6) > ready or history.find(7) > ready)
+	ok = ok and bool(diagnostics["configured"]) and _current_frame() >= 0 and int(view.interface.call("get_session_state")) in [6, 7]
+	ok = ok and RenderingServer.get_current_rendering_method() == "mobile" and RenderingServer.get_current_rendering_driver_name() == "metal"
+	var config: Dictionary = diagnostics["config"]
+	ok = ok and int(config.get("width", 0)) > 0 and int(config.get("height", 0)) > 0 and float(config.get("fps", 0)) > 0
+	_step("arkit-session", "OK" if ok else "FAIL", JSON.stringify(diagnostics))
+	return ok
+
+
+func _camera_image() -> void:
+	var required: Array[String] = ["camera_path", "cpu_copy_count", "imports", "retirement_count", "native_release_count", "retirement_canary_enabled", "sample_checks", "premature_release_count", "sample_after_free_count", "same_branch_failures", "held_buffers", "buffer_high_water", "import_p50_us", "import_p95_us", "retire_p50_us", "retire_p95_us", "new_frame_count", "packets_published", "packets_presented", "config"]
+	if not _require("camera-image", observed, required):
+		return
+	var packet: ARFramePacket = view.interface.call("get_presented_packet") as ARFramePacket
+	var imported: bool = packet != null and packet.y_texture is Texture2DRD and packet.cbcr_texture is Texture2DRD and bool(packet.get("imported_chroma")) and packet.color_encoding == 0
+	var config: Dictionary = observed["config"]
+	if imported:
+		imported = packet.y_texture.get_size() == Vector2(int(config.get("width", 0)), int(config.get("height", 0))) and packet.cbcr_texture.get_size() * 2.0 == packet.y_texture.get_size()
+	var frames: int = _delta("new_frame_count")
+	var published: int = _delta("packets_published")
+	var hz: float = float(published) / maxf(observed_seconds, 0.001)
+	var missing_fraction: float = float(maxi(0, frames - published)) / maxi(frames, 1)
+	var ok: bool = imported and frames > 0 and published > 0 and hz >= float(config.get("fps", 0)) * 0.8 and missing_fraction <= 0.05
+	ok = ok and observed["camera_path"] == "cvmetaltexturecache_texture2drd" and int(observed["cpu_copy_count"]) == 0
+	ok = ok and _delta("imports") > 0 and _delta("retirement_count") > 0 and _delta("native_release_count") > 0 and _delta("packets_presented") > 0
+	ok = ok and bool(observed["retirement_canary_enabled"]) and int(observed["sample_checks"]) > 0
+	for key: String in ["premature_release_count", "sample_after_free_count", "same_branch_failures"]:
+		ok = ok and int(observed[key]) == 0
+	ok = ok and int(observed["held_buffers"]) >= 0 and int(observed["held_buffers"]) <= 7 and int(observed["buffer_high_water"]) <= 7
+	for key: String in ["import_p50_us", "import_p95_us", "retire_p50_us", "retire_p95_us"]:
+		ok = ok and is_finite(float(observed[key])) and float(observed[key]) >= 0
+	_step("camera-image", "OK" if ok else "FAIL", "seconds=%.3f frames=%d packets=%d hz=%.2f missing_fraction=%.4f imported=%s diagnostics=%s" % [observed_seconds, frames, published, hz, missing_fraction, imported, JSON.stringify(observed)])
+
+
+func _projection() -> void:
+	if not _require("projection-form", observed, ["projection_form_valid", "projection_form_samples", "projection_near_far_error", "projection_core_error_px", "pose_error", "native_depth_zero_to_one"]):
+		return
+	var ok: bool = bool(observed["projection_form_valid"]) and int(observed["projection_form_samples"]) > 0 and bool(observed["native_depth_zero_to_one"])
+	ok = ok and _bounded(observed["projection_near_far_error"], 0.0001) and _bounded(observed["projection_core_error_px"], 0.25) and _bounded(observed["pose_error"], 0.0001)
+	_step("projection-form", "OK" if ok else "FAIL", "samples=%s near_far_error=%s core_error_px=%s pose_error=%s native_depth_zero_to_one=%s" % [observed["projection_form_samples"], observed["projection_near_far_error"], observed["projection_core_error_px"], observed["pose_error"], observed["native_depth_zero_to_one"]])
+
+
+func _display_transform() -> void:
+	if not _require("display-transform", observed, ["display_transform_valid", "display_transform_samples", "display_transform_error_px"]):
+		return
+	var ok: bool = bool(observed["display_transform_valid"]) and int(observed["display_transform_samples"]) > 0 and _bounded(observed["display_transform_error_px"], 0.5)
+	_step("display-transform", "OK" if ok else "FAIL", "samples=%s error_px=%s" % [observed["display_transform_samples"], observed["display_transform_error_px"]])
+
+
+func _bounded(value: Variant, limit: float) -> bool:
+	return is_finite(float(value)) and float(value) >= 0.0 and float(value) < limit
+
+
+func _composite() -> void:
+	var target := SubViewport.new()
+	target.size = Vector2i(view.size)
+	target.disable_3d = true
+	target.use_hdr_2d = false
+	target.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	var rect := ColorRect.new()
+	rect.size = view.size
+	reference_material = ShaderMaterial.new()
+	reference_material.shader = CAMERA_SHADER
+	rect.material = reference_material
+	target.add_child(rect)
+	add_child(target)
+	var hud_visible: bool = view.hud.visible
+	var scene_visible: bool = view.scene_root.visible
+	view.hud.hide()
+	view.scene_root.hide()
+	view.packet_applied.connect(_sync_reference)
+	_sync_reference(view.interface.call("get_current_packet") as ARFramePacket)
+	await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var screen: Image = get_viewport().get_texture().get_image()
+	var camera: Image = target.get_texture().get_image()
+	var presented_frame: int = _presented_frame()
+	var comparison: Dictionary = _compare_camera(screen, camera)
+	var ok: bool = presented_frame == reference_frame and presented_frame >= 0 and bool(comparison["valid"])
+	ok = _save_image(screen, "screen.png") and ok
+	ok = _save_image(camera, "camera-layer.png") and ok
+	view.packet_applied.disconnect(_sync_reference)
+	rect.material = null
+	reference_material = null
+	target.queue_free()
+	view.hud.visible = hud_visible
+	view.scene_root.visible = scene_visible
+	_step("composite", "FAIL" if not ok else ("INFO" if bool(comparison["dark"]) else "OK"), "frame=%d reference=%d comparison=%s captures=%s" % [presented_frame, reference_frame, JSON.stringify(comparison), output_dir])
+
+
+func _sync_reference(packet: ARFramePacket) -> void:
+	if packet == null or reference_material == null:
+		return
+	var uv: Transform2D = packet.display_transform
+	reference_material.set_shader_parameter("display_transform", Basis(Vector3(uv.x.x, uv.x.y, 0), Vector3(uv.y.x, uv.y.y, 0), Vector3(uv.origin.x, uv.origin.y, 1)))
+	reference_material.set_shader_parameter("y_texture", packet.y_texture)
+	reference_material.set_shader_parameter("cbcr_texture", packet.cbcr_texture)
+	reference_material.set_shader_parameter("color_encoding", packet.color_encoding)
+	reference_material.set_shader_parameter("imported_chroma", packet.get("imported_chroma"))
+	reference_frame = packet.frame_id
+
+
+func _compare_camera(screen: Image, camera: Image) -> Dictionary:
+	var result: Dictionary = {"valid": false, "dark": false, "mean_y": 0.0, "max_error_levels": 0.0}
+	if screen == null or camera == null or screen.is_empty() or camera.is_empty():
+		return result
+	var maximum: float = 0.0
+	var luminance: float = 0.0
+	for row: int in range(18):
+		for column: int in range(24):
+			var uv := Vector2((column + 0.5) / 24.0, (row + 0.5) / 18.0)
+			var source_pixel := Vector2i(uv * Vector2(camera.get_size()))
+			var screen_pixel := Vector2i(view.global_position) + source_pixel
+			if not Rect2i(Vector2i.ZERO, screen.get_size()).has_point(screen_pixel):
+				return result
+			var expected: Color = camera.get_pixelv(source_pixel)
+			var actual: Color = screen.get_pixelv(screen_pixel)
+			maximum = maxf(maximum, maxf(absf(expected.r - actual.r), maxf(absf(expected.g - actual.g), absf(expected.b - actual.b))) * 255.0)
+			luminance += (0.299 * expected.r + 0.587 * expected.g + 0.114 * expected.b) * 255.0
+	result["mean_y"] = luminance / 432.0
+	result["dark"] = float(result["mean_y"]) < 8.0
+	result["max_error_levels"] = maximum
+	result["valid"] = maximum <= 2.0
+	return result
+
+
+func _lifecycle() -> void:
+	if not view.interface.has_method("harness_pause") or not view.interface.has_method("harness_resume"):
+		_step("lifecycle", "FAIL", "owner lifecycle hooks unavailable")
+		return
+	var before: Dictionary = _diagnostics()
+	if not _require("lifecycle", before, ["pause_count", "resume_count", "reset_count", "new_frame_count", "stale_tracker_count", "session_generation", "timings"]):
+		return
+	var ok: bool = true
+	for cycle: int in range(2):
+		if result_printed:
+			return
+		view.interface.call("harness_pause")
+		var paused: Dictionary = _diagnostics()
+		ok = ok and int(view.interface.call("get_session_state")) == 8
+		await get_tree().create_timer(0.3).timeout
+		ok = ok and int(_diagnostics().get("new_frame_count", -1)) == int(paused["new_frame_count"])
+		var frame_id: int = _current_frame()
+		view.interface.call("harness_resume")
+		var resumed: bool = await _wait_for_packet(int(view.interface.call("get_session_generation")), frame_id)
+		ok = ok and resumed
+	for cycle: int in range(2):
+		if result_printed:
+			return
+		var old_generation: int = int(view.interface.call("get_session_generation"))
+		view.interface.call("reset")
+		var generation: int = int(view.interface.call("get_session_generation"))
+		ok = ok and generation > old_generation and _presented_frame() == -1 and _old_trackers_absent(generation)
+		var resumed: bool = await _wait_for_packet(generation, -1)
+		ok = ok and resumed and _old_trackers_absent(generation)
+	var after: Dictionary = _diagnostics()
+	ok = ok and int(after.get("pause_count", -1)) >= int(before["pause_count"]) + 2 and int(after.get("resume_count", -1)) >= int(before["resume_count"]) + 2 and int(after.get("reset_count", -1)) == int(before["reset_count"]) + 2
+	ok = ok and int(after.get("stale_tracker_count", -1)) == 0
+	for key: String in ["premature_release_count", "sample_after_free_count", "same_branch_failures"]:
+		ok = ok and int(after.get(key, -1)) == 0
+	ok = ok and int(after.get("held_buffers", 8)) <= 7 and int(after.get("buffer_high_water", 8)) <= 7
+	var timings: Dictionary = after.get("timings", {})
+	ok = _require("lifecycle", timings, ["first_frame_ms", "pause_ms", "resume_ms", "reset_ms"]) and ok
+	_step("lifecycle", "OK" if ok else "FAIL", "pause_count=%s resume_count=%s reset_count=%s stale_trackers=%s timings=%s" % [after.get("pause_count"), after.get("resume_count"), after.get("reset_count"), after.get("stale_tracker_count"), JSON.stringify(timings)])
+
+
+func _wait_for_packet(generation: int, after_frame: int) -> bool:
+	var deadline: int = Time.get_ticks_msec() + 12000
+	while Time.get_ticks_msec() < deadline and not result_printed:
+		if _packet_matches(generation, after_frame):
+			return true
+		await get_tree().create_timer(0.1).timeout
+	return false
+
+
+func _packet_matches(generation: int, after_frame: int) -> bool:
+	var packet: ARFramePacket = view.interface.call("get_presented_packet") as ARFramePacket
+	return packet != null and packet.session_generation == generation and packet.frame_id > after_frame
+
+
+func _current_frame() -> int:
+	var packet: ARFramePacket = view.interface.call("get_current_packet") as ARFramePacket
+	return packet.frame_id if packet != null else -1
+
+
+func _presented_frame() -> int:
+	var packet: ARFramePacket = view.interface.call("get_presented_packet") as ARFramePacket
+	return packet.frame_id if packet != null else -1
+
+
+func _old_trackers_absent(generation: int) -> bool:
+	for value: Variant in XRServer.get_trackers(XRServer.TRACKER_ANCHOR).values():
+		var tracker: ARPlaneTracker = value as ARPlaneTracker
+		if tracker != null and tracker.session_generation != generation:
+			return false
+	return true
+
+
+func _tracking() -> void:
+	var diagnostics: Dictionary = _diagnostics()
+	var hits: Array = view.raycast(view.size * 0.5)
+	var hit_info: Dictionary = {}
+	if not hits.is_empty():
+		var hit: ARRaycastHit = hits[0] as ARRaycastHit
+		hit_info = {"plane_id": hit.plane_id, "distance": hit.distance, "frame_id": hit.frame_id, "session_generation": hit.session_generation}
+	var live: Variant = view.interface.call("live_hit_test", view.size * 0.5) if view.interface.has_method("live_hit_test") else null
+	_step("tracking", "INFO", "state=%s reason=%s planes=%s centre_hit=%s live_hit=%s timings=%s" % [view.interface.call("get_session_state"), view.interface.call("get_tracking_reason"), diagnostics.get("plane_count"), JSON.stringify(hit_info), str(live), JSON.stringify(diagnostics.get("timings", {}))])
+
+
+func _diagnostics() -> Dictionary:
+	return view.interface.call("get_diagnostics") as Dictionary
+
+
+func _delta(key: String) -> int:
+	return int(observed.get(key, 0)) - int(baseline.get(key, 0))
+
+
+func _require(step: String, data: Dictionary, keys: Array[String]) -> bool:
+	var missing := PackedStringArray()
+	for key: String in keys:
+		if not data.has(key):
+			missing.append(key)
+	if not missing.is_empty():
+		_step(step, "FAIL", "missing diagnostics: " + ",".join(missing))
+		return false
+	return true
+
+
+func _save_image(image: Image, name: String) -> bool:
+	return image != null and not image.is_empty() and image.save_png(output_dir.path_join(name)) == OK
+
+
+func _step(name: String, level: String, message: String) -> void:
+	if result_printed:
+		return
+	failed = failed or level == "FAIL"
+	print("HARNESS STEP %s %s %s" % [name, level, message])
+
+
+func _timeout() -> void:
+	if not result_printed:
+		_step("timeout", "FAIL", "exceeded %.1f seconds" % timeout_seconds)
+		_finish()
+
+
+func _finish() -> void:
+	if result_printed:
+		return
+	if view != null and view.interface != null and view.interface.has_method("get_diagnostics"):
+		var diagnostics: Dictionary = _diagnostics()
+		print("ARKIT DIAGNOSTICS " + JSON.stringify(diagnostics))
+		var file: FileAccess = FileAccess.open(output_dir.path_join("diagnostics.json"), FileAccess.WRITE)
+		if file == null:
+			_step("output", "FAIL", "cannot save diagnostics: " + error_string(FileAccess.get_open_error()))
+		else:
+			file.store_string(JSON.stringify(diagnostics, "\t"))
+			file.close()
+	result_printed = true
+	print("HARNESS RESULT " + ("FAIL" if failed else "PASS"))
+	get_tree().quit(1 if failed else 0)
