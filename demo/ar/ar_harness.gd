@@ -1,6 +1,6 @@
 extends Node
 
-const STEPS: Array[String] = ["arcore-session", "no-gl", "camera-image", "projection-form", "display-transform", "composite", "lifecycle", "tracking"]
+const STEPS: Array[String] = ["arcore-session", "no-gl", "camera-image", "projection-form", "display-transform", "composite", "packet-retention", "tracking", "lifecycle"]
 
 var view: ARView
 var dataset_owner: Node
@@ -96,7 +96,9 @@ func _run() -> void:
 		await _observe()
 	observed_seconds = float(Time.get_ticks_usec() - started) / 1000000.0
 	observed = _diagnostics()
-	for name: String in selected_steps:
+	for name: String in STEPS:
+		if not selected_steps.has(name):
+			continue
 		if result_printed:
 			return
 		match name:
@@ -105,6 +107,7 @@ func _run() -> void:
 			"projection-form": _diagnostic_check(name, "projection_form_valid", "projection_form_samples")
 			"display-transform": _diagnostic_check(name, "display_transform_valid", "display_transform_samples")
 			"composite": await _composite()
+			"packet-retention": await _packet_retention()
 			"lifecycle": await _lifecycle()
 			"tracking": _tracking()
 	if probes_requested:
@@ -216,7 +219,7 @@ func _no_gl() -> void:
 
 
 func _camera_image() -> void:
-	var required: Array[String] = ["config", "config_list", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "image_timestamp_far_count", "image_timestamp_delta_min_ns", "image_timestamp_delta_mean_ns", "image_timestamp_delta_max_ns", "timestamp_regressions", "image_plane_layout", "image_acquire_p50_us", "image_acquire_p99_us", "repack_p50_us", "repack_p95_us", "stats_p50_us", "stats_p95_us", "upload_p50_us", "upload_p95_us", "repack_upload_p50_us", "repack_upload_p95_us"]
+	var required: Array[String] = ["config", "config_list", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "image_timestamp_far_count", "image_timestamp_delta_min_ns", "image_timestamp_delta_mean_ns", "image_timestamp_delta_max_ns", "timestamp_regressions", "image_plane_layout", "image_acquire_p50_us", "image_acquire_p99_us", "repack_p50_us", "repack_p95_us", "stats_p50_us", "stats_p95_us", "upload_p50_us", "upload_p95_us", "repack_upload_p50_us", "repack_upload_p95_us", "texture_refusals", "ring_drops", "staging_block_size_kb", "texture_upload_region_size_px"]
 	if not _require("camera-image", observed, required):
 		return
 	var config: Dictionary = observed["config"]
@@ -235,11 +238,13 @@ func _camera_image() -> void:
 		layout_valid = layout_valid and int(plane.get("row_stride", 0)) > 0 and int(plane.get("pixel_stride", 0)) > 0 and int(plane.get("data_length", 0)) > 0
 	var ok: bool = frames > 0 and images > 0 and missing_per_1000 <= 50.0 and minimum_hz > 0 and image_hz >= minimum_hz
 	ok = ok and int(observed["image_timestamp_far_count"]) == 0 and int(observed["timestamp_regressions"]) == 0 and layout_valid and not Array(observed["config_list"]).is_empty()
+	ok = ok and int(observed.get("texture_refusals", -1)) == 0 and int(observed.get("ring_drops", -1)) == 0
 	var summary: String = "frames=%d images=%d hz=%.2f minimum_hz=%.2f missing_per_1000=%.2f cpu=%sx%s layout=%s" % [frames, images, image_hz, minimum_hz, missing_per_1000, config["cpu_width"], config["cpu_height"], observed.get("image_layout", "unknown")]
 	summary += " acquire_us_p50/p99=%.1f/%.1f" % [observed["image_acquire_p50_us"], observed["image_acquire_p99_us"]]
 	for stage: String in ["repack", "stats", "upload", "repack_upload"]:
 		summary += " %s_us_p50/p95=%.1f/%.1f" % [stage, observed[stage + "_p50_us"], observed[stage + "_p95_us"]]
 	summary += " timestamp_mismatches=%s far=%s regressions=%s delta_ns_min/mean/max=%.0f/%.1f/%.0f" % [observed["image_timestamp_mismatches"], observed["image_timestamp_far_count"], observed["timestamp_regressions"], observed["image_timestamp_delta_min_ns"], observed["image_timestamp_delta_mean_ns"], observed["image_timestamp_delta_max_ns"]]
+	summary += " staging_kb=%s region_px=%s refusals=%s" % [observed.get("staging_block_size_kb", "missing"), observed.get("texture_upload_region_size_px", "missing"), observed.get("texture_refusals", "missing")]
 	_step("camera-image", "OK" if ok else "FAIL", summary)
 
 
@@ -299,6 +304,12 @@ func _camera_layer_check(rendered: Image, source_y: Image, mapping: Transform2D,
 	result["dark"] = float(result["expected_y"]) < 8.0
 	result["valid"] = bool(result["dark"]) or float(result["rendered_y"]) > 2.0
 	return result
+
+
+func _packet_retention() -> void:
+	var probe: RefCounted = preload("res://ar/packet_retention.gd").new()
+	var result: Dictionary = await probe.run(view)
+	_step("packet-retention", "OK" if bool(result["ok"]) else "FAIL", JSON.stringify(result))
 
 
 func _lifecycle() -> void:

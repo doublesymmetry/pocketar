@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -14,7 +15,10 @@ import uuid
 
 
 PACKAGE = "org.doublesymmetry.handheldar.demo"
-AR_STEPS = {"arcore-session", "no-gl", "camera-image", "projection-form", "display-transform", "composite", "lifecycle", "tracking"}
+AR_STEPS = {"arcore-session", "no-gl", "camera-image", "projection-form", "display-transform", "composite", "packet-retention", "lifecycle", "tracking"}
+IOS_SPEC = importlib.util.spec_from_file_location("ios_device", Path(__file__).with_name("ios-device.py"))
+IOS_DEVICE = importlib.util.module_from_spec(IOS_SPEC)
+IOS_SPEC.loader.exec_module(IOS_DEVICE)
 
 
 def harness_timeout(args, ar):
@@ -100,75 +104,136 @@ def ios_major_version(device, output):
     return int(version.split(".")[0])
 
 
-def ios_launch(device, args, output, legacy):
-    engine_args = ["--log-file", "user://logs/harness.log", "--", "--harness"] + args
+def ios_launch(device, args, output, legacy, log_path="user://logs/harness.log"):
+    user_args = ([] if "-harness-cleanup" in args else ["--harness"]) + args
+    engine_args = ["--log-file", log_path, "--"] + user_args
     if legacy:
         return ["idevicedebug", "-u", device, "--detach", "--", "run", PACKAGE] + engine_args
     return ["xcrun", "devicectl", "device", "process", "launch", "--device", device,
-            "--terminate-existing", "--json-output", str(output / "launch.json"), PACKAGE, "--"] + engine_args
+            "--terminate-existing", "--json-output", str(output / "launch.json"),
+            "--environment-variables", json.dumps({"HANDHELD_AR_ARGS": json.dumps(user_args)}), PACKAGE, "--"] + engine_args
 
 
-def ios_pull_log(device, destination, legacy):
+def ios_pull_log(device, destination, legacy, source="Documents/logs/harness.log"):
     if legacy:
-        return ["afcclient", "-u", device, "--container", PACKAGE, "get", "/Documents/logs/harness.log", str(destination)]
+        return ["afcclient", "-u", device, "--container", PACKAGE, "get", "/" + source, str(destination)]
     return ["xcrun", "devicectl", "device", "copy", "from", "--device", device,
             "--domain-type", "appDataContainer", "--domain-identifier", PACKAGE,
-            "--source", "Documents/logs/harness.log", "--destination", str(destination)]
+            "--source", source, "--destination", str(destination)]
+
+
+class IOSHarnessDevice(IOS_DEVICE.Device):
+    def __init__(self, device, output, legacy):
+        super().__init__(device, output)
+        self.legacy = legacy
+
+    def launch(self, arguments):
+        log_path = "user://logs/godot.log"
+        if "-harness-run-id" in arguments:
+            log_path = "user://harness-" + arguments[arguments.index("-harness-run-id") + 1] + ".log"
+        command = ios_launch(self.udid, arguments, self.output, self.legacy, log_path)
+        with (self.output / "launch.log").open("ab") as log:
+            subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
+        if self.legacy:
+            return None
+        return json.loads((self.output / "launch.json").read_text())["result"]["process"]["processIdentifier"]
+
+    def terminate(self, pid):
+        command = ["idevicedebug", "-u", self.udid, "kill", PACKAGE] if self.legacy else [
+            "xcrun", "devicectl", "device", "process", "terminate", "--device", self.udid, "--pid", str(pid)]
+        with (self.output / "launch.log").open("ab") as log:
+            subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=30)
+        return True
+
+    def pull(self, source, destination):
+        with (self.output / "launch.log").open("ab") as log:
+            subprocess.run(ios_pull_log(self.udid, destination, self.legacy, source),
+                           stdout=log, stderr=subprocess.STDOUT, check=True, timeout=30)
+
+    def captures(self, source, destination):
+        if not self.legacy:
+            return super().captures(source, destination)
+        with (self.output / "launch.log").open("ab") as log:
+            subprocess.run(["afcclient", "-u", self.udid, "--container", PACKAGE, "get", "-r", "/" + source, str(destination)],
+                           stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
 
 
 def run_ios(device, args, output, timeout):
-    legacy = ios_major_version(device, output) < 17
+    if "-harness-ar" in args:
+        raise ValueError("Use tools/harness.sh ios-ar for the ARKit harness")
+    if any(option in args for option in ["--log-file", "-harness-run-id", "-harness-cleanup"]):
+        raise ValueError("The iOS runner owns its log, run ID and cleanup arguments")
+    args = list(args)
     run_id = uuid.uuid4().hex
-    marker = ("HARNESS RUN " + run_id).encode()
-    launch = ios_launch(device, args + ["-harness-run-id", run_id], output, legacy)
-    stop = ["idevicedebug", "-u", device, "kill", PACKAGE] if legacy else None
+    prefix = "user://harness"
+    if "-harness-out" in args:
+        index = args.index("-harness-out")
+        if index + 1 == len(args):
+            raise ValueError("-harness-out needs a user:// directory prefix")
+        prefix = args[index + 1]
+    if not re.fullmatch(r"user://[A-Za-z0-9_-]+", prefix):
+        raise ValueError("iOS capture output must be one user:// directory prefix")
+    capture = prefix + "-" + run_id
+    if "-harness-out" in args:
+        args[args.index("-harness-out") + 1] = capture
+    else:
+        args += ["-harness-out", capture]
+    args += ["-harness-run-id", run_id]
+    log_source = "Documents/harness-" + run_id + ".log"
+    marker = "HARNESS RUN " + run_id
+    transport = IOSHarnessDevice(device, output, ios_major_version(device, output) < 17)
+    log = output / "latest.log"
+    log.write_text("")
+    captures = output / "captures"
+    if captures.exists():
+        shutil.rmtree(captures)
+    pid = transport.launch(args)
     results, steps, engine_error = [], [], False
+    errors = []
+    printed = b""
     deadline = time.monotonic() + timeout
-    with (output / "launch.log").open("wb") as launch_log:
+    try:
+        while time.monotonic() < deadline:
+            text = transport.run_log(log_source, marker)
+            if text is not None:
+                data = text.encode()
+                log.write_bytes(data)
+                sys.stdout.buffer.write(data[len(printed):] if data.startswith(printed) else data)
+                sys.stdout.buffer.flush()
+                printed = data
+                results, steps, engine_error = parse_log(data)
+                if results:
+                    break
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
+    finally:
         try:
-            subprocess.run(launch, stdout=launch_log, stderr=subprocess.STDOUT, check=True, timeout=min(60, timeout))
-            if not legacy:
-                pid = json.loads((output / "launch.json").read_text())["result"]["process"]["processIdentifier"]
-                stop = ["xcrun", "devicectl", "device", "process", "terminate", "--device", device, "--pid", str(pid)]
-            printed = b""
-            while time.monotonic() < deadline:
-                pulled = output / "pulled.log"
-                pulled.unlink(missing_ok=True)
-                try:
-                    copy = subprocess.run(ios_pull_log(device, pulled, legacy), stdout=launch_log,
-                                          stderr=subprocess.STDOUT, timeout=min(30, max(0.1, deadline - time.monotonic())))
-                    if copy.returncode == 0 and pulled.is_file():
-                        data = pulled.read_bytes()
-                        if marker in data.splitlines():
-                            pulled.replace(output / "latest.log")
-                            sys.stdout.buffer.write(data[len(printed):] if data.startswith(printed) else data)
-                            sys.stdout.buffer.flush()
-                            printed = data
-                            results, steps, engine_error = parse_log(data)
-                            if results:
-                                break
-                except subprocess.TimeoutExpired:
-                    pass
-                time.sleep(min(1, max(0, deadline - time.monotonic())))
-            timed_out = not results
-        finally:
-            if stop:
-                subprocess.run(stop, stdout=launch_log, stderr=subprocess.STDOUT, check=True, timeout=30)
-        pulled = output / "pulled.log"
-        pulled.unlink(missing_ok=True)
-        copy = subprocess.run(ios_pull_log(device, pulled, legacy), stdout=launch_log,
-                              stderr=subprocess.STDOUT, timeout=30)
-        if copy.returncode != 0 or not pulled.is_file():
-            sys.stderr.write("Could not retrieve the final iOS harness log\n")
-            return 1
-        data = pulled.read_bytes()
-        if marker not in data.splitlines():
-            sys.stderr.write("The iOS log does not belong to this harness run\n")
-            return 1
-        pulled.replace(output / "latest.log")
+            transport.terminate(pid)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as error:
+            errors.append("Termination: " + str(error))
+    timed_out = not results
+    text = transport.run_log(log_source, marker)
+    if text is None:
+        errors.append("Could not retrieve an iOS log containing this run's marker")
+    else:
+        data = text.encode()
+        log.write_bytes(data)
         sys.stdout.buffer.write(data[len(printed):] if data.startswith(printed) else data)
         sys.stdout.buffer.flush()
-        return verify_log(*parse_log(data), timed_out, False)
+        results, steps, engine_error = parse_log(data)
+    captures_pulled = False
+    try:
+        transport.captures("Documents/" + capture[7:], captures)
+        captures_pulled = True
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+        errors.append("Captures: " + str(error))
+    if text is not None and captures_pulled:
+        try:
+            transport.cleanup(run_id, capture)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as error:
+            errors.append("Cleanup: " + str(error))
+    if errors:
+        sys.stderr.write("; ".join(errors) + "\n")
+    return verify_log(results, steps, engine_error, timed_out, bool(errors))
 
 
 def main():

@@ -28,6 +28,7 @@ void ARCoreInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_current_packet"), &ARCoreInterface::get_current_packet);
 	ClassDB::bind_method(D_METHOD("get_presented_packet"), &ARCoreInterface::get_presented_packet);
 	ClassDB::bind_method(D_METHOD("mark_presented"), &ARCoreInterface::mark_presented);
+	ClassDB::bind_method(D_METHOD("mark_applied", "packet"), &ARCoreInterface::mark_applied);
 	ClassDB::bind_method(D_METHOD("application_pause"), &ARCoreInterface::application_pause);
 	ClassDB::bind_method(D_METHOD("application_resume"), &ARCoreInterface::application_resume);
 	ClassDB::bind_method(D_METHOD("harness_pause"), &ARCoreInterface::harness_pause);
@@ -88,6 +89,9 @@ bool ARCoreInterface::_initialize() {
 	diagnostics["renderer"] = String(ProjectSettings::get_singleton()->get_setting_with_override("rendering/renderer/rendering_method")) + "/" + rd->get_device_name();
 	diagnostics["frame_delay"] = int(frame_delay);
 	diagnostics["ring_size"] = int(texture_slots.size());
+	diagnostics["texture_refusals"] = int64_t(0);
+	diagnostics["texture_upload_region_size_px"] = ProjectSettings::get_singleton()->get_setting_with_override("rendering/rendering_device/staging_buffer/texture_upload_region_size_px");
+	diagnostics["staging_block_size_kb"] = ProjectSettings::get_singleton()->get_setting_with_override("rendering/rendering_device/staging_buffer/block_size_kb");
 	diagnostics["configured"] = false;
 	diagnostics["projection_form_valid"] = true;
 	diagnostics["display_transform_valid"] = true;
@@ -121,6 +125,7 @@ void ARCoreInterface::_uninitialize() {
 	release_session();
 	current_packet.unref();
 	presented_packet.unref();
+	applied_packet.unref();
 	texture_slots.clear();
 	XRServer::get_singleton()->remove_tracker(head);
 	head.unref();
@@ -241,6 +246,9 @@ void ARCoreInterface::refresh_camera_config() {
 }
 
 bool ARCoreInterface::create_session() {
+	if (int(diagnostics.get("texture_upload_region_size_px", 64)) < 512) {
+		UtilityFunctions::push_warning("ARCore camera upload region size is below 512 px; use 1024 px with staging_buffer/block_size_kb=4096 for lower upload cost.");
+	}
 	const auto bridge = arcore_bridge_snapshot();
 	if (bridge.state != READY || !bridge.resumed || application_suspended) return false;
 	ARCoreJNIEnv jni(bridge.vm);
@@ -443,22 +451,31 @@ PackedFloat64Array ARCoreInterface::_get_projection_for_view(uint32_t, double, d
 	}
 	return values;
 }
+void ARCoreInterface::mark_applied(const Ref<ARFramePacket> &p_packet) {
+	ERR_FAIL_COND(!on_owner_thread());
+	ERR_FAIL_COND(p_packet.is_valid() && p_packet != current_packet);
+	applied_packet = p_packet;
+}
 void ARCoreInterface::mark_presented() {
-	if (current_packet.is_valid() && current_packet->get_session_generation() == generation) {
-		presented_packet = current_packet;
+	if (applied_packet.is_valid() && applied_packet->get_session_generation() == generation) {
+		presented_packet = applied_packet;
 		increment("packets_presented");
 	}
 }
 void ARCoreInterface::_end_frame() {
 	++rd_swaps;
-	for (auto &slot : texture_slots) if (slot.packet == current_packet && current_packet.is_valid()) slot.last_use = rd_swaps;
+	for (auto &slot : texture_slots) if (texture_slot_active(slot)) slot.last_use = rd_swaps;
+}
+bool ARCoreInterface::texture_slot_active(const TextureSlot &p_slot) const {
+	for (const auto &packet : {current_packet, presented_packet, applied_packet}) {
+		if (packet.is_valid() && ((p_slot.y.is_valid() && packet->get_y_texture() == p_slot.y) || (p_slot.uv.is_valid() && packet->get_cbcr_texture() == p_slot.uv))) return true;
+	}
+	return false;
 }
 ARCoreInterface::TextureSlot *ARCoreInterface::find_texture_slot() {
 	for (auto &slot : texture_slots) {
-		if (slot.packet.is_null()) return &slot;
-		const bool referenced = slot.packet->get_reference_count() > 1 || slot.y->get_reference_count() > 2 || slot.uv->get_reference_count() > 2;
-		// A slot retires only after Q completed RD swaps since its last use and after all packet/texture readers release it.
-		if (handheld_ar::texture_slot_retired(rd_swaps, slot.last_use, frame_delay, referenced)) return &slot;
+		if (slot.y.is_null()) return &slot;
+		if (handheld_ar::texture_slot_retired(rd_swaps, slot.last_use, frame_delay, texture_slot_active(slot))) return &slot;
 	}
 	return nullptr;
 }

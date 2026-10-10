@@ -1,8 +1,8 @@
 shader_type canvas_item;
 render_mode unshaded, blend_disabled;
 
-uniform sampler2D y_texture : filter_nearest, repeat_disable;
-uniform sampler2D cbcr_texture : filter_nearest, repeat_disable;
+uniform sampler2D y_texture : filter_linear, repeat_disable;
+uniform sampler2D cbcr_texture : filter_linear, repeat_disable;
 uniform mat3 display_transform;
 uniform int color_encoding = 0;
 uniform bool imported_chroma = false;

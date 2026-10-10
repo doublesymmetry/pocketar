@@ -2,8 +2,52 @@
 
 #include "core/projection.h"
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <limits>
 
 namespace godot {
+
+class ARKitOrientationTransition {
+	int turns = -1;
+	Vector2 window_size;
+	uint64_t changed_at = 0;
+	bool waiting = false;
+
+public:
+	bool wait_for_resize(int p_turns, const Vector2 &p_window_size, uint64_t p_now) {
+		if (p_turns != turns) {
+			waiting = turns >= 0 && ((p_turns ^ turns) & 1) && p_window_size == window_size;
+			turns = p_turns;
+			changed_at = p_now;
+		} else if (p_window_size != window_size || p_now - changed_at >= 500000) {
+			waiting = false;
+		}
+		window_size = p_window_size;
+		return waiting;
+	}
+};
+
+inline Transform3D arkit_plane_local_frame(const Vector3 &p_center, double p_rotation) {
+	return Transform3D(Basis(Vector3(0, 1, 0), p_rotation), p_center);
+}
+
+inline double arkit_projection_residual_px(const Projection &p_reference, const Projection &p_candidate, const Vector2 &p_view) {
+	const Projection inverse = p_reference.inverse();
+	double maximum = 0;
+	for (int y = -1; y <= 1; ++y) {
+		for (int x = -1; x <= 1; ++x) {
+			const Vector4 point = inverse.xform(Vector4(x, y, 0, 1));
+			const Vector4 candidate = p_candidate.xform(point);
+			const double dx = (candidate.x / candidate.w - x) * p_view.x * 0.5;
+			const double dy = (candidate.y / candidate.w - y) * p_view.y * 0.5;
+			const double error = std::hypot(dx, dy);
+			if (!std::isfinite(error)) return std::numeric_limits<double>::infinity();
+			maximum = std::max(maximum, error);
+		}
+	}
+	return maximum;
+}
 
 inline Basis arkit_view_rotation(int p_turns) {
 	const Vector3 x[] = { Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, -1, 0) };

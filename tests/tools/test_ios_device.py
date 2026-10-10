@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -45,6 +46,25 @@ class DeviceTests(unittest.TestCase):
             with self.subTest(key=key), patch.object(self.device, "call", side_effect=[{}, invalid, {}]), self.assertRaises(RuntimeError):
                 self.device.preflight()
 
+    def test_preflight_records_every_check_after_ddi_failure(self):
+        details = {"connectionProperties": {"pairingState": "unpaired", "tunnelState": "disconnected"},
+                   "deviceProperties": {"developerModeStatus": "disabled", "ddiServicesAvailable": False, "osVersionNumber": "16.6"}}
+        with patch.object(self.device, "call", side_effect=[RuntimeError("DDI mount failed"), details, {"unexpected": True}]):
+            with self.assertRaisesRegex(RuntimeError, "pairing.*tunnel.*Developer Mode.*DDI.*iOS 17"):
+                self.device.preflight()
+        report = json.loads((self.device.output / "preflight.json").read_text())
+        self.assertEqual(report["checks"], {"pairing": "fail", "tunnel": "fail", "Developer Mode": "fail", "DDI": "fail", "iOS 17+": "fail", "unlocked": "unknown"})
+        self.assertIn("DDI mount failed", report["errors"]["ddiServices"])
+
+    def test_preflight_does_not_invent_lock_state_fields(self):
+        details = {"connectionProperties": {"pairingState": "paired", "tunnelState": "connected"},
+                   "deviceProperties": {"developerModeStatus": "enabled", "ddiServicesAvailable": True, "osVersionNumber": "26.0"}}
+        with patch.object(self.device, "call", side_effect=[{}, details, {"isLocked": True}]):
+            self.device.preflight()
+        report = json.loads((self.device.output / "preflight.json").read_text())
+        self.assertEqual(report["checks"]["unlocked"], "unknown")
+        self.assertEqual(report["lockState"], {"isLocked": True})
+
     def test_terminate_kills_process_after_grace(self):
         running = {"runningProcesses": [{"processIdentifier": 42}]}
         with patch.object(self.device, "call", side_effect=[running, {}, running, {}]) as call, patch.object(ios.time, "monotonic", side_effect=[0, 6]):
@@ -72,6 +92,17 @@ class DeviceTests(unittest.TestCase):
         self.assertEqual(capture, "Documents/harness-unique")
         self.assertEqual(required, ios.STEPS)
         self.assertEqual(timeout, 240)
+        args, _, capture, _, _ = ios.harness_options(["-harness-out", "user://custom"], "unique")
+        self.assertEqual(capture, "Documents/custom-unique")
+        self.assertEqual(args[args.index("-harness-run-id") + 1], "unique")
+
+    def test_fallback_log_requires_current_marker(self):
+        for valid_source in ["Documents/harness-unique.log", "Documents/logs/godot.log", None]:
+            def pull(source, destination):
+                Path(destination).write_text("HARNESS RUN " + ("unique" if source == valid_source else "old") + "\nHARNESS RESULT PASS\n")
+            with self.subTest(source=valid_source), patch.object(self.device, "pull", side_effect=pull):
+                data = self.device.run_log("Documents/harness-unique.log", "HARNESS RUN unique")
+            self.assertEqual(data is not None, valid_source is not None)
 
     def test_authoritative_result_validation(self):
         valid = "".join("HARNESS STEP " + step + " OK detail\n" for step in ios.STEPS) + "HARNESS RESULT PASS\n"
@@ -81,24 +112,51 @@ class DeviceTests(unittest.TestCase):
                 ios.verify_log(invalid, ios.STEPS)
 
     def test_harness_terminates_and_checks_final_pull(self):
-        valid = "".join("HARNESS STEP " + step + " OK detail\n" for step in ios.STEPS) + "HARNESS RESULT PASS\n"
+        valid = "HARNESS RUN unique\n" + "".join("HARNESS STEP " + step + " OK detail\n" for step in ios.STEPS) + "HARNESS RESULT PASS\n"
         pulls = []
         def pull(source, destination):
             pulls.append(source)
-            Path(destination).write_text(valid if len(pulls) == 1 else valid + "HARNESS RESULT PASS\n")
-        with patch.object(self.device, "preflight"), patch.object(self.device, "launch", return_value=42), patch.object(self.device, "pull", side_effect=pull), patch.object(self.device, "terminate") as terminate, patch.object(self.device, "captures"), self.assertRaises(RuntimeError):
+            Path(destination).write_text(valid if len(pulls) <= 2 else valid + "HARNESS RESULT PASS\n")
+        with patch.object(ios.uuid, "uuid4", return_value=SimpleNamespace(hex="unique")), patch.object(self.device, "preflight"), patch.object(self.device, "launch", return_value=42), patch.object(self.device, "pull", side_effect=pull), patch.object(self.device, "terminate") as terminate, patch.object(self.device, "captures"), patch.object(self.device, "cleanup"), self.assertRaises(RuntimeError):
             ios.harness(self.device, [])
         terminate.assert_called_once_with(42)
-        self.assertEqual(len(pulls), 2)
+        self.assertEqual(len(pulls), 4)
 
     def test_harness_preserves_evidence_after_termination_failure(self):
-        valid = "".join("HARNESS STEP " + step + " OK detail\n" for step in ios.STEPS) + "HARNESS RESULT PASS\n"
+        valid = "HARNESS RUN unique\n" + "".join("HARNESS STEP " + step + " OK detail\n" for step in ios.STEPS) + "HARNESS RESULT PASS\n"
         def pull(source, destination):
             Path(destination).write_text(valid)
-        with patch.object(self.device, "preflight"), patch.object(self.device, "launch", return_value=42), patch.object(self.device, "pull", side_effect=pull) as pulls, patch.object(self.device, "terminate", side_effect=RuntimeError("tunnel lost")), patch.object(self.device, "captures") as captures, self.assertRaisesRegex(RuntimeError, "tunnel lost"):
+        with patch.object(ios.uuid, "uuid4", return_value=SimpleNamespace(hex="unique")), patch.object(self.device, "preflight"), patch.object(self.device, "launch", return_value=42), patch.object(self.device, "pull", side_effect=pull) as pulls, patch.object(self.device, "terminate", side_effect=RuntimeError("tunnel lost")), patch.object(self.device, "captures") as captures, patch.object(self.device, "cleanup"), self.assertRaisesRegex(RuntimeError, "tunnel lost"):
             ios.harness(self.device, [])
-        self.assertEqual(pulls.call_count, 2)
+        self.assertEqual(pulls.call_count, 4)
         captures.assert_called_once()
+
+    def test_completed_run_clears_host_captures_and_cleans_device_after_pull(self):
+        captures = self.device.output / "captures"
+        captures.mkdir()
+        (captures / "stale.png").touch()
+        operations = []
+        def pull(source, destination):
+            operations.append(source)
+            Path(destination).write_text("HARNESS RUN unique\nHARNESS STEP arkit-session OK ready\nHARNESS RESULT PASS\n")
+        def pull_captures(source, destination):
+            self.assertFalse((destination / "stale.png").exists())
+            operations.append("captures")
+        def cleanup(token, capture):
+            self.assertEqual((token, capture), ("unique", "user://custom-unique"))
+            self.assertEqual(operations[-1], "captures")
+        with patch.object(ios.uuid, "uuid4", return_value=SimpleNamespace(hex="unique")), patch.object(self.device, "preflight"), patch.object(self.device, "launch", return_value=42), patch.object(self.device, "pull", side_effect=pull), patch.object(self.device, "terminate"), patch.object(self.device, "captures", side_effect=pull_captures), patch.object(self.device, "cleanup", side_effect=cleanup):
+            ios.harness(self.device, ["-harness-steps", "arkit-session", "-harness-out", "user://custom"])
+        self.assertIn("HARNESS RUN unique", (self.device.output / "latest.log").read_text())
+
+    def test_cleanup_launch_waits_for_its_receipt_and_terminates(self):
+        def pull(source, destination):
+            self.assertEqual(source, "Documents/logs/godot.log")
+            Path(destination).write_text("HARNESS CLEANUP unique OK\n")
+        with patch.object(self.device, "launch", return_value=43) as launch, patch.object(self.device, "pull", side_effect=pull), patch.object(self.device, "terminate") as terminate:
+            self.device.cleanup("unique", "user://harness-unique")
+        launch.assert_called_once_with(["-harness-cleanup", "unique", "-harness-out", "user://harness-unique"])
+        terminate.assert_called_once_with(43)
 
 
 if __name__ == "__main__":

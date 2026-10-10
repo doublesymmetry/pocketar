@@ -22,9 +22,10 @@ private:
 	std::unique_ptr<Impl> impl;
 	Ref<ARKitTexturePool> textures;
 	Ref<XRPositionalTracker> head;
-	Ref<ARFramePacket> current_packet, presented_packet;
+	Ref<ARFramePacket> current_packet, presented_packet, applied_packet;
 	std::map<std::string, Ref<ARPlaneTracker>> planes;
 	int64_t generation = 0, sequence = 0;
+	int64_t native_anchor_count = 0;
 	bool initialized = false;
 	bool suspended = false;
 	bool geometry_dirty = true;
@@ -43,6 +44,8 @@ private:
 	void set_state(SessionState p_state);
 	void increment(const char *p_key);
 	void run_session(bool p_reset);
+	void clear_packets();
+	void reset_relocalization();
 	void clear_planes();
 	void copy_planes(void *p_frame, ARFramePacket &r_packet);
 	bool on_owner_thread() const;
@@ -57,6 +60,8 @@ public:
 	TrackingReason get_tracking_reason() const { return reason; }
 	int64_t get_session_generation() const { return generation; }
 	Dictionary get_diagnostics() const;
+	Dictionary get_native_plane_identifiers() const;
+	int64_t get_native_anchor_count() const { return native_anchor_count; }
 	void reset();
 	void set_focus_auto(bool p_enabled);
 	void set_light_estimation_enabled(bool p_enabled);
@@ -66,7 +71,10 @@ public:
 	void set_display_geometry(const Vector2i &p_size, int p_turns, double p_near, double p_far);
 	Ref<ARFramePacket> get_current_packet() const { return current_packet; }
 	Ref<ARFramePacket> get_presented_packet() const { return presented_packet; }
+	void mark_applied(const Ref<ARFramePacket> &p_packet);
 	void mark_presented();
+	bool debug_check_camera_material(const RID &p_material);
+	void debug_set_camera_material(const RID &p_material);
 	Array live_hit_test(const Vector2 &p_pixels);
 	void application_pause();
 	void application_resume();

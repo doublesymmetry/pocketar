@@ -434,11 +434,22 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		diagnostics["projection_reprojection_rotation_samples"] = rotations;
 	}
 	TextureSlot *slot = find_texture_slot();
-	if (!slot) { increment("ring_drops"); return; }
+	if (!slot) {
+		increment("ring_drops");
+		increment("texture_refusals");
+		if (current_packet.is_valid()) {
+			packet->y_texture = current_packet->y_texture;
+			packet->cbcr_texture = current_packet->cbcr_texture;
+			packet->image_size = current_packet->image_size;
+		}
+		current_packet = packet;
+		head->set_pose("default", last_good_pose, Vector3(), Vector3(), packet->tracking_valid ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_NONE);
+		increment("packets_published");
+		return;
+	}
 	const uint64_t upload_start = tick_usec();
 	Ref<Image> y_image = Image::create_from_data(width, height, false, Image::FORMAT_R8, luma);
 	Ref<Image> uv_image = Image::create_from_data((width + 1) / 2, (height + 1) / 2, false, Image::FORMAT_RG8, chroma);
-	slot->packet.unref();
 	if (slot->y.is_null() || slot->y->get_width() != width || slot->y->get_height() != height) {
 		slot->y = ImageTexture::create_from_image(y_image);
 		slot->uv = ImageTexture::create_from_image(uv_image);
@@ -453,7 +464,6 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	packet->image_size = Vector2i(width, height);
 	packet->y_texture = slot->y;
 	packet->cbcr_texture = slot->uv;
-	slot->packet = packet;
 	slot->last_use = rd_swaps;
 	current_packet = packet;
 	head->set_pose("default", last_good_pose, Vector3(), Vector3(), packet->tracking_valid ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_NONE);

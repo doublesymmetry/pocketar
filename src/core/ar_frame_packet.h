@@ -14,6 +14,7 @@ class SyntheticARInterface;
 class ARCoreInterface;
 class ARKitInterface;
 
+// Copied values outlive presentation; native camera textures are valid only while current or presented.
 class ARFramePacket : public RefCounted {
 	GDCLASS(ARFramePacket, RefCounted)
 	friend class SyntheticARInterface;

@@ -17,6 +17,10 @@ var observed: Dictionary = {}
 var observed_seconds: float = 0.0
 var reference_material: ShaderMaterial
 var reference_frame: int = -1
+var seen_anchor_ids: Dictionary = {}
+var forbidden_anchor_ids: Dictionary = {}
+var reset_anchor_leaks: Dictionary = {}
+var reset_samples_remaining: int = 0
 
 
 func _ready() -> void:
@@ -47,6 +51,7 @@ func _ready() -> void:
 		_finish()
 		return
 	Engine.max_fps = 60
+	view.packet_applied.connect(_observe_anchor_ids)
 	get_tree().create_timer(timeout_seconds).timeout.connect(_timeout)
 	_run.call_deferred()
 
@@ -65,7 +70,9 @@ func _run() -> void:
 		return
 	observed_seconds = float(Time.get_ticks_usec() - started) / 1000000.0
 	observed = _diagnostics()
-	for name: String in selected_steps:
+	for name: String in STEPS:
+		if not selected_steps.has(name):
+			continue
 		if result_printed:
 			return
 		match name:
@@ -73,6 +80,7 @@ func _run() -> void:
 			"projection-form": _projection()
 			"display-transform": _display_transform()
 			"composite": await _composite()
+			"packet-retention": await _packet_retention()
 			"lifecycle": await _lifecycle()
 			"tracking": _tracking()
 	_finish()
@@ -95,12 +103,12 @@ func _session() -> bool:
 	ok = ok and RenderingServer.get_current_rendering_method() == "mobile" and RenderingServer.get_current_rendering_driver_name() == "metal"
 	var config: Dictionary = diagnostics["config"]
 	ok = ok and int(config.get("width", 0)) > 0 and int(config.get("height", 0)) > 0 and float(config.get("fps", 0)) > 0
-	_step("arkit-session", "OK" if ok else "FAIL", JSON.stringify(diagnostics))
+	_step("arkit-session", "OK" if ok else "FAIL", "camera_authorization=%s state=%s configured=%s config=%s details=diagnostics.json" % [diagnostics.get("camera_authorization_name", "unknown"), view.interface.call("get_session_state"), diagnostics["configured"], JSON.stringify(config)])
 	return ok
 
 
 func _camera_image() -> void:
-	var required: Array[String] = ["camera_path", "cpu_copy_count", "imports", "retirement_count", "native_release_count", "retirement_canary_enabled", "sample_checks", "premature_release_count", "sample_after_free_count", "same_branch_failures", "held_buffers", "buffer_high_water", "import_p50_us", "import_p95_us", "retire_p50_us", "retire_p95_us", "new_frame_count", "packets_published", "packets_presented", "config"]
+	var required: Array[String] = ["camera_path", "imports", "retirement_count", "native_release_count", "retirement_canary_enabled", "sample_checks", "material_sample_checks", "premature_release_count", "sample_after_free_count", "same_branch_failures", "texture_refusals", "buffer_drops", "retain_drop_count", "retain_drop_swaps_min", "retain_drop_swaps_max", "held_buffers", "buffer_high_water", "import_p50_us", "import_p95_us", "retire_p50_us", "retire_p95_us", "new_frame_count", "packets_published", "packets_presented", "config"]
 	if not _require("camera-image", observed, required):
 		return
 	var packet: ARFramePacket = view.interface.call("get_presented_packet") as ARFramePacket
@@ -113,23 +121,23 @@ func _camera_image() -> void:
 	var hz: float = float(published) / maxf(observed_seconds, 0.001)
 	var missing_fraction: float = float(maxi(0, frames - published)) / maxi(frames, 1)
 	var ok: bool = imported and frames > 0 and published > 0 and hz >= float(config.get("fps", 0)) * 0.8 and missing_fraction <= 0.05
-	ok = ok and observed["camera_path"] == "cvmetaltexturecache_texture2drd" and int(observed["cpu_copy_count"]) == 0
+	ok = ok and observed["camera_path"] == "cvmetaltexturecache_texture2drd"
 	ok = ok and _delta("imports") > 0 and _delta("retirement_count") > 0 and _delta("native_release_count") > 0 and _delta("packets_presented") > 0
-	ok = ok and bool(observed["retirement_canary_enabled"]) and int(observed["sample_checks"]) > 0
-	for key: String in ["premature_release_count", "sample_after_free_count", "same_branch_failures"]:
+	ok = ok and bool(observed["retirement_canary_enabled"]) and int(observed["sample_checks"]) > 0 and int(observed["material_sample_checks"]) > 0
+	for key: String in ["premature_release_count", "sample_after_free_count", "same_branch_failures", "texture_refusals", "buffer_drops"]:
 		ok = ok and int(observed[key]) == 0
-	ok = ok and int(observed["held_buffers"]) >= 0 and int(observed["held_buffers"]) <= 7 and int(observed["buffer_high_water"]) <= 7
+	ok = ok and int(observed["retain_drop_count"]) > 0
 	for key: String in ["import_p50_us", "import_p95_us", "retire_p50_us", "retire_p95_us"]:
 		ok = ok and is_finite(float(observed[key])) and float(observed[key]) >= 0
-	_step("camera-image", "OK" if ok else "FAIL", "seconds=%.3f frames=%d packets=%d hz=%.2f missing_fraction=%.4f imported=%s diagnostics=%s" % [observed_seconds, frames, published, hz, missing_fraction, imported, JSON.stringify(observed)])
+	_step("camera-image", "OK" if ok else "FAIL", "seconds=%.3f frames=%d packets=%d hz=%.2f missing_fraction=%.4f imported=%s refusals=%s drops=%s retain_drop_swaps=%s..%s retain_count_heuristic=not_GPU_completion_proof details=diagnostics.json" % [observed_seconds, frames, published, hz, missing_fraction, imported, observed["texture_refusals"], observed["buffer_drops"], observed["retain_drop_swaps_min"], observed["retain_drop_swaps_max"]])
 
 
 func _projection() -> void:
-	if not _require("projection-form", observed, ["projection_form_valid", "projection_form_samples", "projection_near_far_error", "projection_core_error_px", "pose_error", "native_depth_zero_to_one"]):
+	if not _require("projection-form", observed, ["projection_form_valid", "projection_form_samples", "projection_near_far_error", "projection_core_error_px", "projection_half_pixel_error_px", "projection_no_half_pixel_error_px", "orientations_seen", "projection_aspect_mismatch_count", "pose_error", "native_depth_zero_to_one"]):
 		return
 	var ok: bool = bool(observed["projection_form_valid"]) and int(observed["projection_form_samples"]) > 0 and bool(observed["native_depth_zero_to_one"])
 	ok = ok and _bounded(observed["projection_near_far_error"], 0.0001) and _bounded(observed["projection_core_error_px"], 0.25) and _bounded(observed["pose_error"], 0.0001)
-	_step("projection-form", "OK" if ok else "FAIL", "samples=%s near_far_error=%s core_error_px=%s pose_error=%s native_depth_zero_to_one=%s" % [observed["projection_form_samples"], observed["projection_near_far_error"], observed["projection_core_error_px"], observed["pose_error"], observed["native_depth_zero_to_one"]])
+	_step("projection-form", "OK" if ok else "FAIL", "samples=%s near_far_error=%s half_pixel_error_px=%s no_half_pixel_error_px=%s pose_error=%s orientations=%s aspect_mismatches=%s" % [observed["projection_form_samples"], observed["projection_near_far_error"], observed.get("projection_half_pixel_error_px"), observed.get("projection_no_half_pixel_error_px"), observed["pose_error"], observed.get("orientations_seen"), observed.get("projection_aspect_mismatch_count")])
 
 
 func _display_transform() -> void:
@@ -190,6 +198,8 @@ func _sync_reference(packet: ARFramePacket) -> void:
 	reference_material.set_shader_parameter("color_encoding", packet.color_encoding)
 	reference_material.set_shader_parameter("imported_chroma", packet.get("imported_chroma"))
 	reference_frame = packet.frame_id
+	if view.interface.has_method("debug_check_camera_material"):
+		view.interface.call("debug_check_camera_material", reference_material.get_rid())
 
 
 func _compare_camera(screen: Image, camera: Image) -> Dictionary:
@@ -216,6 +226,12 @@ func _compare_camera(screen: Image, camera: Image) -> Dictionary:
 	return result
 
 
+func _packet_retention() -> void:
+	var probe: RefCounted = preload("res://ar/packet_retention.gd").new()
+	var result: Dictionary = await probe.run(view)
+	_step("packet-retention", "OK" if bool(result["ok"]) else "FAIL", JSON.stringify(result))
+
+
 func _lifecycle() -> void:
 	if not view.interface.has_method("harness_pause") or not view.interface.has_method("harness_resume"):
 		_step("lifecycle", "FAIL", "owner lifecycle hooks unavailable")
@@ -240,20 +256,36 @@ func _lifecycle() -> void:
 		if result_printed:
 			return
 		var old_generation: int = int(view.interface.call("get_session_generation"))
+		for identifier: String in seen_anchor_ids:
+			forbidden_anchor_ids[identifier] = true
+		reset_samples_remaining = 5
 		view.interface.call("reset")
 		var generation: int = int(view.interface.call("get_session_generation"))
 		ok = ok and generation > old_generation and _presented_frame() == -1 and _old_trackers_absent(generation)
 		var resumed: bool = await _wait_for_packet(generation, -1)
 		ok = ok and resumed and _old_trackers_absent(generation)
+		await get_tree().create_timer(2.0).timeout
+		ok = ok and reset_anchor_leaks.is_empty() and reset_samples_remaining == 0
 	var after: Dictionary = _diagnostics()
 	ok = ok and int(after.get("pause_count", -1)) >= int(before["pause_count"]) + 2 and int(after.get("resume_count", -1)) >= int(before["resume_count"]) + 2 and int(after.get("reset_count", -1)) == int(before["reset_count"]) + 2
 	ok = ok and int(after.get("stale_tracker_count", -1)) == 0
-	for key: String in ["premature_release_count", "sample_after_free_count", "same_branch_failures"]:
+	for key: String in ["premature_release_count", "sample_after_free_count", "same_branch_failures", "texture_refusals", "buffer_drops"]:
 		ok = ok and int(after.get(key, -1)) == 0
 	ok = ok and int(after.get("held_buffers", 8)) <= 7 and int(after.get("buffer_high_water", 8)) <= 7
 	var timings: Dictionary = after.get("timings", {})
 	ok = _require("lifecycle", timings, ["first_frame_ms", "pause_ms", "resume_ms", "reset_ms"]) and ok
-	_step("lifecycle", "OK" if ok else "FAIL", "pause_count=%s resume_count=%s reset_count=%s stale_trackers=%s timings=%s" % [after.get("pause_count"), after.get("resume_count"), after.get("reset_count"), after.get("stale_tracker_count"), JSON.stringify(timings)])
+	_step("lifecycle", "OK" if ok else "FAIL", "pause_count=%s resume_count=%s reset_count=%s stale_trackers=%s prior_native_ids=%d reappeared=%d timings=%s" % [after.get("pause_count"), after.get("resume_count"), after.get("reset_count"), after.get("stale_tracker_count"), forbidden_anchor_ids.size(), reset_anchor_leaks.size(), JSON.stringify(timings)])
+
+
+func _observe_anchor_ids(packet: ARFramePacket) -> void:
+	var identifiers: Dictionary = view.interface.call("get_native_plane_identifiers") as Dictionary
+	for identifier: String in identifiers.values():
+		seen_anchor_ids[identifier] = true
+		if forbidden_anchor_ids.has(identifier):
+			reset_anchor_leaks[identifier] = true
+	if reset_samples_remaining > 0:
+		HarnessLog.write_line("ARKIT RESET generation=%s frame=%s anchor_count=%s" % [packet.session_generation, packet.frame_id, view.interface.call("get_native_anchor_count")])
+		reset_samples_remaining -= 1
 
 
 func _wait_for_packet(generation: int, after_frame: int) -> bool:
@@ -326,7 +358,7 @@ func _step(name: String, level: String, message: String) -> void:
 	if result_printed:
 		return
 	failed = failed or level == "FAIL"
-	print("HARNESS STEP %s %s %s" % [name, level, message])
+	HarnessLog.write_line("HARNESS STEP %s %s %s" % [name, level, message])
 
 
 func _timeout() -> void:
@@ -340,7 +372,7 @@ func _finish() -> void:
 		return
 	if view != null and view.interface != null and view.interface.has_method("get_diagnostics"):
 		var diagnostics: Dictionary = _diagnostics()
-		print("ARKIT DIAGNOSTICS " + JSON.stringify(diagnostics))
+		HarnessLog.write_line("ARKIT DIAGNOSTICS details=" + output_dir.path_join("diagnostics.json"))
 		var file: FileAccess = FileAccess.open(output_dir.path_join("diagnostics.json"), FileAccess.WRITE)
 		if file == null:
 			_step("output", "FAIL", "cannot save diagnostics: " + error_string(FileAccess.get_open_error()))
@@ -348,5 +380,5 @@ func _finish() -> void:
 			file.store_string(JSON.stringify(diagnostics, "\t"))
 			file.close()
 	result_printed = true
-	print("HARNESS RESULT " + ("FAIL" if failed else "PASS"))
+	HarnessLog.write_line("HARNESS RESULT " + ("FAIL" if failed else "PASS"))
 	get_tree().quit(1 if failed else 0)

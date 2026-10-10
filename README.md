@@ -1,13 +1,13 @@
 # godot-handheld-ar
 
 MIT handheld AR for Godot 4.7.2, with ARKit on iOS and ARCore on Android behind
-one Godot API. Native tracking is not implemented yet.
+one Godot API. Native backends are implemented; iPhone validation is pending.
 
 Milestone 1 supplies platform build/export skeletons and a synthetic rendering
 harness. Its checks cover monoscopic XR with a HUD, off-centre projection and
 screen rays, separate camera composition, colour invariance, transparency,
 coherent image/pose packets and orientation changes. The camera uses generated
-YCbCr calibration frames; the native provider stubs report `unsupported`.
+YCbCr calibration frames. The AR demo selects the native backend on each phone.
 
 From the repository's devenv shell:
 
@@ -33,3 +33,9 @@ iOS exports are loose Xcode projects under `build/exports/ios/debug/` and
 
 The completed build and logic checks are recorded in
 [the validation log](docs/milestone-1-validation.md); GPU and device checks remain pending.
+
+`ARFramePacket` keeps pose, projection, intrinsics, display transform, tracking and
+plane values valid for later touches and raycasts. Native camera textures are valid
+only while the packet is current or presented. Script-held Refs do not pin them:
+retired ARKit textures sample the engine default, and reused ARCore slots may show
+newer pixels. ARView internally protects its applied textures until replacement.

@@ -103,9 +103,17 @@ and `SceneRoot`. The camera is a separate SDR canvas underneath its texture; a
 CanvasLayer holds ordinary HUD Controls above both. Controls receive input first.
 Unconsumed presses emit a ray through `ARView.screen_to_ray()`.
 
-Packets contain copied calibration, pose, UV mapping, IDs, timestamps, validity
-and owned textures. Setters affect the next acquisition. Below the render rate,
-the entire packet repeats. Resize/calibration changes acquire a new complete
+`ARFramePacket` contains copied calibration, pose, UV mapping, IDs, timestamps,
+tracking state and planes. These values remain valid for the packet's lifetime.
+On both native backends, camera textures are valid only while the packet is
+current or presented; ARView also protects the last packet applied to its material
+until it replaces or clears that material. Script-held packet or texture Refs do
+not extend camera-image lifetime. An old ARKit Texture2DRD is cleared and samples
+the engine default; an old ARCore texture can show newer slot content. Keep the
+packet for touch/raycast values, not as an image archive. If texture acquisition
+is refused, pose, tracking and planes still advance using the previous textures,
+and `texture_refusals` increases. Setters affect the next acquisition. Below the
+render rate, the entire packet repeats. Resize/calibration changes acquire a new complete
 packet immediately on the next XR process. The synthetic clock is monotonic
 `Time.get_ticks_usec()`; orientation is clockwise quarter turns relative to the
 fixed camera image. Automatic synthetic orientation chooses 0 for landscape and
@@ -135,11 +143,11 @@ and `ARView.world_3d`. ARView owns a private world so the surrounding game's mai
 viewport cannot render its AR objects accidentally. `world_3d` returns that active
 world via `find_world_3d()`, for physics queries and cameras sharing the AR scene.
 
-Three CPU Image slots are reused. Every published packet receives new
+The synthetic backend reuses three CPU Image slots. Every published packet receives new
 ImageTextures. No fixed ring of GPU textures is overwritten: retained packets
 keep their own image resources, and Godot handles RID retirement behind fences.
 This deliberately favours correctness over upload/allocation throughput. It is
-not the native image-import lifetime solution for milestone 2.
+separate from the native backend texture-lifetime contract above.
 
 ## Engine evidence
 
@@ -220,13 +228,21 @@ into `build/harness/<platform>/android-userdata.tar`; release builds cannot use
 `build/harness/<platform>/latest.log`, with separate `android` and `android-ar`
 directories and `desktop` used for the `macos` alias.
 
-The iOS harness passes devicectl's `--`, then the engine's
-`--log-file user://logs/harness.log`, then Godot's `--` and the harness arguments.
-It polls `Documents/logs/harness.log` through devicectl on iOS 17+, or afcclient
-on older devices, and parses that file. A per-run marker rejects stale logs.
-The host terminates the app after a result or timeout because iOS ignores quit().
-`IOS_DEVICE` must be a UDID for libimobiledevice; `IOS_VERSION` can override OS
-version discovery. Older devices also need ideviceinfo and idevicedebug 1.4.0.
+`harness ios` runs the synthetic rendering suite and writes to
+`build/harness/ios/`. It puts `--log-file user://harness-<id>.log` after
+devicectl's `--`, then Godot's `--` and the harness arguments; modern launches
+also pass validated debug-only `HANDHELD_AR_ARGS`. The runner pulls both the run
+log and `Documents/logs/godot.log`, accepting only a file with `HARNESS RUN <id>`.
+This tolerates either devicectl separator behavior, which remains unverified on
+the phone. Captures use `user://harness-<id>/`; `-harness-out` changes the prefix,
+and the runner appends its run ID. After pulling, the runner relaunches the
+app to delete only that run's log and capture directory and verifies a cleanup
+receipt. It terminates the app after each launch because iOS ignores quit().
+iOS cleanup accepts the runner's command-line request in debug and release builds;
+the environment argument channel remains debug-only. iOS 17+ uses devicectl;
+older transports use afcclient/idevicedebug 1.4.0 and need
+a UDID in `IOS_DEVICE`. `IOS_VERSION` overrides OS discovery. Use `ios-ar` for
+ARKit; the synthetic lane rejects `-harness-ar`.
 
 Headless cannot render. Run the desktop harness through ci4's GUI session, not a
 bare SSH command or this sandbox. It reads lossless viewport images after
@@ -290,10 +306,9 @@ plane's strides and released in the same tick. Missing images drop the whole
 packet. CPU R8/RG8 textures keep the existing shader's `.rg` chroma convention and
 full-range BT.601 conversion. The ring contains Q+3 pairs, where Q is
 RenderingDevice.get_frame_delay(). Only `_end_frame` counts completed RD swaps.
-A pair is reused after Q swaps since its last submitted use and only after all
-external packet and texture references are gone. Retaining every ring packet
-therefore drops new packets until readers release one; it never rewrites their
-pixels. The ring is library-owned CPU-upload storage, with no AHardwareBuffer
+A pair is reused after Q swaps since its last protected use, once no current,
+presented or ARView-applied packet uses it. Script-held Refs do not block reuse;
+stale packets can therefore show newer camera pixels. The ring is library-owned CPU-upload storage, with no AHardwareBuffer
 import or Metal retain workaround.
 
 `reset()` immediately increments the session generation, clears presentation and
@@ -457,18 +472,22 @@ the packet's calibration.
 The packet maps viewport UV to image UV using the inverse ARKit display transform.
 Intrinsics add 0.5 to the principal point as required by the SDK's pixel-centre
 convention. Orientation, viewport, pose and calibration are committed together;
-orientation/viewport aspect mismatches retain the previous packet until resize.
+a quarter-turn change waits for the window size to change or 0.5 seconds,
+whichever comes first. A half-turn commits immediately. ARView may have a
+landscape shape in a portrait window; its aspect never blocks orientation.
 The inherited identity XROrigin/reference-frame and unit-world-scale limits apply.
 
-Only two-plane full-range BT.601 (`420f` plus the matrix attachment) is accepted.
+Only two-plane full-range BT.601 is accepted. A missing matrix attachment keeps
+the established BT.601 matrix (`420f` defaults to it) and increments
+`color_tag_missing`; an explicitly different matrix or range is unsupported.
 `CVMetalTextureCache` wraps R8 and RG8 planes without CPU image copies, then RD
 imports and `Texture2DRD` expose them to the existing camera composite. The packet's
 `imported_chroma` flag selects `.ra`; CPU-uploaded synthetic/ARCore frames keep `.rg`.
 Unsupported colour encodings fail with a diagnostic instead of using a wrong matrix.
 
 The texture pool owns every CVPixelBuffer and both CVMetalTextureRefs independently
-of packet lifetime. A pair is eligible for retirement only after every external
-packet/texture/material reference is gone. On the render thread, clear/free the RS
+of packet lifetime. A pair retires once no current, presented or ARView-applied
+packet uses it, regardless of script-held Refs. On the render thread, clear/free the RS
 wrappers first, then free the imported RD RIDs at swap count s. Release CoreVideo
 owners at s+Q, where Q is `RenderingDevice.get_frame_delay()`. Only `_end_frame`
 increments the counter, as its first statement, after RD's actual swap. The pool
@@ -483,12 +502,17 @@ consumes that retain; the library must not balance it. Fixed 4.8 imports must
 produce a positive delta and disable the workaround. Version strings alone do not
 decide ownership. Device validation of this probe with Metal API Validation is
 required. The flush policy is `CVMetalTextureCacheFlush(cache, 0)` after swaps that
-release retired owners. At most seven camera buffers are held; retaining packets
-can cause whole new frames to be dropped, never early retirement.
+release retired owners. At most seven camera buffers are held. Retaining packets
+cannot pin those buffers. Retired Texture2DRD objects are cleared, never reused.
 
-The debug canary checks each submitted packet's imported RIDs and refuses sampling
-after retirement; releases assert the s+Q boundary and absence of wrapper owners.
-Any violation increments a harness-failing counter. A swap lasting at least 900ms
+In debug builds, the retirement canary records each native texture's retain count
+immediately after freeing imports and observes the first later swap where it drops.
+Diagnostics report `retain_drop_swaps_min/max`; releasing native owners without an
+observed drop increments `premature_release_count`. Retain counts are a heuristic:
+in-flight command buffers may also own references. This does not prove GPU
+completion. A separate check reads the background material's actual RS texture
+parameters and fails on retired RIDs. `camera-image` also requires zero
+`texture_refusals` and `buffer_drops`. A swap lasting at least 900ms
 extends every pending native retirement by another Q swaps. Godot's Metal fence
 wait still times out at 1s and ignores the failure: this mitigation cannot prove
 safe GPU work beyond that engine limit. Run the long-stall validation on the phone.
@@ -497,16 +521,23 @@ AVFoundation authorization is polled on the main thread; an async permission req
 does not capture the interface. Denial, including after Settings changes, pauses
 the session and clears presentation. Application pause/resume notifications call
 pause/run. ARKit delegate interruption events use the main queue, hide presentation
-and resume relocalization without calling pause themselves. State/reason values match
-ARCore. Relocalization defaults on; `set_relocalization_enabled` changes the delegate
+and resume relocalization only if the app still wants the session running.
+Reason codes share the semantics below; ARKit maps its native reasons explicitly. Relocalization defaults on; `set_relocalization_enabled` changes the delegate
 policy. Diagnostics report progress and `relocalization_timeout(generation)` is
-deferred after 30 seconds without recovery. The game decides whether to reset.
+deferred after 30 seconds without recovery. The game decides whether to reset. Pause, resume and reset clear the relocalization
+timer and timeout latch.
 Reset increments the process-wide generation immediately, removes trackers,
 invalidates presentation, and runs ResetTracking|RemoveExistingAnchors. Frames with
 timestamps at or before the reset's host-time cutoff are discarded.
 
-Planes keep UUID-derived opaque IDs within a generation and copy boundary vertices
-in local XZ with +Y normal. Removed anchors remove trackers. The core raycast handles
+Planes keep UUID-derived opaque IDs within a generation. Their pose is the centre
+of the extent rectangle, with its rotation about local +Y, and extents are its
+width and height. Boundary vertices are transformed into this frame and stored as
+local XZ with +Y normal. Positive `rotationOnYAxis` is assumed to follow Godot's
+right-handed +Y rotation; draw the extent rectangle over the polygon to verify
+that sign on the phone. Limited camera tracking pauses plane trackers and excludes
+them from polygon raycasts. Native UUID diagnostics and the lifecycle harness check
+that pre-reset anchors do not reappear and log the first post-reset anchor counts. Removed anchors remove trackers. The core raycast handles
 simple non-convex polygons in either winding. `live_hit_test(view_pixels)` uses a
 native ExistingPlaneGeometry query and returns generation, source timestamp, query
 ID and the packet frame ID when that native frame has been published (otherwise 0).
@@ -528,13 +559,17 @@ IOS_DEVICE=<udid> tools/harness.sh ios-ar -harness-duration 60
 IOS_DEVICE=<udid> tools/harness.sh ios-ar -harness-duration 1800
 ```
 
-Preflight checks pairing, tunnel, Developer Mode and DDI (requesting its mount),
-plus OS/lock state. Launch uses devicectl's `--` separator and a validated debug-only
-`HANDHELD_AR_ARGS` JSON array. A unique pulled Godot file log is authoritative;
-exactly one result and all requested ARKit steps must be present. The host terminates
-the app and pulls individual lossless capture files. No console mirroring or iOS
-`quit()` behavior is assumed. See `docs/ios-device.md` for the commands. Full-screen
-grabs remain follow-up work; pymobiledevice3 is not in the environment.
+`harness ios-ar` runs the debug ARKit suite on iOS 17+ and writes to
+`build/harness/ios-ar/`, with the verified file at `latest.log`. Preflight runs all
+pairing, tunnel, Developer Mode, DDI and OS checks, saving each status and errors
+to `preflight.json`; lock state is unknown. Launch uses devicectl's `--` and a
+validated debug-only `HANDHELD_AR_ARGS` JSON array. The runner pulls both the
+per-run log and `Documents/logs/godot.log`, accepting only its `HARNESS RUN <id>`
+marker, and requires every selected step plus exactly one result. It terminates
+the app, pulls the lossless captures, then relaunches a cleanup request to delete
+its run-specific log and capture directory and verifies the receipt. Output paths
+use the same per-run prefix convention as `ios`. Host captures are cleared before
+each run. See `docs/ios-device.md` for commands.
 
 One-time iPhone 12 setup, performed by its owner: finish Setup Assistant without a
 passcode, Face ID, Apple ID or Workspace account; connect to ci4 and tap Trust;
@@ -543,9 +578,46 @@ complete its restart/confirmation; enable Settings > Developer > UI Automation;
 set Privacy & Security > Wired Accessories to Always Allow. Silence notifications
 with a Focus. If a passcode is required, a human must unlock after every reboot.
 Register the UDID with signing team L7G7TF62MC during the first Xcode device build.
+After installing, launch the demo once and tap Allow on the camera prompt. The
+harness reports not-determined, restricted or denied authorization explicitly.
 
 The iPhone 7 Plus is a documented legacy libimobiledevice/XCUITest lane only. Its
 A10/iOS 15 cannot run this iOS 16+/Metal target. A separate Compatibility/iOS 15
 export and guarded library would be needed for a library-load smoke test there;
 do not lower the certified preset. See `docs/milestone-2-validation.md` for the
 compilation evidence, deviations and the iPhone 12 handoff.
+
+## Tracking reason semantics
+
+| Reason | ARCore | ARKit |
+| --- | --- | --- |
+| NONE | Normal tracking or initialization with no failure reason | Normal, Initializing, Relocalizing, NotAvailable after run; default after run |
+| BAD_STATE | Native bad-state failure | World-tracking failure or unknown native reason |
+| INSUFFICIENT_LIGHT | Native insufficient-light failure | Not emitted |
+| EXCESSIVE_MOTION | Native excessive motion | Limited(ExcessiveMotion) |
+| INSUFFICIENT_FEATURES | Native insufficient features | Limited(InsufficientFeatures) |
+| CAMERA_UNAVAILABLE | Camera cannot be used | Session interruption |
+
+Initializing and Relocalizing report `XR_UNKNOWN_TRACKING`; excessive motion
+reports `XR_EXCESSIVE_MOTION`. ARKit relocalization also has a diagnostics flag and
+the existing timeout signal.
+
+## Camera upload settings
+
+For ARCore CPU uploads, use
+`rendering/rendering_device/staging_buffer/block_size_kb=4096` and
+`rendering/rendering_device/staging_buffer/texture_upload_region_size_px=1024`.
+A region must fit in one staging block. The demo sets both; the library reads and
+reports the effective values but never changes a game's settings. It warns once
+per session start if the region is below 512 pixels.
+
+Claude measured the Pixel 6's 1920×1080 R8 upload with the default 256 KiB block
+and 64-pixel region, then with 4096 KiB/1024 pixels. Upload p50 fell from 2.37 to
+0.90 ms, upload p95 from 4.07 to 1.86 ms, and repack plus upload p95 from 5.56 to
+4.07 ms. The image was unchanged. Both native camera planes now use linear
+filtering, as does the synthetic camera.
+
+Both device suites run `tracking` before `lifecycle`. Their `packet-retention`
+step observes frame IDs/timestamps for two seconds, then keeps the last eight
+`packet_applied` packets for two seconds. Any dropped/refused frame or a stopped
+pose stream that had been advancing fails the step; physical motion is not required.

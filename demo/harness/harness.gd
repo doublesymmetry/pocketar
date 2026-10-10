@@ -21,13 +21,17 @@ var timeout_seconds: float = 240.0
 func _ready() -> void:
 	var launch: Dictionary = preload("res://ar/harness_args.gd").read()
 	var args: PackedStringArray = launch["args"]
-	if args.has("-harness-ar") or args.has("-ar-demo") or not String(launch["error"]).is_empty():
-		get_tree().change_scene_to_file.call_deferred("res://ar/ar_demo.tscn")
+	if preload("res://ar/harness_args.gd").cleanup(args):
+		get_tree().quit()
 		return
 	for index: int in range(args.size()):
 		if args[index] == "-harness-run-id" and index + 1 < args.size():
 			HarnessLog.write_line("HARNESS RUN " + args[index + 1])
-		elif args[index] == "-harness-out" and index + 1 < args.size():
+	if args.has("-harness-ar") or args.has("-ar-demo") or not String(launch["error"]).is_empty():
+		get_tree().change_scene_to_file.call_deferred("res://ar/ar_demo.tscn")
+		return
+	for index: int in range(args.size()):
+		if args[index] == "-harness-out" and index + 1 < args.size():
 			output_dir = args[index + 1]
 		elif args[index] == "-harness-steps" and index + 1 < args.size():
 			selected_steps = args[index + 1].split(",", false)

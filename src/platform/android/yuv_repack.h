@@ -69,8 +69,8 @@ inline bool repack_yuv(int p_width, int p_height, const ImagePlane (&p_planes)[3
 	return true;
 }
 
-inline bool texture_slot_retired(uint64_t p_swaps, uint64_t p_last_use, uint32_t p_delay, bool p_referenced) {
-	return !p_referenced && p_swaps >= p_last_use && p_swaps - p_last_use >= p_delay;
+inline bool texture_slot_retired(uint64_t p_swaps, uint64_t p_last_use, uint32_t p_delay, bool p_active) {
+	return !p_active && p_swaps >= p_last_use && p_swaps - p_last_use >= p_delay;
 }
 
 }

@@ -25,7 +25,6 @@ private:
 	struct TextureSlot {
 		Ref<ImageTexture> y;
 		Ref<ImageTexture> uv;
-		Ref<ARFramePacket> packet;
 		uint64_t last_use = 0;
 	};
 	struct PlaneEntry {
@@ -77,7 +76,7 @@ private:
 	TrackingReason reason = NONE;
 	TrackingStatus tracking_status = XR_UNKNOWN_TRACKING;
 	Ref<XRPositionalTracker> head;
-	Ref<ARFramePacket> current_packet, presented_packet;
+	Ref<ARFramePacket> current_packet, presented_packet, applied_packet;
 	Dictionary diagnostics;
 	Dictionary timings;
 	Dictionary update_counts;
@@ -102,6 +101,7 @@ private:
 	Transform3D read_pose() const;
 	void build_packet(int64_t p_timestamp);
 	TextureSlot *find_texture_slot();
+	bool texture_slot_active(const TextureSlot &p_slot) const;
 	void inspect_projection(const ArCamera *p_camera, const float *p_projection);
 	void inspect_intrinsics(const ArCamera *p_camera, ARFramePacket &r_packet);
 	void inspect_hardware_buffer();
@@ -123,6 +123,7 @@ public:
 	void set_display_geometry(const Vector2i &p_size, int p_turns, double p_near, double p_far);
 	Ref<ARFramePacket> get_current_packet() const { return current_packet; }
 	Ref<ARFramePacket> get_presented_packet() const { return presented_packet; }
+	void mark_applied(const Ref<ARFramePacket> &p_packet);
 	void mark_presented();
 	Dictionary get_dataset_diagnostics() const { return extras.diagnostics(); }
 	Array live_hit_test(const Vector2 &p_pixels) { return extras.live_hit_test(p_pixels); }

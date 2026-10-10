@@ -51,6 +51,8 @@ func _ready() -> void:
 	if not interface.initialize():
 		push_error("%s initialization failed" % interface.get_name())
 		return
+	if OS.is_debug_build() and interface.has_method("debug_set_camera_material"):
+		interface.call("debug_set_camera_material", background.material.get_rid())
 	RenderingServer.frame_pre_draw.connect(_apply_packet)
 	RenderingServer.frame_post_draw.connect(_mark_presented)
 	_apply_packet()
@@ -62,6 +64,14 @@ func _exit_tree() -> void:
 	if RenderingServer.frame_post_draw.is_connected(_mark_presented):
 		RenderingServer.frame_post_draw.disconnect(_mark_presented)
 	if interface != null:
+		var shader: ShaderMaterial = background.material as ShaderMaterial
+		shader.set_shader_parameter("y_texture", null)
+		shader.set_shader_parameter("cbcr_texture", null)
+		applied_packet = null
+		if interface.is_initialized() and interface.has_method("mark_applied"):
+			interface.call("mark_applied", null)
+		if interface.is_initialized() and OS.is_debug_build() and interface.has_method("debug_set_camera_material"):
+			interface.call("debug_set_camera_material", RID())
 		interface.uninitialize()
 		XRServer.remove_interface(interface)
 
@@ -101,8 +111,12 @@ func _apply_packet() -> void:
 			waiting_for_packet = true
 			background.hide()
 			composite.hide()
+		if interface.is_initialized() and interface.has_method("mark_applied"):
+			interface.call("mark_applied", null)
+		_check_camera_material(shader)
 		return
 	if packet == applied_packet:
+		_check_camera_material(shader)
 		return
 	virtual_scene.size = Vector2i(packet.viewport_size)
 	shader.set_shader_parameter("y_texture", packet.y_texture)
@@ -113,11 +127,19 @@ func _apply_packet() -> void:
 	shader.set_shader_parameter("color_encoding", packet.color_encoding)
 	shader.set_shader_parameter("imported_chroma", packet.imported_chroma)
 	applied_packet = packet
+	if interface.has_method("mark_applied"):
+		interface.call("mark_applied", packet)
+	_check_camera_material(shader)
 	if waiting_for_packet:
 		waiting_for_packet = false
-		background.show()
 		composite.show()
+	background.visible = packet.y_texture != null and packet.cbcr_texture != null
 	packet_applied.emit(packet)
+
+
+func _check_camera_material(shader: ShaderMaterial) -> void:
+	if interface.is_initialized() and OS.is_debug_build() and interface.has_method("debug_check_camera_material"):
+		interface.call("debug_check_camera_material", shader.get_rid())
 
 
 func _sync_environment() -> void:

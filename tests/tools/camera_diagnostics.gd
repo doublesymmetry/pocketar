@@ -20,6 +20,8 @@ func _initialize() -> void:
 		"image_timestamp_delta_min_ns": 0, "image_timestamp_delta_mean_ns": 4340000.0,
 		"image_timestamp_delta_max_ns": 9180000, "timestamp_regressions": 0,
 		"image_layout": "NV21",
+		"texture_refusals": 0, "ring_drops": 0,
+		"staging_block_size_kb": 4096, "texture_upload_region_size_px": 1024,
 		"image_plane_layout": [
 			{"row_stride": 1920, "pixel_stride": 1, "data_length": 2073600},
 			{"row_stride": 1920, "pixel_stride": 2, "data_length": 1036799},
@@ -38,6 +40,8 @@ func _initialize() -> void:
 		{"timestamp_regressions": 1},
 		{"camera_image_count": 1000},
 		{"image_not_yet_available": 100},
+		{"texture_refusals": 1},
+		{"ring_drops": 1},
 	]:
 		var data: Dictionary = observed.duplicate(true)
 		data.merge(invalid, true)

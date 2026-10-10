@@ -23,7 +23,8 @@ Commands used the supplied shell directly; no devenv invocation was needed.
   fallback and AR Required/Optional capability overrides without duplicate plist keys.
 - `demo/ar/ar_demo.gd`, new `ios_ar_harness.gd` and `harness_args.gd`, the entry
   routing in `demo/harness/harness.gd`, and iOS file logging in `demo/project.godot`
-  provide the seven-step device harness and validated debug environment arguments.
+  provide the device harness and validated debug environment arguments. Fix round 3
+  adds its eighth step, `packet-retention`.
 - New `tools/device.sh` and `tools/ios-device.py`, plus the `ios-ar` branch of
   `tools/harness.sh`, provide preflight, install, detached launch, termination and
   individual file pulls. The existing synthetic `ios` transport is untouched.
@@ -81,9 +82,9 @@ creation reports unavailable CoreSimulator services but completes successfully.
 
 1. The task explicitly requires direct Y/CbCr `Texture2DRD` imports. The GPU brief's
    preferred one-frame RGB conversion pass and stable custom Texture2D wrappers
-   are not used. Each immutable packet can keep its textures alive; external
-   references delay retirement and cause whole-packet drops when all seven slots
-   are held. Safe mode makes Texture2DRD's change notifications stay on the main
+   are not used. Fix round 3 retires textures independently of script-held packet Refs. Only
+   current, presented and ARView-applied textures are protected; retained packet
+   values stay valid after their textures retire. Safe mode makes Texture2DRD's change notifications stay on the main
    render owner. The separate zero-view retirement interface lets cleanup continue
    after the primary camera interface is removed.
 2. Safe rendering mode and identity XROrigin/reference-frame/unit-scale remain the
@@ -141,7 +142,7 @@ frameworks and loads the extension once. Those steps have not run here.
 2. Run Q=2,3,4. Correlate free_swap with actual driver texture destruction at s+Q;
    require growing retirement/release counts and zero canary violations. Retain a
    few packets/textures deliberately, remove/recreate ARView, reset during motion,
-   and ensure old pixels survive. Inject a greater-than-one-second GPU stall under
+   and ensure packet values survive while old texture wrappers clear. Inject a greater-than-one-second GPU stall under
    validation. The 900ms extension is a mitigation, not a repair of Godot's ignored
    fence timeout, and the CPU canary cannot prove GPU completion after that timeout.
 3. Physically rotate through all four interface orientations. Check upright
