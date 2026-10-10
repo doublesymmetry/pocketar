@@ -1,0 +1,20 @@
+#pragma once
+
+#include <godot_cpp/variant/packed_vector2_array.hpp>
+#include <godot_cpp/variant/transform3d.hpp>
+#include <cstdint>
+
+namespace godot {
+
+struct ARPlaneSnapshot {
+	int64_t plane_id = 0;
+	int alignment = 0;
+	Vector2 extents;
+	PackedVector2Array polygon;
+	int64_t subsumed_by = 0;
+	int tracking_state = 1;
+	Transform3D transform;
+	int64_t session_generation = 0;
+};
+
+}

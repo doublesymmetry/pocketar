@@ -1,4 +1,5 @@
 #include "synthetic_ar_interface.h"
+#include "ar_ids.h"
 
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
@@ -34,7 +35,7 @@ bool SyntheticARInterface::_initialize() {
 	head->set_tracker_desc("Synthetic handheld camera");
 	XRServer::get_singleton()->add_tracker(head);
 	initialized = true;
-	generation++;
+	generation = next_ar_id();
 	sequence = 0;
 	set_primary(true);
 	make_packet(Time::get_singleton()->get_ticks_usec());
@@ -138,6 +139,7 @@ void SyntheticARInterface::make_packet(uint64_t p_tick) {
 	packet->session_generation = generation;
 	packet->frame_id = sequence;
 	packet->timestamp_usec = p_tick;
+	packet->timestamp_ns = p_tick * 1000;
 	packet->intrinsics = intrinsics;
 	packet->viewport_size = viewport_size;
 	packet->quarter_turns = quarter_turns;
@@ -151,6 +153,9 @@ void SyntheticARInterface::make_packet(uint64_t p_tick) {
 		packet->camera_transform = Transform3D(Basis(), Vector3(0, 0, -2) - point);
 	}
 	packet->image_size = Vector2i(width, height);
+	packet->physical_camera_transform = packet->camera_transform;
+	packet->gpu_image_size = packet->image_size;
+	packet->camera_fps = Vector2i(int(std::lround(camera_rate)), int(std::lround(camera_rate)));
 	// Reuse CPU storage only; packet textures are immutable and retire with Godot's RID fences.
 	packet->y_texture = ImageTexture::create_from_image(y_images[slot]);
 	packet->cbcr_texture = ImageTexture::create_from_image(cbcr_images[slot]);

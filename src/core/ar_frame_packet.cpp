@@ -10,12 +10,22 @@ void ARFramePacket::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "frame_id"), "", "get_frame_id");
 	ClassDB::bind_method(D_METHOD("get_timestamp_usec"), &ARFramePacket::get_timestamp_usec);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "timestamp_usec"), "", "get_timestamp_usec");
+	ClassDB::bind_method(D_METHOD("get_timestamp_ns"), &ARFramePacket::get_timestamp_ns);
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "timestamp_ns"), "", "get_timestamp_ns");
+	ClassDB::bind_method(D_METHOD("get_clock_domain"), &ARFramePacket::get_clock_domain);
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "clock_domain"), "", "get_clock_domain");
 	ClassDB::bind_method(D_METHOD("get_camera_transform"), &ARFramePacket::get_camera_transform);
 	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM3D, "camera_transform"), "", "get_camera_transform");
+	ClassDB::bind_method(D_METHOD("get_physical_camera_transform"), &ARFramePacket::get_physical_camera_transform);
+	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM3D, "physical_camera_transform"), "", "get_physical_camera_transform");
 	ClassDB::bind_method(D_METHOD("get_projection"), &ARFramePacket::get_projection);
 	ADD_PROPERTY(PropertyInfo(Variant::PROJECTION, "projection"), "", "get_projection");
 	ClassDB::bind_method(D_METHOD("get_image_size"), &ARFramePacket::get_image_size);
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2I, "image_size"), "", "get_image_size");
+	ClassDB::bind_method(D_METHOD("get_gpu_image_size"), &ARFramePacket::get_gpu_image_size);
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2I, "gpu_image_size"), "", "get_gpu_image_size");
+	ClassDB::bind_method(D_METHOD("get_camera_fps"), &ARFramePacket::get_camera_fps);
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2I, "camera_fps"), "", "get_camera_fps");
 	ClassDB::bind_method(D_METHOD("get_display_transform"), &ARFramePacket::get_display_transform);
 	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM2D, "display_transform"), "", "get_display_transform");
 	ClassDB::bind_method(D_METHOD("get_y_texture"), &ARFramePacket::get_y_texture);
@@ -28,9 +38,44 @@ void ARFramePacket::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "tracking_valid"), "", "get_tracking_valid");
 	ClassDB::bind_method(D_METHOD("get_viewport_size"), &ARFramePacket::get_viewport_size);
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "viewport_size"), "", "get_viewport_size");
+	ClassDB::bind_method(D_METHOD("get_quarter_turns"), &ARFramePacket::get_quarter_turns);
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "quarter_turns"), "", "get_quarter_turns");
+	ClassDB::bind_method(D_METHOD("get_intrinsics"), &ARFramePacket::get_intrinsics);
+	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "intrinsics"), "", "get_intrinsics");
+	ClassDB::bind_method(D_METHOD("get_planes"), &ARFramePacket::get_planes);
+	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "planes"), "", "get_planes");
+	ClassDB::bind_method(D_METHOD("get_point_cloud"), &ARFramePacket::get_point_cloud);
+	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "point_cloud"), "", "get_point_cloud");
 	BIND_ENUM_CONSTANT(BT601_FULL);
 	BIND_ENUM_CONSTANT(BT601_VIDEO);
 	BIND_ENUM_CONSTANT(BT709_FULL);
+}
+
+Dictionary ARFramePacket::get_intrinsics() const {
+	Dictionary result;
+	result["fx"] = intrinsics.fx;
+	result["fy"] = intrinsics.fy;
+	result["cx"] = intrinsics.cx;
+	result["cy"] = intrinsics.cy;
+	result["image_size"] = Vector2i(intrinsics.image_size);
+	return result;
+}
+
+TypedArray<Dictionary> ARFramePacket::get_planes() const {
+	TypedArray<Dictionary> result;
+	for (const ARPlaneSnapshot &plane : planes) {
+		Dictionary value;
+		value["plane_id"] = plane.plane_id;
+		value["session_generation"] = plane.session_generation;
+		value["alignment"] = plane.alignment;
+		value["extents"] = plane.extents;
+		value["polygon"] = plane.polygon.duplicate();
+		value["subsumed_by"] = plane.subsumed_by;
+		value["tracking_state"] = plane.tracking_state;
+		value["transform"] = plane.transform;
+		result.push_back(value);
+	}
+	return result;
 }
 
 ARRay ray_from_screen(const Ref<ARFramePacket> &p_packet, const Vector2 &p_viewport_size, const Vector2 &p_screen_point) {

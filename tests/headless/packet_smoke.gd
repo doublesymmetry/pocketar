@@ -31,6 +31,15 @@ func _run() -> void:
 	_check(first.color_encoding == ARFramePacket.BT601_FULL, "encoding")
 	_check(first.image_size == Vector2i(640, 480), "image size")
 	_check(first.viewport_size == Vector2(720, 960), "viewport size")
+	_check(first.timestamp_ns == first.timestamp_usec * 1000, "synthetic timestamp units")
+	_check(first.physical_camera_transform == first.camera_transform, "synthetic physical pose")
+	_check(first.quarter_turns == 1, "packet display rotation")
+	var calibration: Dictionary = first.intrinsics
+	calibration["fx"] = 1
+	_check(first.intrinsics["fx"] == 520, "returned intrinsics cannot mutate packet")
+	var planes: Array[Dictionary] = first.planes
+	planes.append({"plane_id": 99})
+	_check(first.planes.is_empty(), "returned plane array cannot mutate packet")
 	var projection: Projection = interface.get_projection_for_view(0, 720.0 / 960.0, 0.17, 23.0)
 	for column: int in range(4):
 		_check(projection[column].is_equal_approx(first.projection[column]), "XR and packet projection")
@@ -62,5 +71,12 @@ func _run() -> void:
 	interface.uninitialize()
 	XRServer.remove_interface(interface)
 	interface = null
+	var replacement := SyntheticARInterface.new()
+	XRServer.add_interface(replacement)
+	_check(replacement.initialize(), "replacement initialization")
+	_check(replacement.get_current_packet().session_generation > generation, "generation survives interface replacement")
+	replacement.uninitialize()
+	XRServer.remove_interface(replacement)
+	replacement = null
 	print("PACKET RESULT " + ("PASS" if failures == 0 else "FAIL"))
 	quit(0 if failures == 0 else 1)

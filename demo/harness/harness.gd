@@ -20,6 +20,9 @@ var timeout_seconds: float = 240.0
 
 func _ready() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
+	if args.has("-harness-ar"):
+		get_tree().change_scene_to_file.call_deferred("res://ar/ar_demo.tscn")
+		return
 	for index: int in range(args.size()):
 		if args[index] == "-harness-out" and index + 1 < args.size():
 			output_dir = args[index + 1]

@@ -1,4 +1,6 @@
 #include "core/handheld_ar.h"
+#include "core/ar_plane_tracker.h"
+#include "core/ar_raycast_hit.h"
 #include "core/synthetic_ar_interface.h"
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/os.hpp>
@@ -8,7 +10,7 @@
 #ifdef IOS_ENABLED
 #include "platform/ios/interface_stub.h"
 #elif defined(ANDROID_ENABLED)
-#include "platform/android/interface_stub.h"
+#include "platform/android/arcore_interface.h"
 #endif
 
 using namespace godot;
@@ -20,6 +22,8 @@ static void initialize_handheld_ar(ModuleInitializationLevel p_level) {
 		return;
 	}
 	GDREGISTER_CLASS(ARFramePacket);
+	GDREGISTER_CLASS(ARPlaneTracker);
+	GDREGISTER_CLASS(ARRaycastHit);
 	GDREGISTER_CLASS(HandheldAR);
 	GDREGISTER_CLASS(SyntheticARInterface);
 #ifdef IOS_ENABLED

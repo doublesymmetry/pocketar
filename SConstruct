@@ -17,7 +17,8 @@ env.Append(CPPPATH=["src"])
 sources = Glob("src/*.cpp") + Glob("src/core/*.cpp")
 platform = env["platform"]
 if platform == "android":
-    env.Append(LINKFLAGS=["-static-libstdc++", "-Wl,-z,max-page-size=16384"])
+    env.Append(LINKFLAGS=["-static-libstdc++", "-Wl,-z,max-page-size=16384"],
+               CPPPATH=["thirdparty/arcore/include"], LIBS=["dl", "EGL", "android", "log"])
 if platform not in ("macos", "ios", "android"):
     Exit("Supported platforms: macos, ios, android")
 if platform in ("ios", "android"):
