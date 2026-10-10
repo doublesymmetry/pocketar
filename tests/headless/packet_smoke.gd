@@ -32,7 +32,9 @@ func _run() -> void:
 	_check(first.image_size == Vector2i(640, 480), "image size")
 	_check(first.viewport_size == Vector2(720, 960), "viewport size")
 	_check(first.timestamp_ns == first.timestamp_usec * 1000, "synthetic timestamp units")
-	_check(first.physical_camera_transform == first.camera_transform, "synthetic physical pose")
+	var display_rotation := Transform3D(Basis(Vector3.BACK, PI * 0.5), Vector3.ZERO)
+	_check(first.physical_camera_transform == Transform3D.IDENTITY, "synthetic physical pose")
+	_check(first.camera_transform.is_equal_approx(display_rotation), "display-oriented pose")
 	_check(first.quarter_turns == 1, "packet display rotation")
 	var calibration: Dictionary = first.intrinsics
 	calibration["fx"] = 1
@@ -49,21 +51,35 @@ func _run() -> void:
 	for _frame: int in range(3):
 		await process_frame
 	_check(interface.get_current_packet() == first, "camera rate repeats the whole packet")
-	_check(first.camera_transform == Transform3D.IDENTITY, "pending pose cannot alter old packet")
+	_check(first.camera_transform.is_equal_approx(display_rotation), "pending pose cannot alter old packet")
 	interface.set_camera_rate(240.0)
 	for _frame: int in range(8):
 		await process_frame
 	var current: ARFramePacket = interface.get_current_packet()
 	_check(current.frame_id > first.frame_id + 3, "advanced beyond CPU ring length")
-	_check(current.camera_transform == next_pose, "pose acquired with next image")
+	_check(current.physical_camera_transform == next_pose, "physical pose acquired with next image")
+	_check(current.camera_transform.is_equal_approx(next_pose * display_rotation), "display pose acquired with next image")
 	_check(current.timestamp_usec > first.timestamp_usec, "monotonic timestamps")
 	_check(current.y_texture != first.y_texture and current.cbcr_texture != first.cbcr_texture, "old packet keeps its textures")
-	_check(first.camera_transform == Transform3D.IDENTITY, "old transform survives ring reuse")
+	_check(first.camera_transform.is_equal_approx(display_rotation), "old transform survives ring reuse")
 	_check(interface.get_presented_packet() == first, "acquisition does not advance presented packet")
 	var ray: Dictionary = HandheldAR.screen_to_ray(first, Vector2(720, 960), Vector2(360, 480))
 	_check(ray["origin"] == Vector3.ZERO and ray["frame_id"] == first.frame_id, "ray uses specified snapshot")
 	interface.mark_presented()
 	_check(interface.get_presented_packet() == current, "explicit presentation")
+	for turns: int in range(4):
+		var viewport_size := Vector2i(720, 960) if turns % 2 else Vector2i(960, 720)
+		interface.set_display_geometry(viewport_size, turns, 0.17, 23.0)
+		await process_frame
+		await process_frame
+		var rotated: ARFramePacket = interface.get_current_packet()
+		var upright: Projection = rotated.projection
+		_check(upright.x.x > 0 and upright.y.y > 0 and is_finite(upright.get_aspect()), "upright packet rotation %d" % turns)
+		var xr_projection: Projection = interface.get_projection_for_view(0, float(viewport_size.x) / viewport_size.y, 0.17, 23.0)
+		for column: int in range(4):
+			_check(xr_projection[column].is_equal_approx(upright[column]), "upright XR rotation %d" % turns)
+		var rotation := Transform3D(Basis(Vector3.BACK, turns * PI * 0.5), Vector3.ZERO)
+		_check(rotated.camera_transform.is_equal_approx(rotated.physical_camera_transform * rotation), "display pose rotation %d" % turns)
 	var generation: int = current.session_generation
 	interface.uninitialize()
 	_check(interface.initialize(), "reinitialization")

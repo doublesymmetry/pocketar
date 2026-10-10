@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 import os
+import json
 import math
 from pathlib import Path
 import re
 import selectors
 import shlex
+import shutil
 import subprocess
 import sys
 import time
+import uuid
 
 
 PACKAGE = "org.doublesymmetry.handheldar.demo"
@@ -52,11 +55,113 @@ def android_launch(device, args):
     return device + ["shell", shlex.join(command)]
 
 
+def parse_log(data):
+    results = re.findall(rb"HARNESS RESULT (PASS|FAIL)\s*$", data, re.MULTILINE)
+    steps = [(name.decode(), status.decode()) for name, status in re.findall(
+        rb"HARNESS STEP ([a-z-]+) (OK|FAIL|INFO)\b", data)]
+    engine_error = b"SCRIPT ERROR:" in data or b"Shader compilation failed" in data
+    return results, steps, engine_error
+
+
+def verify_log(results, steps, engine_error, timed_out, bad_exit, required_steps=()):
+    missing_steps = set(required_steps) - {name for name, _ in steps}
+    failed_steps = [name for name, status in steps if status == "FAIL"]
+    if timed_out or results != [b"PASS"] or engine_error or bad_exit or missing_steps or failed_steps:
+        sys.stderr.write(f"Harness verification failed: results={results}, bad_exit={bad_exit}, timeout={timed_out}, script_error={engine_error}, missing_steps={sorted(missing_steps)}, failed_steps={failed_steps}\n")
+        return 1
+    return 0
+
+
+def ios_major_version(device, output):
+    version = os.environ.get("IOS_VERSION")
+    if not version:
+        if shutil.which("ideviceinfo"):
+            version = subprocess.check_output(["ideviceinfo", "-u", device, "-k", "ProductVersion"], text=True, timeout=30).strip()
+        else:
+            details = output / "device.json"
+            subprocess.run(["xcrun", "devicectl", "device", "info", "details", "--device", device,
+                            "--json-output", str(details)], check=True, timeout=30)
+            version = json.loads(details.read_text())["result"]["deviceProperties"]["osVersionNumber"]
+    return int(version.split(".")[0])
+
+
+def ios_launch(device, args, output, legacy):
+    engine_args = ["--log-file", "user://logs/harness.log", "--", "--harness"] + args
+    if legacy:
+        return ["idevicedebug", "-u", device, "--detach", "--", "run", PACKAGE] + engine_args
+    return ["xcrun", "devicectl", "device", "process", "launch", "--device", device,
+            "--terminate-existing", "--json-output", str(output / "launch.json"), PACKAGE, "--"] + engine_args
+
+
+def ios_pull_log(device, destination, legacy):
+    if legacy:
+        return ["afcclient", "-u", device, "--container", PACKAGE, "get", "/Documents/logs/harness.log", str(destination)]
+    return ["xcrun", "devicectl", "device", "copy", "from", "--device", device,
+            "--domain-type", "appDataContainer", "--domain-identifier", PACKAGE,
+            "--source", "Documents/logs/harness.log", "--destination", str(destination)]
+
+
+def run_ios(device, args, output, timeout):
+    legacy = ios_major_version(device, output) < 17
+    run_id = uuid.uuid4().hex
+    marker = ("HARNESS RUN " + run_id).encode()
+    launch = ios_launch(device, args + ["-harness-run-id", run_id], output, legacy)
+    stop = ["idevicedebug", "-u", device, "kill", PACKAGE] if legacy else None
+    results, steps, engine_error = [], [], False
+    deadline = time.monotonic() + timeout
+    with (output / "launch.log").open("wb") as launch_log:
+        try:
+            subprocess.run(launch, stdout=launch_log, stderr=subprocess.STDOUT, check=True, timeout=min(60, timeout))
+            if not legacy:
+                pid = json.loads((output / "launch.json").read_text())["result"]["process"]["processIdentifier"]
+                stop = ["xcrun", "devicectl", "device", "process", "terminate", "--device", device, "--pid", str(pid)]
+            printed = b""
+            while time.monotonic() < deadline:
+                pulled = output / "pulled.log"
+                pulled.unlink(missing_ok=True)
+                try:
+                    copy = subprocess.run(ios_pull_log(device, pulled, legacy), stdout=launch_log,
+                                          stderr=subprocess.STDOUT, timeout=min(30, max(0.1, deadline - time.monotonic())))
+                    if copy.returncode == 0 and pulled.is_file():
+                        data = pulled.read_bytes()
+                        if marker in data.splitlines():
+                            pulled.replace(output / "latest.log")
+                            sys.stdout.buffer.write(data[len(printed):] if data.startswith(printed) else data)
+                            sys.stdout.buffer.flush()
+                            printed = data
+                            results, steps, engine_error = parse_log(data)
+                            if results:
+                                break
+                except subprocess.TimeoutExpired:
+                    pass
+                time.sleep(min(1, max(0, deadline - time.monotonic())))
+            timed_out = not results
+        finally:
+            if stop:
+                subprocess.run(stop, stdout=launch_log, stderr=subprocess.STDOUT, check=True, timeout=30)
+        pulled = output / "pulled.log"
+        pulled.unlink(missing_ok=True)
+        copy = subprocess.run(ios_pull_log(device, pulled, legacy), stdout=launch_log,
+                              stderr=subprocess.STDOUT, timeout=30)
+        if copy.returncode != 0 or not pulled.is_file():
+            sys.stderr.write("Could not retrieve the final iOS harness log\n")
+            return 1
+        data = pulled.read_bytes()
+        if marker not in data.splitlines():
+            sys.stderr.write("The iOS log does not belong to this harness run\n")
+            return 1
+        pulled.replace(output / "latest.log")
+        sys.stdout.buffer.write(data[len(printed):] if data.startswith(printed) else data)
+        sys.stdout.buffer.flush()
+        return verify_log(*parse_log(data), timed_out, False)
+
+
 def main():
     args = sys.argv[1:]
     android = args[:1] in (["--android"], ["--android-ar"])
     ar = args[:1] == ["--android-ar"]
-    harness_args = args[3:] if android else args
+    ios = args[:1] == ["--ios"]
+    harness_args = args[3:] if android else args[2:] if ios else args
     if harness_args[:1] == ["--"]:
         harness_args = harness_args[1:]
     validate_harness_options(harness_args)
@@ -70,13 +175,18 @@ def main():
         if not required_steps or not required_steps <= AR_STEPS:
             raise SystemExit("Unknown or empty ARCore harness steps")
         required_steps.add("arcore-session")
-    output = Path("build/harness")
+    platform = "android-ar" if ar else "android" if android else "ios" if ios else "desktop"
+    output = Path("build/harness") / platform
     output.mkdir(parents=True, exist_ok=True)
+    (output / "latest.log").write_bytes(b"")
+    if ios:
+        return run_ios(args[1], harness_args, output, timeout)
     if android:
         adb, serial = args[1:3]
         device = [adb, "-s", serial]
         package = PACKAGE
         subprocess.run(device + ["shell", "am", "force-stop", package], check=True)
+        subprocess.run(device + ["shell", "run-as", package, "rm", "-rf", "files/harness"], check=True)
         launch = android_launch(device, (["-harness-ar"] if ar else ["-harness"]) + harness_args)
         subprocess.run(launch, check=True)
         pid = subprocess.check_output(device + ["shell", "pidof", "-s", package], text=True).strip()
@@ -137,12 +247,7 @@ def main():
             else:
                 sys.stderr.write("Could not retrieve debug app captures: " + capture.stderr.decode(errors="replace"))
         bad_exit = exit_code not in (None, 0) if launch else exit_code != 0
-        missing_steps = required_steps - {name for name, _ in steps}
-        failed_steps = [name for name, status in steps if status == "FAIL"]
-        if timed_out or results != [b"PASS"] or engine_error or bad_exit or missing_steps or failed_steps:
-            sys.stderr.write(f"Harness verification failed: results={results}, exit={exit_code}, timeout={timed_out}, script_error={engine_error}, missing_steps={sorted(missing_steps)}, failed_steps={failed_steps}\n")
-            return 1
-        return 0
+        return verify_log(results, steps, engine_error, timed_out, bad_exit, required_steps)
     finally:
         if process.poll() is None:
             process.terminate()

@@ -10,7 +10,7 @@ signal packet_applied(packet: ARFramePacket)
 	set(value):
 		environment = value
 		if is_node_ready():
-			world_environment.environment = value
+			_sync_environment()
 
 @onready var virtual_scene: SubViewport = $VirtualScene
 @onready var camera: XRCamera3D = $VirtualScene/XROrigin3D/XRCamera3D
@@ -25,15 +25,15 @@ var applied_packet: ARFramePacket
 var waiting_for_packet: bool = true
 var world_3d: World3D:
 	get:
-		return virtual_scene.world_3d
+		return virtual_scene.find_world_3d()
 
 
 func _ready() -> void:
 	virtual_scene.own_world_3d = true
+	world_environment.environment = Environment.new()
 	if environment == null:
 		environment = Environment.new()
-		environment.background_mode = Environment.BG_CLEAR_COLOR
-	world_environment.environment = environment
+	_sync_environment()
 	composite.texture = virtual_scene.get_texture()
 	background.hide()
 	composite.hide()
@@ -89,6 +89,7 @@ func _update_geometry() -> void:
 
 
 func _apply_packet() -> void:
+	_sync_environment()
 	var packet: ARFramePacket = interface.call("get_current_packet") as ARFramePacket
 	var shader: ShaderMaterial = background.material as ShaderMaterial
 	if packet == null:
@@ -115,6 +116,22 @@ func _apply_packet() -> void:
 		background.show()
 		composite.show()
 	packet_applied.emit(packet)
+
+
+func _sync_environment() -> void:
+	var target: Environment = world_environment.environment
+	if environment == null:
+		environment = Environment.new()
+	target.background_mode = Environment.BG_CLEAR_COLOR
+	target.background_color = Color(0, 0, 0, 0)
+	# Environment setters do not emit changed, so copy live settings before each draw.
+	for property: Dictionary in environment.get_property_list():
+		var name: StringName = property.name
+		if not (int(property.usage) & PROPERTY_USAGE_STORAGE) or name in [&"background_mode", &"background_color"]:
+			continue
+		var value: Variant = environment.get(name)
+		if target.get(name) != value:
+			target.set(name, value)
 
 
 func _mark_presented() -> void:

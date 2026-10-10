@@ -21,6 +21,10 @@ compile/target SDK 36, build tools 36.1.0, NDK 29.0.14206865, Kotlin 2.1.21 and 
 not be named `Xcode.app`. iOS signing team: `L7G7TF62MC`. Both demo package IDs:
 `org.doublesymmetry.handheldar.demo`.
 
+The certified iOS deployment target stays 16.0 in SConstruct and the preset.
+`scons platform=ios ios_min_version=15.0` is a diagnostic override only; it does
+not certify iOS 15 or make an A10 device support the Metal renderer.
+
 Use `$ADB`, never a bare `adb` command. The devenv client version differs from the
 host's running server. Set `ADB` to the matching host binary and set
 `ANDROID_SERIAL` after checking that nobody is using the shared Pixel. The phone
@@ -41,7 +45,7 @@ avoid the shell builtin with the same name.
 | iOS archive and device XCFramework | `build ios debug` or `build ios release` |
 | Android library and AAR | `build android debug` or `build android release` |
 | All three platforms | `build all debug` |
-| iOS Xcode project ZIP | `env export ios debug` or `env export ios release` |
+| iOS Xcode project | `env export ios debug` or `env export ios release` |
 | Android APK | `env export android debug` or `env export android release` |
 | Desktop rendering harness | `harness desktop -harness-out /tmp/handheld-ar-captures` |
 | Selected rendering checks | `harness desktop -harness-steps projection,transparency` |
@@ -56,8 +60,9 @@ dependencies on first use. Godot's matching export templates must be installed;
 `tools/export.sh android` installs their Gradle build template into the demo automatically.
 Release Android signing comes from the user's Godot export credentials.
 
-The iOS preset exports a project ZIP for subsequent Xcode signing, device builds
-and release archives. It does not claim to produce a signed IPA. The XCFramework
+The iOS preset exports a loose Xcode project and supporting files under
+`build/exports/ios/<mode>/` for subsequent Xcode signing, device builds and release
+archives. It produces neither a ZIP nor a signed IPA. The XCFramework
 contains a device-only static archive, including godot-cpp objects. The synthetic
 backend links no AR SDK. Android loads the ARCore C shim dynamically; the export
 plugin supplies `com.google.ar:core:1.56.0`, including its Java code and native shim. Camera declarations live in the AAR
@@ -107,8 +112,11 @@ fixed camera image. Automatic synthetic orientation chooses 0 for landscape and
 a substitute for native display-rotation sampling in milestone 2.
 
 `display_transform` maps top-left-origin viewport UV into top-left-origin camera
-image UV, including centred aspect-fill crop and rotation. Projection uses the
-inverse of that mapping and off-centre image intrinsics. Camera coordinates are
+image UV, including centred aspect-fill crop and rotation. Synthetic projection
+uses upright intrinsics rotated into display space, with positive diagonal focal
+terms for Godot's LOD and shadow calculations. The quarter turn belongs to the
+display-oriented camera pose; `set_pose()` and `physical_camera_transform` remain
+in the physical image-camera basis. Camera coordinates are
 right-handed, +X right, +Y up, -Z forward. Matrices are column-major with OpenGL
 NDC depth [-1,+1]; the engine handles device depth/Y corrections. Rays invert the
 full matrix and transform the near point through world-from-camera. They never
@@ -116,11 +124,15 @@ use camera half-extents.
 
 The current packet is applied during `frame_pre_draw`, and becomes the presented
 packet at `frame_post_draw`. Touch rays use the presented packet. This backend
-requires Godot's Safe rendering thread mode (1); Unsafe and Separate are rejected
-until ordered render-thread packet activation exists. XROrigin and XR world scale
+requires Godot's effective Safe rendering mode: initialization must run on both
+the main thread and the render thread (`RenderingServer.is_on_render_thread()`).
+Separate is rejected even with a command-line override. Godot 4.7.2 maps the
+deprecated Unsafe option to Safe. XROrigin and XR world scale
 remain identity/one in this milestone; camera poses and game geometry share that
 world. One game environment and world are exposed through `ARView.environment`
-and `ARView.world_3d`.
+and `ARView.world_3d`. ARView owns a private world so the surrounding game's main
+viewport cannot render its AR objects accidentally. `world_3d` returns that active
+world via `find_world_3d()`, for physics queries and cameras sharing the AR scene.
 
 Three CPU Image slots are reused. Every published packet receives new
 ImageTextures. No fixed ring of GPU textures is overwritten: retained packets
@@ -156,6 +168,11 @@ an independent pixel-rotation/crop oracle.
 
 ## Things that bite
 
+Keep both mobile export presets `runnable=false`. A runnable Android preset makes
+Godot editor invocations, including `--import`, poll adb and run `adb kill-server`
+on exit, disrupting the shared host server. Launch through the harness scripts.
+Keep Godot's `.uid` sidecars in version control.
+
 CPU-uploaded `Image.FORMAT_RG8` samples chroma from `.rg`. The later imported RD
 path maps RG8 to luminance-alpha and needs `.ra`. There is one CPU path here;
 applying the imported swizzle to it destroys chroma. Pure red and blue bars are
@@ -169,6 +186,14 @@ premultiplied linear RGB; the final shader divides by coverage alpha, applies th
 sRGB transfer function, then multiplies by alpha for `blend_premul_alpha` in the
 SDR canvas. Plain `blend_mix` would multiply alpha twice. Ordinary screen-space
 refraction sees the virtual scene, not the camera. Alpha-zero glow is discarded.
+
+`ARView.environment` is the game's source resource. Background mode and colour
+are ignored: ARView copies the other settings into a private Environment before
+each draw and forces a transparent-black clear. Every other environment setting
+applies to the virtual scene within the renderer's support. Live edits apply even
+when the camera packet repeats, and the source resource is left unchanged.
+The transparency harness uses a bright `BG_COLOR` source to check translucent
+surfaces and MSAA edges for background contamination.
 
 The transparency assertions use linear tonemapping and exposure 1. Nonlinear
 tonemapping happens to accumulated premultiplied colour before composition, so
@@ -188,7 +213,18 @@ The adb version rule also applies to scripts and manual one-liners. Always use
 `"$ADB"`. `harness android` installs only this demo, launches its exported
 `GodotAppLauncher` alias and filters logcat by its PID. The underlying GodotApp
 activity is not exported in 4.7.2. Debug captures are retrieved through `run-as`
-into `build/harness/android-userdata.tar`; release builds cannot use `run-as`.
+into `build/harness/<platform>/android-userdata.tar`; release builds cannot use
+`run-as`. Android runs clear `files/harness` before launch. Host logs live at
+`build/harness/<platform>/latest.log`, with separate `android` and `android-ar`
+directories and `desktop` used for the `macos` alias.
+
+The iOS harness passes devicectl's `--`, then the engine's
+`--log-file user://logs/harness.log`, then Godot's `--` and the harness arguments.
+It polls `Documents/logs/harness.log` through devicectl on iOS 17+, or afcclient
+on older devices, and parses that file. A per-run marker rejects stale logs.
+The host terminates the app after a result or timeout because iOS ignores quit().
+`IOS_DEVICE` must be a UDID for libimobiledevice; `IOS_VERSION` can override OS
+version discovery. Older devices also need ideviceinfo and idevicedebug 1.4.0.
 
 Headless cannot render. Run the desktop harness through ci4's GUI session, not a
 bare SSH command or this sandbox. It reads lossless viewport images after
@@ -232,8 +268,8 @@ requirement and change the ARCore manifest metadata to required.
 All session/frame/camera/image/plane/query/anchor calls belong to Godot's main
 thread (VkThread under Vulkan). Kotlin queues lifecycle commands with
 `runOnRenderThread`; it never calls the session itself. Application-pause
-notifications provide an idempotent backstop. Safe rendering thread mode (1) is
-required; Separate and Unsafe remain unsupported. JNI stores the JavaVM and
+notifications provide an idempotent backstop. Effective Safe rendering mode is
+required and checked through the render-thread API. JNI stores the JavaVM and
 Activity/application Context global references, never a JNIEnv. Session destroy
 is the exception: a JVM-attached worker owns the bare paused session after every
 other native reference has been released. Shutdown never waits for destroy.

@@ -2,6 +2,7 @@ config_version=5
 
 [application]
 config/name="Handheld AR harness"
+config/icon="res://icon.png"
 run/main_scene="res://harness/harness.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 
@@ -16,6 +17,9 @@ window/handheld/orientation=6
 [editor_plugins]
 enabled=PackedStringArray("res://addons/handheld_ar/plugin.cfg")
 
+[debug]
+file_logging/enable_file_logging.ios=true
+
 [rendering]
 renderer/rendering_method="mobile"
 renderer/rendering_method.mobile="mobile"
@@ -24,6 +28,7 @@ rendering_device/driver.macos="metal"
 rendering_device/driver.android="vulkan"
 rendering_device/fallback_to_opengl3=false
 textures/default_filters/use_nearest_mipmap_filter=false
+textures/vram_compression/import_etc2_astc=true
 viewport/hdr_2d=false
 driver/threads/thread_model=1
 anti_aliasing/quality/use_debanding=false

@@ -20,16 +20,23 @@ Transform2D display_transform_for_view(const Vector2 &p_image_size, const Vector
 }
 
 Projection projection_from_intrinsics(const ARIntrinsics &p_intrinsics, const Vector2 &p_viewport_size, int p_quarter_turns, double p_near, double p_far) {
+	const int turns = ((p_quarter_turns % 4) + 4) % 4;
 	const Transform2D image_to_view = display_transform_for_view(p_intrinsics.image_size, p_viewport_size, p_quarter_turns).affine_inverse();
 	const Vector2 centre = image_to_view.xform(Vector2(p_intrinsics.cx, p_intrinsics.cy) / p_intrinsics.image_size);
-	const Vector2 dx = image_to_view[0] * (p_intrinsics.fx / p_intrinsics.image_size.x);
-	const Vector2 dy = image_to_view[1] * (-p_intrinsics.fy / p_intrinsics.image_size.y);
+	const Vector2 extent = turns % 2 ? Vector2(p_intrinsics.image_size.y, p_intrinsics.image_size.x) : p_intrinsics.image_size;
+	const Vector2 focal = turns % 2 ? Vector2(p_intrinsics.fy, p_intrinsics.fx) : Vector2(p_intrinsics.fx, p_intrinsics.fy);
+	const double scale = std::max(p_viewport_size.x / extent.x, p_viewport_size.y / extent.y);
 	Projection result;
-	result[0] = Vector4(2 * dx.x, -2 * dx.y, 0, 0);
-	result[1] = Vector4(2 * dy.x, -2 * dy.y, 0, 0);
+	result[0] = Vector4(2 * focal.x * scale / p_viewport_size.x, 0, 0, 0);
+	result[1] = Vector4(0, 2 * focal.y * scale / p_viewport_size.y, 0, 0);
 	result[2] = Vector4(1 - 2 * centre.x, 2 * centre.y - 1, -(p_far + p_near) / (p_far - p_near), -1);
 	result[3] = Vector4(0, 0, -2 * p_far * p_near / (p_far - p_near), 0);
 	return result;
+}
+
+Transform3D display_oriented_pose(const Transform3D &p_pose, int p_quarter_turns) {
+	const int turns = ((p_quarter_turns % 4) + 4) % 4;
+	return p_pose * Transform3D(Basis(Vector3(0, 0, 1), turns * Math::PI * 0.5), Vector3());
 }
 
 ARRay ray_from_screen(const Projection &p_projection, const Transform3D &p_camera_transform, const Vector2 &p_viewport_size, const Vector2 &p_screen_point) {

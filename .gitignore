@@ -13,7 +13,7 @@ local.properties
 
 /build/
 /android/.gradle/
+/android/build/
 /android/plugin/build/
 /demo/android/
 /demo/addons/handheld_ar/bin/
-*.uid

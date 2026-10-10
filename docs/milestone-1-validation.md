@@ -37,10 +37,31 @@ archive's macOS deployment version was newer than the test executable's default;
 the executable ran successfully on this host. These builds do not establish an
 older macOS support floor.
 
+## Review fixes
+
+The review fix round passed the macOS debug build and Android debug/release native
+builds with NDK 29.0.14206865. Native checks passed: 73,620 projection/ray checks
+(worst NDC/UV error `6.37530945e-07`), 40 plane checks, YUV layouts and Q=2..4
+texture retirement. Projection checks now require positive focal diagonals,
+finite aspect and the reference LOD multiplier in all four orientations.
+
+Headless packet, ARView, compositor-sample, dataset-replay and thread-guard checks
+passed. The ARCore extras fixture passed 31 checks. The thread guard accepted Safe
+and rejected the actual `--render-thread separate` override. The harness parsed
+without script errors. All 15 host tests passed, covering both iOS log transports,
+stale and duplicate results, final-file parsing, host termination, and Android
+capture cleanup. The main scene rejected headless rendering with one FAIL result.
+
 ## Pending verification
 
+GPU, Gradle, exports and device runs belong to the device agent. Include the new
+`camera-transform` step (four rotations at two cropped aspect ratios), projection
+LOD checks and bright-background transparency/MSAA checks in that handoff. ARCore's
+native projection diagnostic also requires positive focal terms and finite aspect;
+its four physical device rotations remain a device check.
+
 Run `tools/harness.sh desktop -harness-out /tmp/handheld-ar-captures` in the GUI
-session. Start with `-harness-steps loaded,xr-mono-2d,projection,transparency` if
+session. Start with `-harness-steps loaded,xr-mono-2d,projection,camera-transform,transparency` if
 isolating renderer problems. The strict colour and 120-frame consistency checks
 must also pass before accepting the architecture. Inspect the saved scene-alpha
 captures if the centroid or compositing checks fail.
@@ -51,12 +72,13 @@ not measured GPU results. Nonlinear tonemapping of translucent content and
 alpha-zero glow have documented limitations in `AGENTS.md`.
 
 Gradle/AAR assembly, debug/release exports, signed Xcode device builds and release
-archives, and loading/running on the iPhone and Pixel were not attempted. Release
-native targets were not compiled. Check the AAR's manifest, extension asset and
+archives, and loading/running on the iPhone and Pixel were not attempted. iOS and
+macOS release native targets were not compiled in this round. Check the AAR's manifest, extension asset and
 `jni/arm64-v8a/libhandheld_ar.so`, then the exported APK's native alignment and
 plugin discovery. Check static entry registration/linkage in the iOS export.
 The ELF check above covers this extension only, not all libraries in an APK.
 
-The iOS export preset produces an Xcode project ZIP. Both phone builds launch the
+The iOS export preset produces a loose Xcode project and supporting files under
+`build/exports/ios/<mode>/`. Both phone builds launch the
 same harness automatically. Device orientation transitions and capture readback
 cost can differ from desktop, so retain per-device logs and PNGs.

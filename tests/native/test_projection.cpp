@@ -42,18 +42,24 @@ int main() {
 	for (const ARIntrinsics &k : calibrations) {
 		for (const Vector2 &view : viewports) {
 			for (int turns = 0; turns < 4; turns++) {
+				const Transform3D display_camera = display_oriented_pose(camera, turns);
 				for (const Vector2 &clip : clips) {
 					const Projection projection = projection_from_intrinsics(k, view, turns, clip.x, clip.y);
+					check(projection[0][0] > 0 && projection[1][1] > 0 && std::isfinite(projection.get_aspect()) ? 0 : 1, "upright projection for LOD and shadows");
+					const Vector2 extent = turns % 2 ? Vector2(k.image_size.y, k.image_size.x) : k.image_size;
+					const double scale = std::max(view.x / extent.x, view.y / extent.y);
+					check(std::abs(projection.get_lod_multiplier() - view.x / ((turns % 2 ? k.fy : k.fx) * scale)), "LOD multiplier");
 					for (int row = 0; row <= 8; row++) {
 						for (int col = 0; col <= 8; col++) {
 							const Vector2 pixel(view.x * col / 8.0, view.y * row / 8.0);
-							const ARRay ray = ray_from_screen(projection, camera, view, pixel);
+							const ARRay ray = ray_from_screen(projection, display_camera, view, pixel);
 							check(ray.origin.distance_to(camera.origin), "world origin");
 							check(std::abs(ray.direction.length() - 1), "normalized direction");
 							const Vector3 local = camera.affine_inverse().xform(ray.origin + ray.direction * 5);
 							const Vector2 predicted = expected_pixel(k, view, turns, local);
 							check(((predicted - pixel) / view * 2).length(), "independent pinhole oracle");
-							const Vector4 ndc = projection.xform(Vector4(local.x, local.y, local.z, 1));
+							const Vector3 display_local = display_camera.affine_inverse().xform(ray.origin + ray.direction * 5);
+							const Vector4 ndc = projection.xform(Vector4(display_local.x, display_local.y, display_local.z, 1));
 							check(Vector2(ndc.x / ndc.w - (pixel.x / view.x * 2 - 1), ndc.y / ndc.w - (1 - pixel.y / view.y * 2)).length(), "projection ray round trip");
 							const Transform2D display = display_transform_for_view(k.image_size, view, turns);
 							const Vector2 image_uv = display.xform(pixel / view);

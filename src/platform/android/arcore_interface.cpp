@@ -1,6 +1,7 @@
 #include "arcore_interface.h"
 #include "core/ar_ids.h"
 #include "yuv_repack.h"
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/rendering_device.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
@@ -74,7 +75,7 @@ void ARCoreInterface::fail(ArStatus p_status, const String &p_operation) {
 
 bool ARCoreInterface::_initialize() {
 	if (initialized) return true;
-	ERR_FAIL_COND_V_MSG(int(ProjectSettings::get_singleton()->get_setting_with_override("rendering/driver/threads/thread_model")) != 1, false, "ARCore requires Safe rendering thread mode.");
+	ERR_FAIL_COND_V_MSG(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id() || !RenderingServer::get_singleton()->is_on_render_thread(), false, "ARCore requires Safe rendering thread mode on the main thread.");
 	ERR_FAIL_COND_V_MSG(XRServer::get_singleton()->get_primary_interface().is_valid(), false, "Only one ARView may own the primary XR interface.");
 	owner_thread = std::this_thread::get_id();
 	RenderingDevice *rd = RenderingServer::get_singleton()->get_rendering_device();

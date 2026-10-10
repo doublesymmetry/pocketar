@@ -17,6 +17,23 @@ func _run() -> void:
 	var scene: PackedScene = load("res://addons/handheld_ar/ar_view.tscn") as PackedScene
 	var view: ARView = scene.instantiate() as ARView
 	root.add_child(view)
+	_check(view.world_3d != null and view.world_3d == view.scene_root.get_world_3d(), "exposes active scene world")
+	_check(view.world_3d != root.find_world_3d(), "AR scene owns an isolated world")
+	var game_environment := Environment.new()
+	game_environment.background_mode = Environment.BG_COLOR
+	game_environment.background_color = Color.MAGENTA
+	game_environment.tonemap_exposure = 2.0
+	view.environment = game_environment
+	view.call("_apply_packet")
+	var rendered_environment: Environment = view.world_environment.environment
+	_check(rendered_environment != game_environment, "private render environment")
+	_check(rendered_environment.background_mode == Environment.BG_CLEAR_COLOR and rendered_environment.background_color == Color(0, 0, 0, 0), "transparent black clear")
+	_check(game_environment.background_mode == Environment.BG_COLOR and game_environment.background_color == Color.MAGENTA, "source background preserved")
+	_check(rendered_environment.tonemap_exposure == 2.0, "other environment settings copied")
+	game_environment.tonemap_exposure = 0.5
+	game_environment.fog_aerial_perspective = 0.3
+	view.call("_apply_packet")
+	_check(rendered_environment.tonemap_exposure == 0.5 and is_equal_approx(rendered_environment.fog_aerial_perspective, 0.3), "live environment edits survive repeated packets")
 	_check(view.interface is SyntheticARInterface, "default backend remains synthetic")
 	_check(view.applied_packet != null and view.background.visible and view.composite.visible, "first packet enables composition")
 	view.interface.call("mark_presented")

@@ -20,6 +20,7 @@ struct ARRay {
 };
 
 Transform2D display_transform_for_view(const Vector2 &p_image_size, const Vector2 &p_viewport_size, int p_quarter_turns);
+Transform3D display_oriented_pose(const Transform3D &p_pose, int p_quarter_turns);
 Projection projection_from_intrinsics(const ARIntrinsics &p_intrinsics, const Vector2 &p_viewport_size, int p_quarter_turns, double p_near, double p_far);
 ARRay ray_from_screen(const Projection &p_projection, const Transform3D &p_camera_transform, const Vector2 &p_viewport_size, const Vector2 &p_screen_point);
 

@@ -15,8 +15,6 @@ case "$platform" in
         exec python3 tools/run-harness.py "--$platform" "$ADB" "$ANDROID_SERIAL" -- "$@" ;;
     ios)
         : "${IOS_DEVICE:?Set IOS_DEVICE to the connected device identifier}"
-        exec python3 tools/run-harness.py -- xcrun devicectl device process launch \
-            --device "$IOS_DEVICE" --console org.doublesymmetry.handheldar.demo \
-            -harness "$@" ;;
+        exec python3 tools/run-harness.py --ios "$IOS_DEVICE" -- "$@" ;;
     *) echo "Usage: $0 [desktop|android|android-ar|ios] [-harness-out dir] [-harness-steps names] [-harness-duration seconds] [-harness-probes] [-harness-camera-config index] [-harness-record name.mp4|-harness-playback name.mp4]" >&2; exit 2 ;;
 esac

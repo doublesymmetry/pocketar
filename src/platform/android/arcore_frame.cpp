@@ -194,6 +194,7 @@ void ARCoreInterface::inspect_projection(const ArCamera *p_camera, const float *
 	api.ArCamera_getProjectionMatrix(session, p_camera, 0.2f, 20.0f, second);
 	api.ArCamera_getProjectionMatrix(session, p_camera, 0.13f, 57.0f, oracle);
 	bool valid = p_projection[11] == -1 && p_projection[15] == 0;
+	valid &= p_projection[0] > 0 && p_projection[5] > 0 && std::isfinite(p_projection[5] / p_projection[0]);
 	for (int index : {0, 5, 8, 9}) valid &= p_projection[index] == second[index];
 	for (int index : {1, 2, 3, 4, 6, 7, 12, 13}) valid &= std::abs(p_projection[index]) < 1e-6;
 	for (int i = 0; i < 16; ++i) {

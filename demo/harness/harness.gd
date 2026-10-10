@@ -1,6 +1,6 @@
 extends Node
 
-const STEPS: Array[String] = ["loaded", "xr-mono-2d", "projection", "color-invariance", "transparency", "frame-consistency", "resize"]
+const STEPS: Array[String] = ["loaded", "xr-mono-2d", "projection", "camera-transform", "color-invariance", "transparency", "frame-consistency", "resize"]
 const BARS: Array[Color] = [Color.RED, Color.BLUE, Color.GREEN, Color.YELLOW, Color.CYAN, Color.MAGENTA, Color.WHITE, Color.BLACK]
 const DEFAULT_K := Vector4(520.0, 510.0, 301.0, 227.0)
 const IMAGE_SIZE := Vector2i(640, 480)
@@ -24,7 +24,9 @@ func _ready() -> void:
 		get_tree().change_scene_to_file.call_deferred("res://ar/ar_demo.tscn")
 		return
 	for index: int in range(args.size()):
-		if args[index] == "-harness-out" and index + 1 < args.size():
+		if args[index] == "-harness-run-id" and index + 1 < args.size():
+			print("HARNESS RUN " + args[index + 1])
+		elif args[index] == "-harness-out" and index + 1 < args.size():
 			output_dir = args[index + 1]
 		elif args[index] == "-harness-steps" and index + 1 < args.size():
 			selected_steps = args[index + 1].split(",", false)
@@ -66,6 +68,7 @@ func _run() -> void:
 			"loaded": ok = _loaded()
 			"xr-mono-2d": ok = await _hud_check()
 			"projection": ok = await _projection()
+			"camera-transform": ok = await _camera_transform()
 			"color-invariance": ok = await _color_invariance()
 			"transparency": ok = await _transparency()
 			"frame-consistency": ok = await _frame_consistency()
@@ -154,6 +157,8 @@ func _reset_scene() -> void:
 	view.environment.tonemap_exposure = 1.0
 	view.environment.fog_enabled = false
 	view.environment.glow_enabled = false
+	view.environment.background_mode = Environment.BG_CLEAR_COLOR
+	view.environment.background_color = Color.BLACK
 	view.camera.near = 0.05
 	view.camera.far = 100.0
 
@@ -247,6 +252,10 @@ func _count_alpha(image: Image) -> int:
 
 func _predict(point: Vector3, k: Vector4, image_size: Vector2i, turns: int) -> Vector2:
 	var image_point := Vector2(k.x * point.x / -point.z + k.z, k.w - k.y * point.y / -point.z)
+	return _image_to_screen(image_point, image_size, turns)
+
+
+func _image_to_screen(image_point: Vector2, image_size: Vector2i, turns: int) -> Vector2:
 	var extent := Vector2(image_size)
 	match turns:
 		1:
@@ -282,7 +291,7 @@ func _projection() -> bool:
 				worst = maxf(worst, error)
 				if error >= 0.5:
 					return false
-	detail = "24 cases, at least 9 on-screen markers each; worst centroid error %.6f rendered pixels; rays < 0.0001 m" % worst
+	detail = "24 upright projection/LOD cases, at least 9 on-screen markers each; worst centroid error %.6f rendered pixels; rays < 0.0001 m" % worst
 	return true
 
 
@@ -304,15 +313,25 @@ func _projection_case(requested: Vector2i, turns: int, k: Vector4) -> float:
 	await _capture(capture_name)
 	var scene_image: Image = view.virtual_scene.get_texture().get_image()
 	_save(scene_image, capture_name + "-scene-alpha")
+	var extent := Vector2(IMAGE_SIZE.y, IMAGE_SIZE.x) if turns % 2 else Vector2(IMAGE_SIZE)
+	var render_scale: float = maxf(view.size.x / extent.x, view.size.y / extent.y)
+	var focal_x: float = k.y if turns % 2 else k.x
+	var projection: Projection = view.interface.get_projection_for_view(0, view.size.x / view.size.y, view.camera.near, view.camera.far)
+	var expected_lod: float = view.size.x / (focal_x * render_scale)
+	if projection.x.x <= 0 or projection.y.y <= 0 or not is_finite(projection.get_aspect()) or not is_equal_approx(projection.get_lod_multiplier(), expected_lod):
+		detail = "%s invalid upright projection or LOD multiplier: %s expected=%f" % [capture_name, projection, expected_lod]
+		return INF
+	var radius: int = maxi(10, ceili(0.027 * 0.5 * maxf(k.x, k.y) * render_scale / 2.0) + 3)
+	var margin := Vector2.ONE * (radius + 2)
 	var worst: float = 0.0
 	var visible: int = 0
 	for point: Vector3 in points:
 		var predicted: Vector2 = _predict(point, k, IMAGE_SIZE, turns)
 		# The grid is fixed in world space, so the aspect-fill crop puts some markers off-screen.
-		if not Rect2(Vector2(12, 12), view.size - Vector2(24, 24)).has_point(predicted):
+		if not Rect2(margin, view.size - margin * 2).has_point(predicted):
 			continue
 		visible += 1
-		var centroid: Vector3 = _centroid(scene_image, predicted)
+		var centroid: Vector3 = _centroid(scene_image, predicted, radius)
 		var error: float = Vector2(centroid.x, centroid.y).distance_to(predicted)
 		worst = maxf(worst, error)
 		var ray: Dictionary = view.screen_to_ray(predicted)
@@ -333,6 +352,50 @@ func _projection_case(requested: Vector2i, turns: int, k: Vector4) -> float:
 
 func _color_error(a: Color, b: Color) -> float:
 	return maxf(absf(a.r - b.r), maxf(absf(a.g - b.g), absf(a.b - b.b)))
+
+
+func _camera_transform() -> bool:
+	_reset_scene()
+	button.hide()
+	view.interface.set_intrinsics(DEFAULT_K.x, DEFAULT_K.y, DEFAULT_K.z, DEFAULT_K.w, IMAGE_SIZE)
+	var samples: int = 0
+	for turns: int in range(4):
+		for base_size: Vector2i in [Vector2i(800, 720), Vector2i(720, 960)]:
+			var requested := Vector2i(base_size.y, base_size.x) if turns % 2 else base_size
+			_layout(requested, turns)
+			await _settle()
+			var image: Image = await _capture("camera-transform-%dx%d-r%d" % [requested.x, requested.y, turns])
+			var packet: ARFramePacket = view.interface.get_presented_packet()
+			var bar_samples: int = 0
+			var stripe_samples: int = 0
+			for landmark: int in range(30):
+				var source: Vector2
+				var expected: Color
+				if landmark < 14:
+					var boundary: int = landmark / 2 + 1
+					source = Vector2(boundary * 80 + (-4.5 if landmark % 2 == 0 else 4.5), 100.5)
+					expected = BARS[boundary - 1 if landmark % 2 == 0 else boundary]
+				else:
+					var bit: int = landmark - 14
+					source = Vector2((bit + 0.5) * 40, 12)
+					expected = Color.WHITE if (packet.frame_id >> bit) & 1 else Color.BLACK
+				var predicted: Vector2 = _image_to_screen(source, IMAGE_SIZE, turns)
+				if not Rect2(Vector2(2, 2), view.size - Vector2(4, 4)).has_point(predicted):
+					continue
+				var actual: Color = image.get_pixelv(Vector2i(predicted))
+				if _color_error(actual, expected) > 1.001 / 255.0:
+					detail = "rotation=%d size=%s source=%s screen=%s rgb=%s expected=%s frame=%d" % [turns, view.size, source, predicted, actual, expected, packet.frame_id]
+					return false
+				if landmark < 14:
+					bar_samples += 1
+				else:
+					stripe_samples += 1
+			if bar_samples < 4 or stripe_samples < 4:
+				detail = "insufficient visible landmarks: bars=%d stripe=%d" % [bar_samples, stripe_samples]
+				return false
+			samples += bar_samples + stripe_samples
+	detail = "all four rotations at two cropped aspect ratios; %d bar-boundary and frame-stripe samples <= 1/255" % samples
+	return true
 
 
 func _color_invariance() -> bool:
@@ -382,6 +445,8 @@ func _cube(point: Vector3, color: Color, alpha: float) -> MeshInstance3D:
 
 func _transparency() -> bool:
 	_reset_scene()
+	view.environment.background_mode = Environment.BG_COLOR
+	view.environment.background_color = Color(1, 0.2, 0.9)
 	button.hide()
 	_layout(Vector2i(640, 480))
 	view.interface.set_intrinsics(DEFAULT_K.x, DEFAULT_K.y, DEFAULT_K.z, DEFAULT_K.w, IMAGE_SIZE)
@@ -433,7 +498,7 @@ func _transparency() -> bool:
 			if color.a < 0.001 and maxf(color.r, maxf(color.g, color.b)) > 0.01:
 				alpha_zero_light += 1
 	print("HARNESS STEP glow-over-camera KNOWN alpha-zero glow is discarded by the composite; %d lit alpha-zero pixels" % alpha_zero_light)
-	detail = "opaque and 50%% cubes <= 3/255; %d MSAA samples <= %.3f/255" % [edge_samples, worst * 255]
+	detail = "bright BG_COLOR ignored; opaque and 50%% cubes <= 3/255; %d MSAA samples <= %.3f/255" % [edge_samples, worst * 255]
 	return true
 
 

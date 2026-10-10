@@ -2,7 +2,8 @@
 #include "ar_ids.h"
 
 #include <godot_cpp/classes/image_texture.hpp>
-#include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/classes/xr_server.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -26,8 +27,7 @@ bool SyntheticARInterface::_initialize() {
 	if (initialized) {
 		return true;
 	}
-	const int thread_mode = ProjectSettings::get_singleton()->get_setting_with_override("rendering/driver/threads/thread_model");
-	ERR_FAIL_COND_V_MSG(thread_mode != 1, false, "The synchronous synthetic backend requires Safe rendering thread mode.");
+	ERR_FAIL_COND_V_MSG(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id() || !RenderingServer::get_singleton()->is_on_render_thread(), false, "The synchronous synthetic backend requires Safe rendering thread mode on the main thread.");
 	ERR_FAIL_COND_V_MSG(XRServer::get_singleton()->get_primary_interface().is_valid(), false, "Only one ARView may own the primary XR interface.");
 	head.instantiate();
 	head->set_tracker_name("head");
@@ -145,15 +145,16 @@ void SyntheticARInterface::make_packet(uint64_t p_tick) {
 	packet->quarter_turns = quarter_turns;
 	packet->projection = projection_from_intrinsics(intrinsics, viewport_size, quarter_turns, near_plane, far_plane);
 	packet->display_transform = display_transform_for_view(intrinsics.image_size, viewport_size, quarter_turns);
-	packet->camera_transform = pose;
+	packet->physical_camera_transform = pose;
+	packet->camera_transform = display_oriented_pose(pose, quarter_turns);
 	if (frame_id_pose) {
 		const Vector2 pixel((double(sequence % 16) + 0.5) * viewport_size.x / 16.0, viewport_size.y * 0.5);
-		const ARRay ray = ray_from_screen(packet->projection, Transform3D(), viewport_size, pixel);
+		const ARRay ray = ray_from_screen(packet->projection, display_oriented_pose(Transform3D(), quarter_turns), viewport_size, pixel);
 		const Vector3 point = ray.direction * (-2.0 / ray.direction.z);
-		packet->camera_transform = Transform3D(Basis(), Vector3(0, 0, -2) - point);
+		packet->physical_camera_transform = Transform3D(Basis(), Vector3(0, 0, -2) - point);
+		packet->camera_transform = display_oriented_pose(packet->physical_camera_transform, quarter_turns);
 	}
 	packet->image_size = Vector2i(width, height);
-	packet->physical_camera_transform = packet->camera_transform;
 	packet->gpu_image_size = packet->image_size;
 	packet->camera_fps = Vector2i(int(std::lround(camera_rate)), int(std::lround(camera_rate)));
 	// Reuse CPU storage only; packet textures are immutable and retire with Godot's RID fences.

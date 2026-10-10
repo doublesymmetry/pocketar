@@ -63,10 +63,15 @@ for ((variant, target) in listOf("debug" to "template_debug", "release" to "temp
         doFirst { check(library.isFile) { "Build the Android $target extension with tools/build.sh first" } }
     }
     tasks.matching { it.name == "pre${capitalized}Build" }.configureEach { dependsOn(copyNative) }
-    val copyAar = tasks.register<Copy>("copy${capitalized}Aar") {
-        from(layout.buildDirectory.file("outputs/aar/plugin-$variant.aar"))
-        into("../../demo/addons/handheld_ar/bin/android")
-        rename { "handheld_ar-$variant.aar" }
+    val copyAar = tasks.register("copy${capitalized}Aar") {
+        val source = layout.buildDirectory.file("outputs/aar/plugin-$variant.aar")
+        val destination = file("../../demo/addons/handheld_ar/bin/android/handheld_ar-$variant.aar")
+        inputs.file(source)
+        outputs.file(destination)
+        doLast {
+            destination.parentFile.mkdirs()
+            source.get().asFile.copyTo(destination, overwrite = true)
+        }
     }
     tasks.matching { it.name == "assemble$capitalized" }.configureEach { finalizedBy(copyAar) }
 }

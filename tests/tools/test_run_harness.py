@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shlex
@@ -6,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SPEC = importlib.util.spec_from_file_location(
@@ -94,8 +96,9 @@ class HarnessMonitorTest(unittest.TestCase):
             fake_adb = Path(directory) / "device-transport"
             fake_adb.write_text(
                 "#!" + sys.executable + "\n"
-                "import sys\n"
+                "import json, sys\n"
                 "args = sys.argv[1:]\n"
+                "with open('commands.jsonl', 'a') as log: log.write(json.dumps(args) + '\\n')\n"
                 "if 'pidof' in args: print('123')\n"
                 "elif 'logcat' in args:\n"
                 "    print('HARNESS STEP loaded OK synthetic')\n"
@@ -114,6 +117,96 @@ class HarnessMonitorTest(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("arcore-session", result.stderr)
             self.assertIn("camera-image", result.stderr)
+            commands = [json.loads(line) for line in (Path(directory) / "commands.jsonl").read_text().splitlines()]
+            self.assertEqual(commands[1][2:], ["shell", "run-as", RUNNER.PACKAGE, "rm", "-rf", "files/harness"])
+            self.assertIn("am start", commands[2][-1])
+            self.assertTrue((Path(directory) / "build/harness/android-ar/latest.log").is_file())
+            self.assertFalse((Path(directory) / "build/harness/latest.log").exists())
+
+
+class IOSHarnessTest(unittest.TestCase):
+    def test_launch_separates_devicectl_engine_and_user_arguments(self):
+        command = RUNNER.ios_launch("phone", ["-harness-steps", "projection"], Path("out"), False)
+        self.assertEqual(command[command.index(RUNNER.PACKAGE):], [
+            RUNNER.PACKAGE, "--", "--log-file", "user://logs/harness.log",
+            "--", "--harness", "-harness-steps", "projection",
+        ])
+        legacy = RUNNER.ios_launch("phone", ["-harness-steps", "projection"], Path("out"), True)
+        self.assertEqual(legacy[:7], ["idevicedebug", "-u", "phone", "--detach", "--", "run", RUNNER.PACKAGE])
+        self.assertEqual(legacy[7:], command[command.index(RUNNER.PACKAGE) + 2:])
+
+    def test_copy_uses_app_container_on_both_transports(self):
+        modern = RUNNER.ios_pull_log("phone", Path("out/pulled.log"), False)
+        self.assertIn("appDataContainer", modern)
+        self.assertEqual(modern[-4:], ["--source", "Documents/logs/harness.log", "--destination", "out/pulled.log"])
+        self.assertEqual(RUNNER.ios_pull_log("phone", Path("out/pulled.log"), True), [
+            "afcclient", "-u", "phone", "--container", RUNNER.PACKAGE,
+            "get", "/Documents/logs/harness.log", "out/pulled.log",
+        ])
+
+    def test_pulled_log_is_authoritative_and_app_always_stops(self):
+        for legacy in [False, True]:
+            for content in [
+                b"HARNESS RESULT PASS\n",
+                b"HARNESS RESULT FAIL\n",
+                b"HARNESS RESULT PASS\nHARNESS RESULT PASS\n",
+                b"SCRIPT ERROR: broken\nHARNESS RESULT PASS\n",
+                b"HARNESS STEP projection FAIL error\nHARNESS RESULT PASS\n",
+            ]:
+                with self.subTest(legacy=legacy, content=content), tempfile.TemporaryDirectory() as directory:
+                    output = Path(directory)
+                    calls = []
+                    run_id = ""
+                    def transport(command, **kwargs):
+                        nonlocal run_id
+                        calls.append(command)
+                        if "-harness-run-id" in command:
+                            run_id = command[-1]
+                            (output / "launch.json").write_text('{"result":{"process":{"processIdentifier":123}}}')
+                        elif "copy" in command or "get" in command:
+                            (output / "pulled.log").write_bytes(b"HARNESS RUN " + run_id.encode() + b"\n" + content)
+                        return subprocess.CompletedProcess(command, 0)
+                    with patch.object(RUNNER, "ios_major_version", return_value=16 if legacy else 17), patch.object(RUNNER.subprocess, "run", side_effect=transport):
+                        result = RUNNER.run_ios("phone", [], output, 2)
+                    self.assertEqual(result, 0 if content == b"HARNESS RESULT PASS\n" else 1)
+                    self.assertTrue("kill" in calls[-2] if legacy else "terminate" in calls[-2])
+                    self.assertTrue((output / "latest.log").read_bytes().endswith(content))
+
+    def test_stale_pass_times_out_and_stops_app(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            def transport(command, **kwargs):
+                if "launch" in command:
+                    (output / "launch.json").write_text('{"result":{"process":{"processIdentifier":123}}}')
+                elif "copy" in command:
+                    (output / "pulled.log").write_bytes(b"HARNESS RUN old\nHARNESS RESULT PASS\n")
+                return subprocess.CompletedProcess(command, 0)
+            with patch.object(RUNNER, "ios_major_version", return_value=17), patch.object(RUNNER.subprocess, "run", side_effect=transport) as run:
+                self.assertEqual(RUNNER.run_ios("phone", [], output, 0.05), 1)
+                self.assertIn("terminate", run.call_args_list[-2].args[0])
+            self.assertFalse((output / "latest.log").exists())
+
+
+    def test_final_pull_detects_a_late_duplicate_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            run_id = ""
+            stopped = False
+            def transport(command, **kwargs):
+                nonlocal run_id, stopped
+                if "launch" in command:
+                    run_id = command[-1]
+                    (output / "launch.json").write_text('{"result":{"process":{"processIdentifier":123}}}')
+                elif "terminate" in command:
+                    stopped = True
+                elif "copy" in command:
+                    data = b"HARNESS RUN " + run_id.encode() + b"\nHARNESS RESULT PASS\n"
+                    if stopped:
+                        data += b"HARNESS RESULT PASS\n"
+                    (output / "pulled.log").write_bytes(data)
+                return subprocess.CompletedProcess(command, 0)
+            with patch.object(RUNNER, "ios_major_version", return_value=17), patch.object(RUNNER.subprocess, "run", side_effect=transport):
+                self.assertEqual(RUNNER.run_ios("phone", [], output, 2), 1)
 
 
 if __name__ == "__main__":
