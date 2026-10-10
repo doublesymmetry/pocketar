@@ -1,0 +1,11 @@
+.devenv*
+devenv.local.nix
+.direnv/
+.godot/
+*.os
+*.o
+*.a
+*.so
+*.dylib
+.sconsign*.dblite
+/bin/
