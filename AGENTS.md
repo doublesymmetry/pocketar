@@ -392,8 +392,9 @@ through a session reset. Hardware-buffer errors before activation also fall back
 drop frames and failed completions are counted. `camera_path` and
 `camera_path_reason` report the choice. Callbacks from old generations are ignored.
 
-GPU selection prefers the largest GPU texture under the existing camera filter;
-an explicit config index still wins. Each new frame submits its borrowed hardware
+GPU selection prefers the largest GPU texture under the existing camera filter,
+then the smallest CPU image: a CPU image larger than ARCore's own 640x480 tracking
+stream adds a third camera stream nothing reads. An explicit config index still wins. Each new frame submits its borrowed hardware
 buffer before the next ARCore update; the engine retains it through GPU completion.
 One stable `rgb_texture` replaces Y/CbCr textures, with the display transform
 mapping into `TEXTURE_NORMALIZED`. Buffers larger than ARCore's texture dimensions

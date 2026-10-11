@@ -188,7 +188,7 @@ bool ARCoreInterface::choose_camera_config() {
 		const int64_t area = int64_t(w) * h, texture_area = int64_t(tw) * th;
 		const bool aspect_matches = int64_t(w) * th == int64_t(tw) * h;
 		const bool prefer_gpu = gpu_texture.is_valid();
-		if ((prefer_gpu && (selected < 0 || texture_area > best_gpu_area || (texture_area == best_gpu_area && area > best_area))) ||
+		if ((prefer_gpu && (selected < 0 || texture_area > best_gpu_area || (texture_area == best_gpu_area && area < best_area))) ||
 			(!prefer_gpu && aspect_matches && (area > best_area || (area == best_area && texture_area < best_gpu_area)))) {
 			selected = i; best_area = area; best_gpu_area = texture_area;
 		}
