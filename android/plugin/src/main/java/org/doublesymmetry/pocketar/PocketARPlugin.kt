@@ -1,4 +1,4 @@
-package org.doublesymmetry.handheldar
+package org.doublesymmetry.pocketar
 
 import android.Manifest
 import android.app.Activity
@@ -29,7 +29,7 @@ import org.godotengine.godot.plugin.UsedByGodot
 import org.json.JSONObject
 import javax.microedition.khronos.opengles.GL10
 
-class HandheldARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayListener {
+class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayListener {
     companion object {
         private const val TAG = "godot"
         private const val ARCORE_PACKAGE = "com.google.ar.core"
@@ -43,7 +43,7 @@ class HandheldARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.Displa
         private const val FAILED = 9
 
         init {
-            System.loadLibrary("handheld_ar")
+            System.loadLibrary("pocketar")
         }
     }
 
@@ -67,18 +67,18 @@ class HandheldARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.Displa
     @Volatile private var pauseQueueReturnMaxMs = 0.0
     @Volatile private var pauseQueueSamples = 0L
 
-    override fun getPluginName() = "HandheldARPlugin"
+    override fun getPluginName() = "PocketARPlugin"
 
     override fun getPluginGDExtensionLibrariesPaths() =
-        setOf("res://addons/handheld_ar/handheld_ar.gdextension")
+        setOf("res://addons/pocketar/pocketar.gdextension")
 
     override fun getCommandLineParams(unmodifiableOriginalCommandLineParams: List<String>): List<String> {
         val host = activity ?: return emptyList()
         if (host.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return emptyList()
-        val arguments = host.intent.getStringArrayExtra("handheld_ar_harness_args")?.map(::unescapeHarnessArgument)
+        val arguments = host.intent.getStringArrayExtra("pocketar_harness_args")?.map(::unescapeHarnessArgument)
             ?: return emptyList()
         if (!validHarnessArguments(arguments)) {
-            Log.e(TAG, "Rejected malformed handheld_ar_harness_args")
+            Log.e(TAG, "Rejected malformed pocketar_harness_args")
             return emptyList()
         }
         return listOf("--") + arguments

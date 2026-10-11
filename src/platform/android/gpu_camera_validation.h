@@ -5,7 +5,7 @@
 #include <array>
 #include <cmath>
 
-namespace handheld_ar {
+namespace pocketar {
 
 constexpr int GPU_VALIDATION_PIXELS = 9 * 16 * 16;
 using CameraRGB = std::array<double, 3>;

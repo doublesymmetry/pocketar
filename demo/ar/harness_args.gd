@@ -8,19 +8,19 @@ static func read() -> Dictionary:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	if OS.get_name() != "iOS" or not OS.is_debug_build():
 		return {"args": args, "error": ""}
-	if OS.has_environment("HANDHELD_AR_ARGS"):
-		return parse_environment(OS.get_environment("HANDHELD_AR_ARGS"))
+	if OS.has_environment("POCKETAR_ARGS"):
+		return parse_environment(OS.get_environment("POCKETAR_ARGS"))
 	return validate(args) if args.has("-harness-ar") else {"args": args, "error": ""}
 
 
 static func parse_environment(value: String) -> Dictionary:
 	var decoded: Variant = JSON.parse_string(value)
 	if not decoded is Array:
-		return {"args": PackedStringArray(), "error": "HANDHELD_AR_ARGS must be a JSON array"}
+		return {"args": PackedStringArray(), "error": "POCKETAR_ARGS must be a JSON array"}
 	var args := PackedStringArray()
 	for item: Variant in decoded:
 		if not item is String:
-			return {"args": args, "error": "HANDHELD_AR_ARGS entries must be strings"}
+			return {"args": args, "error": "POCKETAR_ARGS entries must be strings"}
 		args.append(item)
 	return validate(args)
 

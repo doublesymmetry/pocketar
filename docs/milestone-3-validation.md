@@ -17,9 +17,9 @@ directly in the supplied devenv shell.
   registers the shared types and Android backend; `SConstruct` builds it.
 - `android/plugin/`: availability/install/permission, lifecycle and display JNI
   callbacks, SDK 1.56.0 dependency/extraction, device telemetry and validated debug
-  harness arguments. The Kotlin singleton is `HandheldARPlugin`, avoiding a name
-  collision with the native `HandheldAR` singleton.
-- `demo/addons/handheld_ar/`: ARView accepts either backend, clears presentation
+  harness arguments. The Kotlin singleton is `PocketARPlugin`, avoiding a name
+  collision with the native `PocketAR` singleton.
+- `demo/addons/pocketar/`: ARView accepts either backend, clears presentation
   across reset, and raycasts its presented packet. The export plugin supplies
   AR Required/Optional metadata and the Maven dependency. `demo/ar/` contains the
   demo and device harness; the original synthetic harness remains available.
@@ -97,7 +97,7 @@ because they disturb normal throughput measurements.
 ## Claude's first device checks
 
 First update the header, build both AAR variants and export a debug APK. Verify one
-arm64 `libarcore_sdk_c.so`, the `HandheldARPlugin` singleton, AR Optional metadata,
+arm64 `libarcore_sdk_c.so`, the `PocketARPlugin` singleton, AR Optional metadata,
 CAMERA permission, and SDK/service version logs. Confirm AR Required in a separate
 export if that option will be used. The installed Google Play Services for AR must
 be at least 1.48.

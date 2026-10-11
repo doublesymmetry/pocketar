@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cstring>
 
-namespace handheld_ar {
+namespace pocketar {
 
 struct ImagePlane {
 	const uint8_t *data = nullptr;

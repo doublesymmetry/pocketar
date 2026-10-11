@@ -489,7 +489,7 @@ bool ARCoreInterface::texture_slot_active(const TextureSlot &p_slot) const {
 ARCoreInterface::TextureSlot *ARCoreInterface::find_texture_slot() {
 	for (auto &slot : texture_slots) {
 		if (slot.y.is_null()) return &slot;
-		if (handheld_ar::texture_slot_retired(rd_swaps, slot.last_use, frame_delay, texture_slot_active(slot))) return &slot;
+		if (pocketar::texture_slot_retired(rd_swaps, slot.last_use, frame_delay, texture_slot_active(slot))) return &slot;
 	}
 	return nullptr;
 }

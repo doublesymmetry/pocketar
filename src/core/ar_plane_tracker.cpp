@@ -30,13 +30,13 @@ void ARPlaneTracker::_bind_methods() {
 
 ARPlaneTracker::ARPlaneTracker() {
 	set_tracker_type(XRServer::TRACKER_ANCHOR);
-	set_tracker_desc("Handheld AR plane");
+	set_tracker_desc("PocketAR plane");
 }
 
 void ARPlaneTracker::update(const ARPlaneSnapshot &p_snapshot) {
 	snapshot = p_snapshot;
 	snapshot.polygon = p_snapshot.polygon.duplicate();
-	set_tracker_name("handheld_ar/plane/" + String::num_int64(snapshot.session_generation) + "/" + String::num_int64(snapshot.plane_id));
+	set_tracker_name("pocketar/plane/" + String::num_int64(snapshot.session_generation) + "/" + String::num_int64(snapshot.plane_id));
 	if (snapshot.tracking_state == TRACKING) {
 		set_pose("default", snapshot.transform, Vector3(), Vector3(), XRPose::XR_TRACKING_CONFIDENCE_HIGH);
 	} else {

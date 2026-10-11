@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 version=1.56.0
-work_dir=$(mktemp -d "${TMPDIR:-/tmp}/handheld-ar-header.XXXXXX")
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/pocketar-header.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT
 aar_url="https://dl.google.com/dl/android/maven2/com/google/ar/core/$version/core-$version.aar"
 curl --fail --location --retry 3 --output "$work_dir/core.aar" "$aar_url"

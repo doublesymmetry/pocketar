@@ -17,7 +17,7 @@ Commands used the supplied shell directly; no devenv invocation was needed.
   interface, and stops sessions before releasing the pool at extension shutdown.
 - `src/core/ar_frame_packet.{h,cpp}` adds read-only imported-chroma metadata.
   `src/core/ar_plane_geometry.cpp` handles non-convex simple polygons.
-- `demo/addons/handheld_ar/ar_view.gd` selects the iOS backend and forwards the
+- `demo/addons/pocketar/ar_view.gd` selects the iOS backend and forwards the
   packet's chroma layout to `camera.gdshader`; the compositing architecture is
   unchanged. `export_plugin.gd` adds iOS framework flags, the camera description
   fallback and AR Required/Optional capability overrides without duplicate plist keys.
@@ -49,7 +49,7 @@ TMPDIR=/tmp tools/xcframework.sh template_release
 ```
 
 Both device-only static XCFrameworks are generated under
-`demo/addons/handheld_ar/bin/ios/`. They include the existing bundled godot-cpp
+`demo/addons/pocketar/bin/ios/`. They include the existing bundled godot-cpp
 archive. Both plists contain one arm64 iOS slice and a BinaryPath ending in `.a`;
 the native object reports minimum iOS 16.0/SDK 26.2 and the archive defines the
 extension entry symbol. Packaging is not a signed app link or a device build.

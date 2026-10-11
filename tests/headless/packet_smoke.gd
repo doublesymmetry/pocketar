@@ -16,8 +16,8 @@ func _check(condition: bool, message: String) -> void:
 
 
 func _run() -> void:
-	_check(HandheldAR.get_version() == "0.0.1-dev", "version")
-	_check(HandheldAR.get_backend() == "synthetic", "backend")
+	_check(PocketAR.get_version() == "0.0.1-dev", "version")
+	_check(PocketAR.get_backend() == "synthetic", "backend")
 	interface = SyntheticARInterface.new()
 	interface.set_intrinsics(520, 510, 301, 227, Vector2i(640, 480))
 	interface.set_display_geometry(Vector2i(720, 960), 1, 0.17, 23.0)
@@ -63,7 +63,7 @@ func _run() -> void:
 	_check(current.y_texture != first.y_texture and current.cbcr_texture != first.cbcr_texture, "old packet keeps its textures")
 	_check(first.camera_transform.is_equal_approx(display_rotation), "old transform survives ring reuse")
 	_check(interface.get_presented_packet() == first, "acquisition does not advance presented packet")
-	var ray: Dictionary = HandheldAR.screen_to_ray(first, Vector2(720, 960), Vector2(360, 480))
+	var ray: Dictionary = PocketAR.screen_to_ray(first, Vector2(720, 960), Vector2(360, 480))
 	_check(ray["origin"] == Vector3.ZERO and ray["frame_id"] == first.frame_id, "ray uses specified snapshot")
 	interface.mark_presented()
 	_check(interface.get_presented_packet() == current, "explicit presentation")

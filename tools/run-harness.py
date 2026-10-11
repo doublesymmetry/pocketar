@@ -14,7 +14,7 @@ import time
 import uuid
 
 
-PACKAGE = "org.doublesymmetry.handheldar.demo"
+PACKAGE = "org.doublesymmetry.pocketar.demo"
 AR_STEPS = {"arcore-session", "no-gl", "camera-image", "gpu-vs-cpu", "projection-form", "display-transform", "composite", "packet-retention", "lifecycle", "tracking"}
 IOS_SPEC = importlib.util.spec_from_file_location("ios_device", Path(__file__).with_name("ios-device.py"))
 IOS_DEVICE = importlib.util.module_from_spec(IOS_SPEC)
@@ -60,7 +60,7 @@ def android_launch(device, args):
     command = ["am", "start", "-W", "-n", PACKAGE + "/com.godot.game.GodotAppLauncher"]
     if args:
         extra = ",".join(arg.replace("\\", "\\\\").replace(",", "\\,") for arg in args)
-        command += ["--esa", "handheld_ar_harness_args", extra]
+        command += ["--esa", "pocketar_harness_args", extra]
     return device + ["shell", shlex.join(command)]
 
 
@@ -116,7 +116,7 @@ def ios_launch(device, args, output, legacy, log_path="user://logs/harness.log")
         return ["idevicedebug", "-u", device, "--detach", "--", "run", PACKAGE] + engine_args
     return ["xcrun", "devicectl", "device", "process", "launch", "--device", device,
             "--terminate-existing", "--json-output", str(output / "launch.json"),
-            "--environment-variables", json.dumps({"HANDHELD_AR_ARGS": json.dumps(user_args)}), PACKAGE, "--"] + engine_args
+            "--environment-variables", json.dumps({"POCKETAR_ARGS": json.dumps(user_args)}), PACKAGE, "--"] + engine_args
 
 
 def ios_pull_log(device, destination, legacy, source="Documents/logs/harness.log"):

@@ -24,10 +24,10 @@ struct ARKitTexturePool::Impl {
 		CVMetalTextureRef native[2] = { nullptr, nullptr };
 		RID rd[2];
 		Ref<Texture2DRD> texture[2];
-		handheld_ar::ImportRetirement lifetime;
+		pocketar::ImportRetirement lifetime;
 		uint64_t free_usec = 0;
 #ifdef DEBUG_ENABLED
-		handheld_ar::ImportRetainCanary retain_canary[2];
+		pocketar::ImportRetainCanary retain_canary[2];
 #endif
 		bool matches(const Ref<ARFramePacket> &p_packet) const {
 			return p_packet.is_valid() && texture[0] == p_packet->get_y_texture() && texture[1] == p_packet->get_cbcr_texture();

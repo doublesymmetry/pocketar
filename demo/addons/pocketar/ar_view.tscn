@@ -1,8 +1,8 @@
 [gd_scene load_steps=6 format=3]
 
-[ext_resource type="Script" path="res://addons/handheld_ar/ar_view.gd" id="1"]
-[ext_resource type="Shader" path="res://addons/handheld_ar/camera.gdshader" id="2"]
-[ext_resource type="Shader" path="res://addons/handheld_ar/composite.gdshader" id="3"]
+[ext_resource type="Script" path="res://addons/pocketar/ar_view.gd" id="1"]
+[ext_resource type="Shader" path="res://addons/pocketar/camera.gdshader" id="2"]
+[ext_resource type="Shader" path="res://addons/pocketar/composite.gdshader" id="3"]
 
 [sub_resource type="ShaderMaterial" id="CameraMaterial"]
 resource_local_to_scene = true

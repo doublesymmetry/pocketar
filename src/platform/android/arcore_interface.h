@@ -67,7 +67,7 @@ private:
 	uint64_t gpu_validation_swap = 0;
 	int64_t gpu_validation_timestamp = 0;
 	Vector2i gpu_validation_size;
-	handheld_ar::CameraBlockMeans gpu_cpu_means{};
+	pocketar::CameraBlockMeans gpu_cpu_means{};
 	double gpu_validation_luma_range = 0, gpu_validation_chroma_magnitude = 0;
 	std::array<double, 4> gpu_validation_worst{}, gpu_validation_sum{};
 	int64_t generation = 0;
@@ -178,7 +178,7 @@ public:
 	void harness_pause() { application_pause(); }
 	void harness_resume() { application_resume(); }
 
-	StringName _get_name() const override { return "HandheldARCore"; }
+	StringName _get_name() const override { return "PocketARCore"; }
 	uint32_t _get_capabilities() const override { return XR_MONO | XR_AR; }
 	bool _is_initialized() const override { return initialized; }
 	bool _initialize() override;

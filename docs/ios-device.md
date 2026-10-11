@@ -25,7 +25,7 @@ launch the app once and tap **Allow** on the camera prompt before starting an au
 run. An XCUITest alert handler can perform that step when available. If permission
 was denied, enable camera access in Settings before retrying. Launch prints its PID
 and saves `launch.json`. App flags follow the devicectl `--` separator and are also
-sent as a JSON array of strings in `HANDHELD_AR_ARGS`. Commands have a 30-second
+sent as a JSON array of strings in `POCKETAR_ARGS`. Commands have a 30-second
 CoreDevice timeout and a 35-second subprocess limit.
 
 The `ios-ar` lane runs the ARKit checks; `ios` runs the synthetic rendering suite
@@ -53,7 +53,7 @@ host terminates that process. Failed pulls preserve device files for recovery;
 cleanup failure fails the run. The default Godot log remains available and uses
 Godot's bounded rotation.
 Cleanup accepts command-line requests in debug and release synthetic builds;
-`HANDHELD_AR_ARGS` remains debug-only.
+`POCKETAR_ARGS` remains debug-only.
 `HARNESS_TIMEOUT` overrides the default duration plus 180 seconds. Termination
 waits up to five seconds for the PID to disappear, then sends SIGKILL if needed.
 An already absent PID makes manual termination a no-op. The harness treats an
@@ -70,7 +70,7 @@ need a signed-device run.
 On iOS, the export plugin links ARKit, Metal, CoreVideo and AVFoundation.
 `privacy/camera_usage_description` stays editable and an empty value produces a
 warning. `capabilities/additional` also stays editable. When
-`handheld_ar/ar_required` is enabled, the plugin merges `arkit` into the generated
+`pocketar/ar_required` is enabled, the plugin merges `arkit` into the generated
 plist's existing capability array. User capabilities and camera descriptions are
 preserved, including a manually requested `arkit` capability in optional mode.
 

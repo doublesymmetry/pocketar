@@ -33,7 +33,7 @@ public:
 	bool check_material(const RID &p_material);
 	Dictionary get_diagnostics() const;
 	void shutdown();
-	StringName _get_name() const override { return "HandheldARKitRetirement"; }
+	StringName _get_name() const override { return "PocketARKitRetirement"; }
 	uint32_t _get_capabilities() const override { return 0; }
 	uint32_t _get_view_count() override { return 0; }
 	bool _is_initialized() const override;

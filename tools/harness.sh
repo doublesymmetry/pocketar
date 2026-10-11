@@ -10,7 +10,7 @@ case "$platform" in
     android|android-ar)
         : "${ADB:?Set ADB to the adb binary matching the machine server; do not use devenv adb}"
         : "${ANDROID_SERIAL:?Set ANDROID_SERIAL after checking that the shared phone is free}"
-        apk=${APK:-build/exports/android/handheld_ar-debug.apk}
+        apk=${APK:-build/exports/android/pocketar-debug.apk}
         "$ADB" -s "$ANDROID_SERIAL" install -r "$apk"
         exec python3 tools/run-harness.py "--$platform" "$ADB" "$ANDROID_SERIAL" -- "$@" ;;
     ios-ar)

@@ -18,4 +18,4 @@ if [[ "$platform" == android ]]; then
 fi
 godot --headless --path demo --editor --import
 exec godot --headless --path demo "${extra[@]}" "--export-$mode" "$preset" \
-    "../$output/handheld_ar-$mode.$suffix"
+    "../$output/pocketar-$mode.$suffix"

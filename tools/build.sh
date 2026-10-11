@@ -30,9 +30,9 @@ scons platform="$platform" target="$target" arch="$arch" api_version=4.7 \
 case "$platform" in
     macos)
         if [[ "$mode" == editor ]]; then
-            mkdir -p "demo/addons/handheld_ar/bin/macos/template_debug/$arch"
-            cp "demo/addons/handheld_ar/bin/macos/editor/$arch/libhandheld_ar.dylib" \
-                "demo/addons/handheld_ar/bin/macos/template_debug/$arch/libhandheld_ar.dylib"
+            mkdir -p "demo/addons/pocketar/bin/macos/template_debug/$arch"
+            cp "demo/addons/pocketar/bin/macos/editor/$arch/libpocketar.dylib" \
+                "demo/addons/pocketar/bin/macos/template_debug/$arch/libpocketar.dylib"
         fi ;;
     ios) tools/xcframework.sh "$target" ;;
     android)

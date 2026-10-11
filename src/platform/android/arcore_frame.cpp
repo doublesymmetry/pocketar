@@ -348,7 +348,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 			return;
 		}
 		const uint64_t copy_start = tick_usec();
-		handheld_ar::ImagePlane image_planes[3];
+		pocketar::ImagePlane image_planes[3];
 		Array strides;
 		for (int i = 0; i < 3; ++i) {
 			int32_t length = 0;
@@ -365,13 +365,13 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 			chroma.resize(((width + 1) / 2) * ((height + 1) / 2) * 2);
 			staging_size = Vector2i(width, height);
 		}
-		handheld_ar::YUVLayout layout;
-		const bool repacked = handheld_ar::repack_yuv(width, height, image_planes, luma.ptrw(), chroma.ptrw(), layout);
+		pocketar::YUVLayout layout;
+		const bool repacked = pocketar::repack_yuv(width, height, image_planes, luma.ptrw(), chroma.ptrw(), layout);
 		api.ArImage_release(image);
 		if (!repacked) { fail(AR_ERROR_FATAL, "camera image plane bounds"); return; }
 		repack_usec = tick_usec() - copy_start;
 		const uint64_t stats_start = tick_usec();
-		const String layout_name = layout == handheld_ar::YUVLayout::NV12 ? "NV12" : layout == handheld_ar::YUVLayout::NV21 ? "NV21" : "generic";
+		const String layout_name = layout == pocketar::YUVLayout::NV12 ? "NV12" : layout == pocketar::YUVLayout::NV21 ? "NV21" : "generic";
 		if (!diagnostics.has("image_plane_layout") || diagnostics["image_plane_layout"] != Variant(strides)) {
 			for (int i = 0; i < strides.size(); ++i) UtilityFunctions::print("ARCORE plane ", i, " ", strides[i], " layout=", layout_name);
 		}

@@ -458,10 +458,10 @@ func _tracking() -> void:
 
 
 func _log_device_diagnostics(phase: String) -> void:
-	if not Engine.has_singleton("HandheldARPlugin"):
+	if not Engine.has_singleton("PocketARPlugin"):
 		HarnessLog.write_line("ARCORE DEVICE %s unavailable" % phase)
 		return
-	var plugin: Object = Engine.get_singleton("HandheldARPlugin")
+	var plugin: Object = Engine.get_singleton("PocketARPlugin")
 	if not bool(plugin.call("has_java_method", "getDiagnostics")):
 		HarnessLog.write_line("ARCORE DEVICE %s getDiagnostics unavailable" % phase)
 		return

@@ -14,7 +14,7 @@ func _check(condition: bool, message: String) -> void:
 
 
 func _run() -> void:
-	var scene: PackedScene = load("res://addons/handheld_ar/ar_view.tscn") as PackedScene
+	var scene: PackedScene = load("res://addons/pocketar/ar_view.tscn") as PackedScene
 	var view: ARView = scene.instantiate() as ARView
 	root.add_child(view)
 	_check(view.world_3d != null and view.world_3d == view.scene_root.get_world_3d(), "exposes active scene world")

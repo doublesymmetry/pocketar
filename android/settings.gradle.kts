@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "handheld-ar"
+rootProject.name = "pocketar"
 include(":plugin")

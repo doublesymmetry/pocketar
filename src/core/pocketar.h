@@ -7,8 +7,8 @@
 
 namespace godot {
 
-class HandheldAR : public Object {
-	GDCLASS(HandheldAR, Object)
+class PocketAR : public Object {
+	GDCLASS(PocketAR, Object)
 
 protected:
 	static void _bind_methods();

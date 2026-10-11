@@ -10,7 +10,7 @@ val arcoreNative by configurations.creating {
 }
 
 android {
-    namespace = "org.doublesymmetry.handheldar"
+    namespace = "org.doublesymmetry.pocketar"
     compileSdk = 36
     buildToolsVersion = "36.1.0"
     ndkVersion = "29.0.14206865"
@@ -49,14 +49,14 @@ val extractArcoreNative by tasks.registering(Sync::class) {
 }
 
 val copyExtension by tasks.registering(Copy::class) {
-    from("../../demo/addons/handheld_ar/handheld_ar.gdextension")
-    into(layout.buildDirectory.dir("generated/assets/addons/handheld_ar"))
+    from("../../demo/addons/pocketar/pocketar.gdextension")
+    into(layout.buildDirectory.dir("generated/assets/addons/pocketar"))
 }
 
 tasks.named("preBuild") { dependsOn(copyExtension, extractArcoreNative) }
 for ((variant, target) in listOf("debug" to "template_debug", "release" to "template_release")) {
     val capitalized = variant.replaceFirstChar { it.uppercase() }
-    val library = file("../../demo/addons/handheld_ar/bin/android/$target/arm64/libhandheld_ar.so")
+    val library = file("../../demo/addons/pocketar/bin/android/$target/arm64/libpocketar.so")
     val copyNative = tasks.register<Copy>("copy${capitalized}Native") {
         from(library)
         into(layout.buildDirectory.dir("generated/jni/$variant/arm64-v8a"))
@@ -65,7 +65,7 @@ for ((variant, target) in listOf("debug" to "template_debug", "release" to "temp
     tasks.matching { it.name == "pre${capitalized}Build" }.configureEach { dependsOn(copyNative) }
     val copyAar = tasks.register("copy${capitalized}Aar") {
         val source = layout.buildDirectory.file("outputs/aar/plugin-$variant.aar")
-        val destination = file("../../demo/addons/handheld_ar/bin/android/handheld_ar-$variant.aar")
+        val destination = file("../../demo/addons/pocketar/bin/android/pocketar-$variant.aar")
         inputs.file(source)
         outputs.file(destination)
         doLast {

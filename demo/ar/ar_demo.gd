@@ -1,6 +1,6 @@
 extends Node
 
-const AR_VIEW: PackedScene = preload("res://addons/handheld_ar/ar_view.tscn")
+const AR_VIEW: PackedScene = preload("res://addons/pocketar/ar_view.tscn")
 const IOS_HARNESS: Script = preload("res://ar/ios_ar_harness.gd")
 const HARNESS_ARGS: Script = preload("res://ar/harness_args.gd")
 const DEVICE_HARNESS: Script = preload("res://ar/ar_harness.gd")
@@ -86,10 +86,10 @@ func _prepare_dataset(args: PackedStringArray) -> bool:
 	var index: int = maxi(record_index, playback_index)
 	var filename: String = args[index + 1] if index + 1 < args.size() else ""
 	var valid_name := RegEx.create_from_string("^[A-Za-z0-9_-][A-Za-z0-9_.-]*\\.mp4$")
-	if valid_name.search(filename) == null or not Engine.has_singleton("HandheldARPlugin"):
+	if valid_name.search(filename) == null or not Engine.has_singleton("PocketARPlugin"):
 		dataset_error = "dataset needs a simple .mp4 filename and the Android plugin"
 		return false
-	var plugin: Object = Engine.get_singleton("HandheldARPlugin")
+	var plugin: Object = Engine.get_singleton("PocketARPlugin")
 	var directory: String = String(plugin.call("getExternalFilesDir"))
 	if not directory.begins_with("/"):
 		dataset_error = "private external storage is unavailable"

@@ -13,7 +13,7 @@ import time
 import uuid
 
 
-BUNDLE = "org.doublesymmetry.handheldar.demo"
+BUNDLE = "org.doublesymmetry.pocketar.demo"
 STEPS = {"arkit-session", "camera-image", "projection-form", "display-transform", "composite", "packet-retention", "lifecycle", "tracking"}
 
 
@@ -68,7 +68,7 @@ class Device:
     def launch(self, arguments):
         if len(arguments) > 55 or any("\0" in arg for arg in arguments):
             raise ValueError("App arguments exceed Godot's safe argument budget or contain NUL")
-        environment = json.dumps({"HANDHELD_AR_ARGS": json.dumps(arguments), "OS_ACTIVITY_DT_MODE": "enable"})
+        environment = json.dumps({"POCKETAR_ARGS": json.dumps(arguments), "OS_ACTIVITY_DT_MODE": "enable"})
         result = self.call(self.command("process", "launch") + ["--terminate-existing", "--environment-variables", environment, self.bundle, "--", *arguments])
         (self.output / "launch.json").write_text(json.dumps(result, indent=2))
         pid = result.get("process", {}).get("processIdentifier")

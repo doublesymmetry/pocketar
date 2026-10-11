@@ -11,7 +11,7 @@ namespace godot {
 
 static constexpr uint8_t INPUT_TRACK_UUID[16] = { 0x61, 0xa9, 0x77, 0x25, 0x8b, 0xe4, 0x4e, 0x8f, 0xa1, 0x96, 0x6a, 0xf3, 0x8c, 0xa1, 0x07, 0x35 };
 static constexpr const char *INPUT_TRACK_UUID_TEXT = "61a97725-8be4-4e8f-a196-6af38ca10735";
-static constexpr const char *INPUT_TRACK_METADATA = "{\"format\":\"handheld-ar-input\",\"version\":1,\"payload\":\"application-owned bytes\"}";
+static constexpr const char *INPUT_TRACK_METADATA = "{\"format\":\"pocketar-input\",\"version\":1,\"payload\":\"application-owned bytes\"}";
 static constexpr size_t MAX_PENDING_INPUTS = 128;
 static constexpr int MAX_INPUT_BYTES = 65536;
 static constexpr int MAX_INPUT_ATTEMPTS = 8;
@@ -405,7 +405,7 @@ Dictionary ARCoreExtras::start_recording(const String &p_file_uri) {
 	api.ArTrack_create(session, &track);
 	api.ArTrack_setId(session, track, INPUT_TRACK_UUID);
 	api.ArTrack_setMetadata(session, track, reinterpret_cast<const uint8_t *>(INPUT_TRACK_METADATA), std::strlen(INPUT_TRACK_METADATA));
-	api.ArTrack_setMimeType(session, track, "application/vnd.handheld-ar.input");
+	api.ArTrack_setMimeType(session, track, "application/vnd.pocketar.input");
 	api.ArRecordingConfig_addTrack(session, config, track);
 	const ArStatus status = api.ArSession_startRecording(session, config);
 	api.ArTrack_destroy(track);

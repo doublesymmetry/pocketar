@@ -1,14 +1,14 @@
 @tool
 extends EditorExportPlugin
 
-const AR_REQUIRED_OPTION: String = "handheld_ar/ar_required"
-const IOS_VERSION_ERROR: String = "Handheld AR requires application/min_ios_version 16.0 or newer."
+const AR_REQUIRED_OPTION: String = "pocketar/ar_required"
+const IOS_VERSION_ERROR: String = "PocketAR requires application/min_ios_version 16.0 or newer."
 
 var _require_arkit: bool = false
 
 
 func _get_name() -> String:
-	return "HandheldAR"
+	return "PocketAR"
 
 
 func _supports_platform(platform: EditorExportPlatform) -> bool:
@@ -35,7 +35,7 @@ static func ios_validation_overrides(version: String) -> Dictionary:
 	if pattern.search(version) != null and int(version.get_slice(".", 0)) >= 16:
 		return {}
 	# Godot 4.7 export warnings cannot abort; missing templates fail can_export().
-	var unavailable: String = "res://.handheld_ar/requires-ios-16.0-or-newer/no-export-template.zip"
+	var unavailable: String = "res://.pocketar/requires-ios-16.0-or-newer/no-export-template.zip"
 	return {"custom_template/debug": unavailable, "custom_template/release": unavailable}
 
 
@@ -48,7 +48,7 @@ func _get_export_option_warning(platform: EditorExportPlatform, option: String) 
 			warnings.append(IOS_VERSION_ERROR)
 	if option == AR_REQUIRED_OPTION or option == "privacy/camera_usage_description":
 		if String(get_option("privacy/camera_usage_description")).strip_edges().is_empty():
-			warnings.append("Set privacy/camera_usage_description before exporting Handheld AR for iOS.")
+			warnings.append("Set privacy/camera_usage_description before exporting PocketAR for iOS.")
 	return "\n".join(warnings)
 
 
@@ -68,7 +68,7 @@ func _end_generate_apple_embedded_project(path: String, _will_build_archive: boo
 	capabilities.compile("<key>UIRequiredDeviceCapabilities</key>\\s*<array>([\\s\\S]*?)</array>")
 	var found: RegExMatch = capabilities.search(contents)
 	if found == null:
-		push_error("Handheld AR could not find UIRequiredDeviceCapabilities in " + plist_path)
+		push_error("PocketAR could not find UIRequiredDeviceCapabilities in " + plist_path)
 		return
 	if found.get_string(1).contains("<string>arkit</string>"):
 		return
@@ -76,14 +76,14 @@ func _end_generate_apple_embedded_project(path: String, _will_build_archive: boo
 	contents = contents.substr(0, end) + "\t<string>arkit</string>\n\t" + contents.substr(end)
 	var file: FileAccess = FileAccess.open(plist_path, FileAccess.WRITE)
 	if file == null:
-		push_error("Handheld AR could not update " + plist_path)
+		push_error("PocketAR could not update " + plist_path)
 		return
 	file.store_string(contents)
 
 
 func _get_android_libraries(_platform: EditorExportPlatform, debug: bool) -> PackedStringArray:
 	var variant: String = "debug" if debug else "release"
-	return PackedStringArray(["res://addons/handheld_ar/bin/android/handheld_ar-%s.aar" % variant])
+	return PackedStringArray(["res://addons/pocketar/bin/android/pocketar-%s.aar" % variant])
 
 
 func _get_android_dependencies(_platform: EditorExportPlatform, _debug: bool) -> PackedStringArray:

@@ -1,7 +1,7 @@
 extends Node
 
 const HARNESS_ARGS: Script = preload("res://ar/harness_args.gd")
-const CAMERA_SHADER: Shader = preload("res://addons/handheld_ar/camera.gdshader")
+const CAMERA_SHADER: Shader = preload("res://addons/pocketar/camera.gdshader")
 const STEPS: PackedStringArray = HARNESS_ARGS.STEPS
 
 var view: ARView

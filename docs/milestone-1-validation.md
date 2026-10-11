@@ -22,7 +22,7 @@ Run the packet check from the repository root after building/importing the demo:
 
 ```sh
 godot --headless --path demo --script "$PWD/tests/headless/packet_smoke.gd" \
-    --log-file /tmp/handheld-ar-packet.log
+    --log-file /tmp/pocketar-packet.log
 ```
 
 It checks singleton access, projection through the XR virtual, packet retention
@@ -60,7 +60,7 @@ LOD checks and bright-background transparency/MSAA checks in that handoff. ARCor
 native projection diagnostic also requires positive focal terms and finite aspect;
 its four physical device rotations remain a device check.
 
-Run `tools/harness.sh desktop -harness-out /tmp/handheld-ar-captures` in the GUI
+Run `tools/harness.sh desktop -harness-out /tmp/pocketar-captures` in the GUI
 session. Start with `-harness-steps loaded,xr-mono-2d,projection,camera-transform,transparency` if
 isolating renderer problems. The strict colour and 120-frame consistency checks
 must also pass before accepting the architecture. Inspect the saved scene-alpha
@@ -74,7 +74,7 @@ alpha-zero glow have documented limitations in `AGENTS.md`.
 Gradle/AAR assembly, debug/release exports, signed Xcode device builds and release
 archives, and loading/running on the iPhone and Pixel were not attempted. iOS and
 macOS release native targets were not compiled in this round. Check the AAR's manifest, extension asset and
-`jni/arm64-v8a/libhandheld_ar.so`, then the exported APK's native alignment and
+`jni/arm64-v8a/libpocketar.so`, then the exported APK's native alignment and
 plugin discovery. Check static entry registration/linkage in the iOS export.
 The ELF check above covers this extension only, not all libraries in an APK.
 

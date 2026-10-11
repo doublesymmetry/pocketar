@@ -43,7 +43,7 @@ public:
 	Ref<ARFramePacket> get_presented_packet() const { return presented_packet; }
 	void mark_presented();
 
-	StringName _get_name() const override { return "HandheldARSynthetic"; }
+	StringName _get_name() const override { return "PocketARSynthetic"; }
 	uint32_t _get_capabilities() const override { return XR_MONO | XR_AR; }
 	bool _is_initialized() const override { return initialized; }
 	bool _initialize() override;

@@ -163,7 +163,7 @@ void ARCoreInterface::capture_gpu_validation(int64_t p_timestamp) {
 	api.ArImage_getTimestamp(session, image, &timestamp);
 	bool valid = format == AR_IMAGE_FORMAT_YUV_420_888 && count == 3 && width > 0 && height > 0 && width <= 8192 && height <= 8192;
 	valid &= fps_range.y > 0 && std::abs(double(timestamp - p_timestamp)) < 500000000.0 / fps_range.y;
-	handheld_ar::ImagePlane planes[3];
+	pocketar::ImagePlane planes[3];
 	if (valid) {
 		for (int i = 0; i < 3; ++i) {
 			int32_t length = 0;
@@ -172,12 +172,12 @@ void ARCoreInterface::capture_gpu_validation(int64_t p_timestamp) {
 			api.ArImage_getPlaneRowStride(session, image, i, &planes[i].row_stride);
 			api.ArImage_getPlanePixelStride(session, image, i, &planes[i].pixel_stride);
 		}
-		float texture_uv[handheld_ar::GPU_VALIDATION_PIXELS * 2], image_uv[handheld_ar::GPU_VALIDATION_PIXELS * 2];
+		float texture_uv[pocketar::GPU_VALIDATION_PIXELS * 2], image_uv[pocketar::GPU_VALIDATION_PIXELS * 2];
 		std::fill(std::begin(image_uv), std::end(image_uv), std::numeric_limits<float>::quiet_NaN());
-		valid = handheld_ar::gpu_validation_coordinates(gpu_validation_size.x, gpu_validation_size.y, texture_uv);
+		valid = pocketar::gpu_validation_coordinates(gpu_validation_size.x, gpu_validation_size.y, texture_uv);
 		if (valid) {
-			api.ArFrame_transformCoordinates2d(session, frame, AR_COORDINATES_2D_TEXTURE_NORMALIZED, handheld_ar::GPU_VALIDATION_PIXELS, texture_uv, AR_COORDINATES_2D_IMAGE_NORMALIZED, image_uv);
-			valid = handheld_ar::cpu_camera_block_means(width, height, planes, image_uv, gpu_cpu_means, gpu_validation_luma_range, gpu_validation_chroma_magnitude);
+			api.ArFrame_transformCoordinates2d(session, frame, AR_COORDINATES_2D_TEXTURE_NORMALIZED, pocketar::GPU_VALIDATION_PIXELS, texture_uv, AR_COORDINATES_2D_IMAGE_NORMALIZED, image_uv);
+			valid = pocketar::cpu_camera_block_means(width, height, planes, image_uv, gpu_cpu_means, gpu_validation_luma_range, gpu_validation_chroma_magnitude);
 		}
 	}
 	api.ArImage_release(image);
@@ -199,10 +199,10 @@ void ARCoreInterface::finish_gpu_validation() {
 		increment("gpu_validation_failures");
 		return;
 	}
-	std::array<handheld_ar::CameraRGB, 9> means{};
+	std::array<pocketar::CameraRGB, 9> means{};
 	for (int row = 0; row < 3; ++row) for (int col = 0; col < 3; ++col) {
-		const int x = handheld_ar::gpu_validation_block_start(image->get_width(), col);
-		const int y = handheld_ar::gpu_validation_block_start(image->get_height(), row);
+		const int x = pocketar::gpu_validation_block_start(image->get_width(), col);
+		const int y = pocketar::gpu_validation_block_start(image->get_height(), row);
 		for (int dy = 0; dy < 16; ++dy) for (int dx = 0; dx < 16; ++dx) {
 			const Color color = image->get_pixel(x + dx, y + dy);
 			for (int channel = 0; channel < 3; ++channel) means[row * 3 + col][channel] += color[channel] * 255.0 / 256;

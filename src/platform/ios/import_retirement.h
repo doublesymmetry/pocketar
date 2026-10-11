@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 
-namespace handheld_ar {
+namespace pocketar {
 
 struct ImportRetirement {
 	bool freed = false;

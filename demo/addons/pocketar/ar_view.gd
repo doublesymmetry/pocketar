@@ -172,7 +172,7 @@ func screen_to_ray(screen_point: Vector2) -> Dictionary:
 	var packet: ARFramePacket = interface.call("get_presented_packet") as ARFramePacket
 	if packet == null or not packet.tracking_valid:
 		return {}
-	return HandheldAR.screen_to_ray(packet, size, screen_point)
+	return PocketAR.screen_to_ray(packet, size, screen_point)
 
 
 func raycast(screen_point: Vector2) -> Array:
@@ -181,7 +181,7 @@ func raycast(screen_point: Vector2) -> Array:
 	var packet: ARFramePacket = interface.call("get_presented_packet") as ARFramePacket
 	if packet == null or not packet.tracking_valid:
 		return []
-	return HandheldAR.raycast_planes(packet, HandheldAR.screen_to_ray(packet, size, screen_point))
+	return PocketAR.raycast_planes(packet, PocketAR.screen_to_ray(packet, size, screen_point))
 
 
 func _unhandled_input(event: InputEvent) -> void:

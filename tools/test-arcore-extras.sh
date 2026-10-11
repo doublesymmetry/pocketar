@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 arch=${ARCH:-arm64}
-fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/handheld-ar-extras.XXXXXX")
+fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/pocketar-extras.XXXXXX")
 trap 'rm -rf "$fixture_dir"' EXIT
 xcrun clang++ -std=c++17 -shared -fPIC -arch "$arch" -Isrc -Ithirdparty/arcore/include \
     -Igodot-cpp/include -Igodot-cpp/gen/include -Igodot-cpp/gdextension \

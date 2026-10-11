@@ -78,7 +78,7 @@ class AndroidHarnessTest(unittest.TestCase):
         self.assertEqual(command[:4], ["/tools/adb", "-s", "pixel", "shell"])
         remote_args = shlex.split(command[4])
         self.assertEqual(remote_args[-3:], [
-            "--esa", "handheld_ar_harness_args",
+            "--esa", "pocketar_harness_args",
             "-harness-ar,-harness-steps,no-gl\\,camera-image,-harness-out,user://camera captures;literal",
         ])
 
@@ -210,7 +210,7 @@ class IOSHarnessTest(unittest.TestCase):
             "--", "--harness", "-harness-steps", "projection",
         ])
         environment = json.loads(command[command.index("--environment-variables") + 1])
-        self.assertEqual(json.loads(environment["HANDHELD_AR_ARGS"]), ["--harness", "-harness-steps", "projection"])
+        self.assertEqual(json.loads(environment["POCKETAR_ARGS"]), ["--harness", "-harness-steps", "projection"])
         legacy = RUNNER.ios_launch("phone", ["-harness-steps", "projection"], Path("out"), True)
         self.assertEqual(legacy[:7], ["idevicedebug", "-u", "phone", "--detach", "--", "run", RUNNER.PACKAGE])
         self.assertEqual(legacy[7:], command[command.index(RUNNER.PACKAGE) + 2:])

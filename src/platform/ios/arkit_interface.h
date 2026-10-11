@@ -81,7 +81,7 @@ public:
 	void session_interrupted(bool p_interrupted);
 	void session_failed(int p_code, const String &p_message);
 
-	StringName _get_name() const override { return "HandheldARKit"; }
+	StringName _get_name() const override { return "PocketARKit"; }
 	uint32_t _get_capabilities() const override { return XR_MONO | XR_AR; }
 	bool _is_initialized() const override { return initialized; }
 	bool _initialize() override;

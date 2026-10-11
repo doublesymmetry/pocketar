@@ -16,5 +16,5 @@ local.properties
 /android/build/
 /android/plugin/build/
 /demo/android/
-/demo/addons/handheld_ar/bin/
+/demo/addons/*/bin/
 __pycache__/

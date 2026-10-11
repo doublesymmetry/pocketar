@@ -1,7 +1,7 @@
 @tool
 extends EditorPlugin
 
-const ExportPlugin := preload("res://addons/handheld_ar/export_plugin.gd")
+const ExportPlugin := preload("res://addons/pocketar/export_plugin.gd")
 var exporter: EditorExportPlugin
 
 

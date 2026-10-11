@@ -1,1 +1,1 @@
--keep class org.doublesymmetry.handheldar.HandheldARPlugin { *; }
+-keep class org.doublesymmetry.pocketar.PocketARPlugin { *; }

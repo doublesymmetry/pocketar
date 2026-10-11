@@ -28,15 +28,15 @@ if platform == "ios":
     objc_env = env.Clone()
     objc_env.Append(CXXFLAGS=["-fobjc-arc", "-fmodules", "-fcxx-modules",
                              "-fmodules-cache-path=" + Dir("build/clang-module-cache").abspath])
-output = "demo/addons/handheld_ar/bin/{}/{}/{}".format(platform, env["target"], env["arch"])
+output = "demo/addons/pocketar/bin/{}/{}/{}".format(platform, env["target"], env["arch"])
 objects = [(objc_env if str(s).endswith(".mm") else env).SharedObject(
     "build/" + env["suffix"] + "/" + str(s) + ".os", s) for s in sources]
 if platform == "ios":
     # StaticLibrary does not absorb LIBS; the XCFramework must also contain godot-cpp.
-    archive = env.StaticLibrary(output + "/libhandheld_ar_objects", objects)
+    archive = env.StaticLibrary(output + "/libpocketar_objects", objects)
     cpp_archive = next(lib for lib in env["LIBS"] if "godot-cpp" in str(lib))
-    library = env.Command(output + "/libhandheld_ar.a", [archive, cpp_archive],
+    library = env.Command(output + "/libpocketar.a", [archive, cpp_archive],
                           "xcrun libtool -static -o $TARGET $SOURCES")
 else:
-    library = env.SharedLibrary(output + "/libhandheld_ar", objects)
+    library = env.SharedLibrary(output + "/libpocketar", objects)
 Default(library)

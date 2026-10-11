@@ -37,7 +37,7 @@ static void notify_owner() {
 }
 
 extern "C" {
-JNIEXPORT void JNICALL Java_org_doublesymmetry_handheldar_HandheldARPlugin_nativeInitialize(JNIEnv *p_env, jobject, jobject p_activity, jobject p_context) {
+JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativeInitialize(JNIEnv *p_env, jobject, jobject p_activity, jobject p_context) {
 	std::lock_guard<std::mutex> lock(bridge_mutex);
 	p_env->GetJavaVM(&bridge.vm);
 	if (bridge.activity) p_env->DeleteGlobalRef(bridge.activity);
@@ -45,7 +45,7 @@ JNIEXPORT void JNICALL Java_org_doublesymmetry_handheldar_HandheldARPlugin_nativ
 	bridge.activity = p_env->NewGlobalRef(p_activity);
 	bridge.context = p_env->NewGlobalRef(p_context);
 }
-JNIEXPORT void JNICALL Java_org_doublesymmetry_handheldar_HandheldARPlugin_nativeStatus(JNIEnv *p_env, jobject, jint p_state, jstring p_version, jstring p_detail) {
+JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativeStatus(JNIEnv *p_env, jobject, jint p_state, jstring p_version, jstring p_detail) {
 	{
 		std::lock_guard<std::mutex> lock(bridge_mutex);
 		bridge.state = p_state;
@@ -55,22 +55,22 @@ JNIEXPORT void JNICALL Java_org_doublesymmetry_handheldar_HandheldARPlugin_nativ
 	}
 	notify_owner();
 }
-JNIEXPORT void JNICALL Java_org_doublesymmetry_handheldar_HandheldARPlugin_nativeResume(JNIEnv *, jobject) {
+JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativeResume(JNIEnv *, jobject) {
 	{ std::lock_guard<std::mutex> lock(bridge_mutex); bridge.resumed = true; }
 	notify_owner();
 }
-JNIEXPORT void JNICALL Java_org_doublesymmetry_handheldar_HandheldARPlugin_nativePause(JNIEnv *, jobject) {
+JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativePause(JNIEnv *, jobject) {
 	{ std::lock_guard<std::mutex> lock(bridge_mutex); bridge.resumed = false; }
 	notify_owner();
 }
-JNIEXPORT void JNICALL Java_org_doublesymmetry_handheldar_HandheldARPlugin_nativeDisplayGeometry(JNIEnv *, jobject, jint p_rotation, jint p_width, jint p_height) {
+JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativeDisplayGeometry(JNIEnv *, jobject, jint p_rotation, jint p_width, jint p_height) {
 	std::lock_guard<std::mutex> lock(bridge_mutex);
 	bridge.rotation = p_rotation;
 	bridge.width = p_width;
 	bridge.height = p_height;
 	++bridge.geometry_revision;
 }
-JNIEXPORT void JNICALL Java_org_doublesymmetry_handheldar_HandheldARPlugin_nativeShutdown(JNIEnv *p_env, jobject) {
+JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativeShutdown(JNIEnv *p_env, jobject) {
 	if (owner) owner->_uninitialize();
 	std::lock_guard<std::mutex> lock(bridge_mutex);
 	bridge.resumed = false;

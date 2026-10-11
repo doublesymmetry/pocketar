@@ -27,7 +27,7 @@ class DeviceTests(unittest.TestCase):
         self.assertEqual(command[separator - 1], ios.BUNDLE)
         self.assertEqual(command[separator + 1:], arguments)
         environment = json.loads(command[command.index("--environment-variables") + 1])
-        self.assertEqual(json.loads(environment["HANDHELD_AR_ARGS"]), arguments)
+        self.assertEqual(json.loads(environment["POCKETAR_ARGS"]), arguments)
 
     def test_json_file_is_only_command_result(self):
         def run(command, **kwargs):

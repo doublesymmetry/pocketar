@@ -10,7 +10,7 @@ static void check(bool p_value, const char *p_name) {
 }
 
 int main() {
-	handheld_ar::ImportRetirement active;
+	pocketar::ImportRetirement active;
 	active.set_active(true, false, false);
 	check(!active.retirement_ready(), "current image stays imported");
 	active.set_active(false, true, false);
@@ -22,7 +22,7 @@ int main() {
 	active.retire(7, 2);
 	check(!active.retirement_ready(), "retired import cannot be freed twice");
 
-	handheld_ar::ImportRetainCanary missing_drop;
+	pocketar::ImportRetainCanary missing_drop;
 	missing_drop.record_free(5);
 	check(!missing_drop.observe(5, 32), "unchanged retain count cannot certify release");
 	check(!missing_drop.observe(6, 33), "an unrelated retain cannot certify release");
@@ -31,11 +31,11 @@ int main() {
 	check(missing_drop.drop_swap == 34, "canary records the observed swap");
 	check(!missing_drop.observe(3, 35), "later drops cannot replace the first observation");
 	check(missing_drop.drop_swap == 34, "first drop timing remains stable");
-	handheld_ar::ImportRetainCanary no_import;
+	pocketar::ImportRetainCanary no_import;
 	check(!no_import.observe(0, 34), "a plane that was never imported has no release evidence");
 
 	for (unsigned q : { 2u, 3u, 4u }) {
-		handheld_ar::ImportRetirement lifetime;
+		pocketar::ImportRetirement lifetime;
 		check(lifetime.can_sample(), "live import can be sampled");
 		lifetime.retire(31, q);
 		check(!lifetime.can_sample(), "free invalidates sampling immediately");

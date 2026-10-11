@@ -2,7 +2,7 @@
 #include <cassert>
 #include <cstdio>
 #include <vector>
-using namespace handheld_ar;
+using namespace pocketar;
 
 static void test_layouts(int p_width, int p_height, int p_padding) {
 	const int cw = (p_width + 1) / 2, ch = (p_height + 1) / 2;

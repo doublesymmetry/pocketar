@@ -1,4 +1,6 @@
-# godot-handheld-ar
+# PocketAR
+
+Mobile augmented reality for Godot
 
 MIT handheld AR for Godot 4.7.2, with ARKit on iOS and ARCore on Android behind
 one Godot API. Native backends are implemented; iPhone validation is pending.
@@ -14,7 +16,7 @@ From the repository's devenv shell:
 ```sh
 tools/build.sh macos debug
 tools/test-native.sh
-tools/harness.sh desktop -harness-out /tmp/handheld-ar-captures
+tools/harness.sh desktop -harness-out /tmp/pocketar-captures
 ```
 
 The harness needs a GPU-backed GUI session. Native compilation and headless

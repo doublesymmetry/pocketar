@@ -1,4 +1,4 @@
-# godot-handheld-ar
+# PocketAR
 
 MIT handheld AR library for Godot 4.7.2. One GDExtension presents ARKit on iOS and
 ARCore on Android through a shared Godot API. The synthetic backend supplies the
@@ -20,7 +20,7 @@ to 4.7.2; godot-cpp is pinned to `b051e69` with `api_version=4.7`. Android uses
 compile/target SDK 36, build tools 36.1.0, NDK 29.0.14206865, Kotlin 2.1.21 and Java
 17. `SConstruct` derives `IOS_TOOLCHAIN_PATH` from `xcode-select -p`, so Xcode need
 not be named `Xcode.app`. iOS signing team: `L7G7TF62MC`. Both demo package IDs:
-`org.doublesymmetry.handheldar.demo`.
+`org.doublesymmetry.pocketar.demo`.
 
 The certified iOS deployment target stays 16.0 in SConstruct and the preset.
 `scons platform=ios ios_min_version=15.0` is a diagnostic override only; it does
@@ -48,7 +48,7 @@ avoid the shell builtin with the same name.
 | All three platforms | `build all debug` |
 | iOS Xcode project | `env export ios debug` or `env export ios release` |
 | Android APK | `env export android debug` or `env export android release` |
-| Desktop rendering harness | `harness desktop -harness-out /tmp/handheld-ar-captures` |
+| Desktop rendering harness | `harness desktop -harness-out /tmp/pocketar-captures` |
 | Selected rendering checks | `harness desktop -harness-steps projection,transparency` |
 | Installed iPhone demo | `IOS_DEVICE=<id> harness ios` |
 | Pixel demo installation and harness | `ADB=<host-binary> ANDROID_SERIAL=<serial> harness android` |
@@ -81,8 +81,8 @@ settings/cache or reading system certificates are separate from script errors.
 - `src/platform/ios/`: Objective-C++ ARKit session, Metal imports and swap-based retirement.
 - `demo/ar/`: runtime-selected AR demo and device diagnostics.
 - `thirdparty/arcore/`: C API header and its provenance.
-- `demo/addons/handheld_ar/`: ARView, shaders, extension descriptor and editor export plugin.
-- `demo/addons/handheld_ar/bin/`: generated libraries, XCFrameworks and AARs; ignored by Git.
+- `demo/addons/pocketar/`: ARView, shaders, extension descriptor and editor export plugin.
+- `demo/addons/pocketar/bin/`: generated libraries, XCFrameworks and AARs; ignored by Git.
 - `demo/harness/`: the runnable demo and all rendered-image assertions.
 - `android/`: Godot v2 Kotlin plugin and AAR Gradle project.
 - `tests/native/`: standalone C++ numerical tests; no Godot process or GPU needed.
@@ -97,7 +97,7 @@ narration. Commit messages, if requested, are one lowercase `type: subject` line
 ## Settled architecture
 
 One ARView owns one monoscopic `XRInterfaceExtension`, named
-`HandheldARSynthetic`, and makes it primary. It publishes `head` / `default` for
+`PocketARSynthetic`, and makes it primary. It publishes `head` / `default` for
 `XRCamera3D`. The transparent XR SubViewport contains `XROrigin3D`, `XRCamera3D`
 and `SceneRoot`. The camera is a separate SDR canvas underneath its texture; a
 CanvasLayer holds ordinary HUD Controls above both. Controls receive input first.
@@ -238,7 +238,7 @@ directories and `desktop` used for the `macos` alias.
 `harness ios` runs the synthetic rendering suite and writes to
 `build/harness/ios/`. It puts `--log-file user://harness-<id>.log` after
 devicectl's `--`, then Godot's `--` and the harness arguments; modern launches
-also pass validated debug-only `HANDHELD_AR_ARGS`. The runner pulls both the run
+also pass validated debug-only `POCKETAR_ARGS`. The runner pulls both the run
 log and `Documents/logs/godot.log`, accepting only a file with `HARNESS RUN <id>`.
 This tolerates either devicectl separator behavior, which remains unverified on
 the phone. Captures use `user://harness-<id>/`; `-harness-out` changes the prefix,
@@ -279,15 +279,15 @@ AAR discovery are unverified until those exported apps actually load.
 `ARCoreInterface` implements the same packet/presentation methods as the synthetic
 interface. `ARView.backend` defaults to synthetic to preserve the original harness;
 `demo/ar/ar_demo.tscn` chooses ARCore on Android and synthetic on desktop. The
-native interface name is `HandheldARCore`. The Kotlin singleton is
-`HandheldARPlugin`; `HandheldAR` remains the shared native raycast API.
+native interface name is `PocketARCore`. The Kotlin singleton is
+`PocketARPlugin`; `PocketAR` remains the shared native raycast API.
 
 ARCore uses SDK 1.56.0, requires Google Play Services for AR 1.48 or newer, and logs
 its installed APK version. Kotlin checks availability and installation on Android's
 UI thread and requests CAMERA permission. Native code starts only after the JNI
 bridge reports installation and permission. CAMERA permission denial is exposed,
 including denial after an app-settings change. The demo exports as AR Optional;
-set the Android export option `handheld_ar/ar_required` to add the AR hardware
+set the Android export option `pocketar/ar_required` to add the AR hardware
 requirement and change the ARCore manifest metadata to required.
 
 All session/frame/camera/image/plane/query/anchor calls belong to Godot's main
@@ -365,8 +365,8 @@ To launch the plain AR demo from an installed debug APK, after checking and
 unlocking the shared Pixel, use the same host `$ADB` and `ANDROID_SERIAL`:
 
 ```bash
-"$ADB" shell am force-stop org.doublesymmetry.handheldar.demo
-"$ADB" shell am start -W -n org.doublesymmetry.handheldar.demo/com.godot.game.GodotAppLauncher --esa handheld_ar_harness_args -ar-demo
+"$ADB" shell am force-stop org.doublesymmetry.pocketar.demo
+"$ADB" shell am start -W -n org.doublesymmetry.pocketar.demo/com.godot.game.GodotAppLauncher --esa pocketar_harness_args -ar-demo
 ```
 
 `-ar-demo` selects `ar_demo.tscn` without attaching the device harness. Scene
@@ -418,7 +418,7 @@ subsumption. Anchors are queried with `get_anchors()` and removed with
 `remove_anchor(id)`. Optional `set_point_cloud_enabled(true)` copies point-cloud
 data into packets and releases the native point cloud in the same tick.
 
-For ARCore datasets, use `HandheldARPlugin.getExternalFilesDir()` to construct a
+For ARCore datasets, use `PocketARPlugin.getExternalFilesDir()` to construct a
 percent-encoded `file://` URI in private external storage, then
 `start_recording(uri)`, `record_input(bytes)` and `stop_recording()`.
 `start_playback(uri)` creates a fresh generation; `stop_playback()` returns to a
@@ -514,11 +514,11 @@ fallback; ordinary CPU runs report `gpu-vs-cpu INFO`.
 
 ## ARKit backend and iPhone diagnostics
 
-`ARKitInterface` (`HandheldARKit`) is the iOS Metal backend. `ARView.backend = 2`
+`ARKitInterface` (`PocketARKit`) is the iOS Metal backend. `ARView.backend = 2`
 selects it; the AR demo selects it on iOS. One primary monoscopic camera publishes
 `head` / `default`. All ARKit/UIKit access, imports and texture changes happen on
 the main thread in Safe rendering mode. Other rendering drivers are unsupported.
-The separate internal `HandheldARKitRetirement` interface has zero views and is
+The separate internal `PocketARKitRetirement` interface has zero views and is
 never primary; it keeps swap callbacks alive after an ARView has been removed.
 
 The session polls `currentFrame` once per `_process` inside an autorelease pool.
@@ -628,7 +628,7 @@ IOS_DEVICE=<udid> tools/harness.sh ios-ar -harness-duration 1800
 `build/harness/ios-ar/`, with the verified file at `latest.log`. Preflight runs all
 pairing, tunnel, Developer Mode, DDI and OS checks, saving each status and errors
 to `preflight.json`; lock state is unknown. Launch uses devicectl's `--` and a
-validated debug-only `HANDHELD_AR_ARGS` JSON array. The runner pulls both the
+validated debug-only `POCKETAR_ARGS` JSON array. The runner pulls both the
 per-run log and `Documents/logs/godot.log`, accepting only its `HARNESS RUN <id>`
 marker, and requires every selected step plus exactly one result. It terminates
 the app, pulls the lossless captures, then relaunches a cleanup request to delete
