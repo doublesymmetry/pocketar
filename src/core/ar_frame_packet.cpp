@@ -12,8 +12,6 @@ void ARFramePacket::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "timestamp_usec"), "", "get_timestamp_usec");
 	ClassDB::bind_method(D_METHOD("get_timestamp_ns"), &ARFramePacket::get_timestamp_ns);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "timestamp_ns"), "", "get_timestamp_ns");
-	ClassDB::bind_method(D_METHOD("get_clock_domain"), &ARFramePacket::get_clock_domain);
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "clock_domain"), "", "get_clock_domain");
 	ClassDB::bind_method(D_METHOD("get_camera_transform"), &ARFramePacket::get_camera_transform);
 	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM3D, "camera_transform"), "", "get_camera_transform");
 	ClassDB::bind_method(D_METHOD("get_physical_camera_transform"), &ARFramePacket::get_physical_camera_transform);
@@ -22,10 +20,6 @@ void ARFramePacket::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::PROJECTION, "projection"), "", "get_projection");
 	ClassDB::bind_method(D_METHOD("get_image_size"), &ARFramePacket::get_image_size);
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2I, "image_size"), "", "get_image_size");
-	ClassDB::bind_method(D_METHOD("get_gpu_image_size"), &ARFramePacket::get_gpu_image_size);
-	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2I, "gpu_image_size"), "", "get_gpu_image_size");
-	ClassDB::bind_method(D_METHOD("get_camera_fps"), &ARFramePacket::get_camera_fps);
-	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2I, "camera_fps"), "", "get_camera_fps");
 	ClassDB::bind_method(D_METHOD("get_display_transform"), &ARFramePacket::get_display_transform);
 	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM2D, "display_transform"), "", "get_display_transform");
 	ClassDB::bind_method(D_METHOD("get_y_texture"), &ARFramePacket::get_y_texture);
@@ -34,8 +28,6 @@ void ARFramePacket::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "cbcr_texture"), "", "get_cbcr_texture");
 	ClassDB::bind_method(D_METHOD("get_rgb_texture"), &ARFramePacket::get_rgb_texture);
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "rgb_texture"), "", "get_rgb_texture");
-	ClassDB::bind_method(D_METHOD("get_color_encoding"), &ARFramePacket::get_color_encoding);
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "color_encoding"), "", "get_color_encoding");
 	ClassDB::bind_method(D_METHOD("get_imported_chroma"), &ARFramePacket::get_imported_chroma);
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "imported_chroma"), "", "get_imported_chroma");
 	ClassDB::bind_method(D_METHOD("get_tracking_valid"), &ARFramePacket::get_tracking_valid);
@@ -48,11 +40,6 @@ void ARFramePacket::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "intrinsics"), "", "get_intrinsics");
 	ClassDB::bind_method(D_METHOD("get_planes"), &ARFramePacket::get_planes);
 	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "planes"), "", "get_planes");
-	ClassDB::bind_method(D_METHOD("get_point_cloud"), &ARFramePacket::get_point_cloud);
-	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "point_cloud"), "", "get_point_cloud");
-	BIND_ENUM_CONSTANT(BT601_FULL);
-	BIND_ENUM_CONSTANT(BT601_VIDEO);
-	BIND_ENUM_CONSTANT(BT709_FULL);
 }
 
 Dictionary ARFramePacket::get_intrinsics() const {

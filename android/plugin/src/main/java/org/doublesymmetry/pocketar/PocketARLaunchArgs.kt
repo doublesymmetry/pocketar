@@ -30,7 +30,7 @@ internal object PocketARLaunchArgs {
         var datasetSelected = false
         while (index < arguments.size) {
             when (arguments[index++]) {
-                "-harness-lifecycle", "-harness-probes", "-harness-gpu-validate" -> Unit
+                "-harness-gpu-validate" -> Unit
                 "-harness-camera-path" -> {
                     val value = arguments.getOrNull(index++) ?: return false
                     if (value !in listOf("auto", "cpu")) return false

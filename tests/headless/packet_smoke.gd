@@ -29,7 +29,6 @@ func _run() -> void:
 	_check(first != null and first.tracking_valid, "first packet")
 	_check(interface.get_presented_packet() == null, "nothing presented before draw")
 	_check(XRServer.primary_interface == interface and interface.get_view_count() == 1, "primary mono")
-	_check(first.color_encoding == ARFramePacket.BT601_FULL, "encoding")
 	_check(first.image_size == Vector2i(640, 480), "image size")
 	_check(first.viewport_size == Vector2(720, 960), "viewport size")
 	_check(first.timestamp_ns == first.timestamp_usec * 1000, "synthetic timestamp units")
@@ -57,12 +56,12 @@ func _run() -> void:
 	for _frame: int in range(8):
 		await process_frame
 	var current: ARFramePacket = interface.get_current_packet()
-	_check(current.frame_id > first.frame_id + 3, "advanced beyond CPU ring length")
+	_check(current.frame_id > first.frame_id + 3, "multiple packets advance")
 	_check(current.physical_camera_transform == next_pose, "physical pose acquired with next image")
 	_check(current.camera_transform.is_equal_approx(next_pose * display_rotation), "display pose acquired with next image")
 	_check(current.timestamp_usec > first.timestamp_usec, "monotonic timestamps")
 	_check(current.y_texture != first.y_texture and current.cbcr_texture != first.cbcr_texture, "old packet keeps its textures")
-	_check(first.camera_transform.is_equal_approx(display_rotation), "old transform survives ring reuse")
+	_check(first.camera_transform.is_equal_approx(display_rotation), "old transform survives image reuse")
 	_check(interface.get_presented_packet() == first, "acquisition does not advance presented packet")
 	var ray: Dictionary = PocketAR.screen_to_ray(first, Vector2(720, 960), Vector2(360, 480))
 	_check(ray["origin"] == Vector3.ZERO and ray["frame_id"] == first.frame_id, "ray uses specified snapshot")

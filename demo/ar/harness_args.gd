@@ -14,7 +14,7 @@ static func validate(args: PackedStringArray) -> Dictionary:
 			error = "duplicate argument: " + flag
 			break
 		seen[flag] = true
-		if flag in ["-harness-ar", "-ar-demo", "-harness", "--harness", "-harness-probes", "-harness-lifecycle"]:
+		if flag in ["-harness-ar", "-ar-demo", "-harness", "--harness"]:
 			index += 1
 			continue
 		if flag not in ["--log-file", "-harness-duration", "-harness-timeout", "-harness-out", "-harness-steps", "-harness-run-id", "-harness-cleanup"]:

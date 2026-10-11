@@ -1,27 +1,20 @@
-extends Node
+extends "res://ar/device_harness.gd"
 
 const STEPS: Array[String] = ["arcore-session", "no-gl", "camera-image", "gpu-vs-cpu", "projection-form", "display-transform", "composite", "packet-retention", "tracking", "lifecycle"]
 
-var view: ARView
 var dataset_owner: Node
-var duration: float = 60.0
-var timeout_seconds: float = 180.0
-var output_dir: String = "user://harness/arcore"
-var selected_steps: PackedStringArray = PackedStringArray(STEPS)
-var failed: bool = false
-var result_printed: bool = false
-var baseline: Dictionary = {}
-var observed: Dictionary = {}
-var observed_seconds: float = 0.0
 var started_usec: int = 0
 var first_tracking_ms: float = -1.0
-var probes_requested: bool = false
+
+
+func _init() -> void:
+	output_dir = "user://harness/arcore"
+	selected_steps = PackedStringArray(STEPS)
 
 
 func _ready() -> void:
 	started_usec = Time.get_ticks_usec()
 	var args: PackedStringArray = OS.get_cmdline_user_args()
-	probes_requested = args.has("-harness-probes")
 	for index: int in range(args.size()):
 		if args[index] in ["-harness-duration", "-harness-timeout", "-harness-out", "-harness-steps"]:
 			if index + 1 >= args.size():
@@ -38,7 +31,7 @@ func _ready() -> void:
 		_finish()
 		return
 	if not args.has("-harness-timeout"):
-		timeout_seconds = duration + (145.0 if probes_requested else 120.0)
+		timeout_seconds = duration + 120.0
 	if args.has("-harness-gpu-validate") and not selected_steps.has("gpu-vs-cpu"):
 		selected_steps.append("gpu-vs-cpu")
 	if selected_steps.is_empty():
@@ -75,7 +68,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	if first_tracking_ms < 0 and view != null and view.interface != null and view.interface.has_method("get_session_state"):
+	if first_tracking_ms < 0 and view != null and view.interface != null:
 		if int(view.interface.call("get_session_state")) == 7:
 			first_tracking_ms = float(Time.get_ticks_usec() - started_usec) / 1000.0
 
@@ -88,9 +81,6 @@ func _run() -> void:
 				_step(name, "INFO" if name == "tracking" else "FAIL", "session prerequisite failed")
 		_finish()
 		return
-	if probes_requested and view.interface.has_method("set_frame_probes_enabled"):
-		view.interface.call("set_frame_probes_enabled", true)
-		view.interface.call("set_point_cloud_enabled", true)
 	baseline = _diagnostics()
 	var started: int = Time.get_ticks_usec()
 	if selected_steps.has("no-gl") or selected_steps.has("camera-image") or (selected_steps.has("gpu-vs-cpu") and OS.get_cmdline_user_args().has("-harness-gpu-validate")):
@@ -113,8 +103,6 @@ func _run() -> void:
 			"packet-retention": await _packet_retention()
 			"lifecycle": await _lifecycle()
 			"tracking": _tracking()
-	if probes_requested:
-		await _run_probes()
 	_finish()
 
 
@@ -130,57 +118,6 @@ func _observe() -> void:
 			_step("dataset-observation", "INFO", "playback finished before requested %.1f seconds; checks cover only the reported actual duration" % duration)
 			return
 		await get_tree().create_timer(0.1).timeout
-
-
-func _run_probes() -> void:
-	var sampled: Dictionary = observed.get("extras", {})
-	_step("repeated-frame-probe", "INFO", "count=%s updated_planes=%s image_status=%s details=diagnostics.json" % [sampled.get("repeated_frame_probe_count", 0), sampled.get("repeated_frame_updated_plane_count", -1), sampled.get("repeated_frame_image_status", "unavailable")])
-	if view.interface.has_method("set_frame_probes_enabled"):
-		view.interface.call("set_frame_probes_enabled", false)
-		view.interface.call("set_point_cloud_enabled", false)
-	if not view.interface.has_method("begin_image_capacity_probe"):
-		_step("image-capacity-probe", "INFO", "native probe unavailable")
-	else:
-		var request: Dictionary = view.interface.call("begin_image_capacity_probe") as Dictionary
-		var complete: bool = false
-		if bool(request.get("ok", false)):
-			complete = await _wait_for_probe("image_capacity_probe_active", 20.0)
-		var diagnostics: Dictionary = _diagnostics().get("extras", {})
-		_step("image-capacity-probe", "INFO", "requested=%s wait_completed=%s max_held=%s details=diagnostics.json" % [request.get("ok", false), complete, diagnostics.get("image_capacity_max_held", 0)])
-		if not complete and view.interface.has_method("cancel_image_capacity_probe"):
-			view.interface.call("cancel_image_capacity_probe")
-	if result_printed:
-		return
-	var extras: Dictionary = _diagnostics().get("extras", {})
-	if bool(extras.get("image_capacity_probe_active", false)):
-		_step("old-frame-probe", "INFO", "skipped: image capacity probe is still active")
-		return
-	if int(view.interface.call("get_session_state")) != 7:
-		_step("old-frame-probe", "INFO", "skipped: camera is not tracking")
-		return
-	if not view.interface.has_method("begin_old_frame_probe"):
-		_step("old-frame-probe", "INFO", "native probe unavailable")
-		return
-	view.interface.call("begin_old_frame_probe")
-	extras = _diagnostics().get("extras", {})
-	if not bool(extras.get("old_frame_probe_pending", false)):
-		_step("old-frame-probe", "INFO", "not started; details=diagnostics.json")
-		return
-	var complete: bool = await _wait_for_probe("old_frame_probe_pending", 5.0)
-	var diagnostics: Dictionary = _diagnostics().get("extras", {})
-	_step("old-frame-probe", "INFO", "wait_completed=%s probe_complete=%s details=diagnostics.json" % [complete, diagnostics.get("old_frame_probe_complete", false)])
-
-
-func _wait_for_probe(pending_key: String, seconds: float) -> bool:
-	var deadline: int = Time.get_ticks_msec() + roundi(seconds * 1000.0)
-	while Time.get_ticks_msec() < deadline and not result_printed:
-		var diagnostics: Dictionary = _diagnostics().get("extras", {})
-		if not diagnostics.has(pending_key):
-			return false
-		if not bool(diagnostics[pending_key]):
-			return true
-		await get_tree().create_timer(0.1).timeout
-	return false
 
 
 func _session() -> bool:
@@ -213,8 +150,8 @@ func _no_gl() -> void:
 	if not _require("no-gl", observed, ["successful_updates", "update_status_counts", "egl_context_violations"]):
 		return
 	var statuses: Dictionary = observed["update_status_counts"]
-	var missing_gl: int = int(statuses.get("-7", statuses.get(-7, 0)))
-	var texture_not_set: int = int(statuses.get("-6", statuses.get(-6, 0)))
+	var missing_gl: int = int(statuses.get("-7", 0))
+	var texture_not_set: int = int(statuses.get("-6", 0))
 	var updates: int = _delta("successful_updates")
 	var ok: bool = updates > 0 and int(observed["egl_context_violations"]) == 0 and missing_gl == 0 and texture_not_set == 0
 	ok = ok and int(view.interface.call("get_session_state")) in [6, 7]
@@ -225,7 +162,7 @@ func _camera_image() -> void:
 	if String(observed.get("camera_path", "cpu")) == "gpu":
 		_gpu_camera_image()
 		return
-	var required: Array[String] = ["config", "config_list", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "image_timestamp_far_count", "image_timestamp_delta_min_ns", "image_timestamp_delta_mean_ns", "image_timestamp_delta_max_ns", "timestamp_regressions", "image_plane_layout", "image_acquire_p50_us", "image_acquire_p99_us", "repack_p50_us", "repack_p95_us", "stats_p50_us", "stats_p95_us", "upload_p50_us", "upload_p95_us", "repack_upload_p50_us", "repack_upload_p95_us", "texture_refusals", "ring_drops", "staging_block_size_kb", "texture_upload_region_size_px"]
+	var required: Array[String] = ["config", "config_list", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "image_timestamp_far_count", "image_timestamp_delta_min_ns", "image_timestamp_delta_mean_ns", "image_timestamp_delta_max_ns", "timestamp_regressions", "image_plane_layout", "image_acquire_p50_us", "image_acquire_p99_us", "repack_p50_us", "repack_p95_us", "stats_p50_us", "stats_p95_us", "upload_p50_us", "upload_p95_us", "repack_upload_p50_us", "repack_upload_p95_us", "texture_refusals", "staging_block_size_kb", "texture_upload_region_size_px"]
 	if not _require("camera-image", observed, required):
 		return
 	var config: Dictionary = observed["config"]
@@ -244,7 +181,7 @@ func _camera_image() -> void:
 		layout_valid = layout_valid and int(plane.get("row_stride", 0)) > 0 and int(plane.get("pixel_stride", 0)) > 0 and int(plane.get("data_length", 0)) > 0
 	var ok: bool = frames > 0 and images > 0 and missing_per_1000 <= 50.0 and minimum_hz > 0 and image_hz >= minimum_hz
 	ok = ok and int(observed["image_timestamp_far_count"]) == 0 and int(observed["timestamp_regressions"]) == 0 and layout_valid and not Array(observed["config_list"]).is_empty()
-	ok = ok and int(observed.get("texture_refusals", -1)) == 0 and int(observed.get("ring_drops", -1)) == 0
+	ok = ok and int(observed.get("texture_refusals", -1)) == 0
 	var summary: String = "frames=%d images=%d hz=%.2f minimum_hz=%.2f missing_per_1000=%.2f cpu=%sx%s layout=%s" % [frames, images, image_hz, minimum_hz, missing_per_1000, config["cpu_width"], config["cpu_height"], observed.get("image_layout", "unknown")]
 	summary += " acquire_us_p50/p99=%.1f/%.1f" % [observed["image_acquire_p50_us"], observed["image_acquire_p99_us"]]
 	for stage: String in ["repack", "stats", "upload", "repack_upload"]:
@@ -284,17 +221,9 @@ func _gpu_vs_cpu() -> void:
 	if String(observed.get("camera_path", "cpu")) != "gpu":
 		_step("gpu-vs-cpu", "FAIL", "GPU path unavailable: " + String(observed.get("camera_path_reason", "unknown")))
 		return
-	if not _require("gpu-vs-cpu", observed, ["gpu_validation_samples", "gpu_validation_failures", "gpu_validation_candidates", "gpu_validation_luma_range_255", "gpu_validation_chroma_magnitude_255"]):
+	if not _require("gpu-vs-cpu", observed, ["gpu_validation_samples", "gpu_validation_failures", "gpu_validation_worst_error_255", "gpu_validation_luma_range_255", "gpu_validation_chroma_magnitude_255"]):
 		return
-	var candidates: Dictionary = observed["gpu_validation_candidates"]
-	if not _require("gpu-vs-cpu", candidates, ["bt601_full", "bt601_narrow", "bt709_full", "bt709_narrow"]):
-		return
-	for name: String in candidates:
-		if not _require("gpu-vs-cpu", candidates[name], ["worst_block_error_255"]):
-			return
-		if name != "bt601_full":
-			_step("gpu-color-candidate", "INFO", "%s worst_block_error_255=%s" % [name, candidates[name]["worst_block_error_255"]])
-	var error: float = float(candidates["bt601_full"]["worst_block_error_255"])
+	var error: float = float(observed["gpu_validation_worst_error_255"])
 	var ok: bool = int(observed["gpu_validation_samples"]) >= 3 and int(observed["gpu_validation_failures"]) == 0 and is_finite(error) and error >= 0 and error <= 6.0
 	ok = ok and int(observed.get("gpu_completion_failures", 0)) == 0
 	var luma_range: float = float(observed["gpu_validation_luma_range_255"])
@@ -302,7 +231,7 @@ func _gpu_vs_cpu() -> void:
 	ok = ok and is_finite(luma_range) and is_finite(chroma_magnitude) and luma_range >= 0 and chroma_magnitude >= 0
 	var informative: bool = luma_range >= 24.0 and chroma_magnitude >= 8.0
 	var level: String = "FAIL" if not ok else ("OK" if informative else "INFO")
-	_step("gpu-vs-cpu", level, "samples=%s reference=bt601_full worst_block_error_255=%.3f threshold=6 failures=%s luma_range_255=%.3f chroma_magnitude_255=%.3f sufficient_variation=%s candidates=diagnostics.json" % [observed["gpu_validation_samples"], error, observed["gpu_validation_failures"], luma_range, chroma_magnitude, informative])
+	_step("gpu-vs-cpu", level, "samples=%s reference=bt601_full worst_block_error_255=%.3f threshold=6 failures=%s luma_range_255=%.3f chroma_magnitude_255=%.3f sufficient_variation=%s details=diagnostics.json" % [observed["gpu_validation_samples"], error, observed["gpu_validation_failures"], luma_range, chroma_magnitude, informative])
 
 
 func _diagnostic_check(name: String, valid_key: String, samples_key: String) -> void:
@@ -371,26 +300,17 @@ func _camera_layer_check(rendered: Image, source_y: Image, mapping: Transform2D,
 	return result
 
 
-func _packet_retention() -> void:
-	var probe: RefCounted = preload("res://ar/packet_retention.gd").new()
-	var result: Dictionary = await probe.run(view)
-	_step("packet-retention", "OK" if bool(result["ok"]) else "FAIL", JSON.stringify(result))
-
-
 func _lifecycle() -> void:
 	if dataset_owner != null:
 		dataset_owner.call("finish_dataset")
-	if not view.interface.has_method("harness_pause") or not view.interface.has_method("harness_resume"):
-		_step("lifecycle", "FAIL", "owner lifecycle hooks unavailable")
-		return
 	var before: Dictionary = _diagnostics()
-	if not _require("lifecycle", before, ["pause_count", "resume_count", "reset_count", "updates_while_paused", "successful_updates"]):
+	if not _require("lifecycle", before, ["pause_count", "resume_count", "reset_count", "successful_updates"]):
 		return
 	var ok: bool = true
 	var durations: Array[Dictionary] = []
 	for cycle: int in range(2):
 		var started: int = Time.get_ticks_usec()
-		view.interface.call("harness_pause")
+		view.interface.call("application_pause")
 		var pause_ms: float = float(Time.get_ticks_usec() - started) / 1000.0
 		var paused: Dictionary = _diagnostics()
 		ok = ok and int(view.interface.call("get_session_state")) == 8
@@ -400,7 +320,7 @@ func _lifecycle() -> void:
 		var frame: ARFramePacket = view.interface.call("get_current_packet") as ARFramePacket
 		var frame_id: int = frame.frame_id if frame != null else -1
 		started = Time.get_ticks_usec()
-		view.interface.call("harness_resume")
+		view.interface.call("application_resume")
 		var resumed: bool = await _wait_for_packet(int(view.interface.call("get_session_generation")), frame_id)
 		ok = ok and resumed
 		durations.append({"cycle": cycle, "pause_ms": pause_ms, "resume_to_packet_ms": float(Time.get_ticks_usec() - started) / 1000.0})
@@ -415,17 +335,17 @@ func _lifecycle() -> void:
 		ok = ok and generation > old_generation and resumed and _old_trackers_absent(generation)
 		durations.append({"reset": cycle, "old_generation": old_generation, "generation": generation, "reset_to_packet_ms": float(Time.get_ticks_usec() - started) / 1000.0})
 	var after: Dictionary = _diagnostics()
-	if not _require("lifecycle", after, ["pause_count", "resume_count", "reset_count", "updates_while_paused", "stale_tracker_count"]):
+	if not _require("lifecycle", after, ["pause_count", "resume_count", "reset_count", "stale_tracker_count"]):
 		return
 	ok = ok and int(after["pause_count"]) >= int(before["pause_count"]) + 2 and int(after["resume_count"]) >= int(before["resume_count"]) + 2 and int(after["reset_count"]) == int(before["reset_count"]) + 2
-	ok = ok and int(after["updates_while_paused"]) == 0 and int(after["stale_tracker_count"]) == 0
+	ok = ok and int(after["stale_tracker_count"]) == 0
 	if not _require("lifecycle", after, ["egl_context_violations", "update_status_counts"]):
 		return
 	var statuses: Dictionary = after["update_status_counts"]
-	ok = ok and int(after["egl_context_violations"]) == 0 and int(statuses.get("-7", statuses.get(-7, 0))) == 0 and int(statuses.get("-6", statuses.get(-6, 0))) == 0
+	ok = ok and int(after["egl_context_violations"]) == 0 and int(statuses.get("-7", 0)) == 0 and int(statuses.get("-6", 0)) == 0
 	for index: int in range(durations.size()):
 		HarnessLog.write_line("ARCORE lifecycle %d %s" % [index, JSON.stringify(durations[index])])
-	_step("lifecycle", "OK" if ok else "FAIL", "pauses=%s resumes=%s resets=%s updates_while_paused=%s stale_trackers=%s" % [after["pause_count"], after["resume_count"], after["reset_count"], after["updates_while_paused"], after["stale_tracker_count"]])
+	_step("lifecycle", "OK" if ok else "FAIL", "pauses=%s resumes=%s resets=%s stale_trackers=%s" % [after["pause_count"], after["resume_count"], after["reset_count"], after["stale_tracker_count"]])
 
 
 func _wait_for_packet(generation: int, after_frame: int) -> bool:
@@ -436,15 +356,6 @@ func _wait_for_packet(generation: int, after_frame: int) -> bool:
 			return true
 		await get_tree().create_timer(0.1).timeout
 	return false
-
-
-func _old_trackers_absent(generation: int) -> bool:
-	var trackers: Dictionary = XRServer.get_trackers(XRServer.TRACKER_ANCHOR)
-	for value: Variant in trackers.values():
-		var tracker: ARPlaneTracker = value as ARPlaneTracker
-		if tracker != null and tracker.session_generation != generation:
-			return false
-	return true
 
 
 func _tracking() -> void:
@@ -462,9 +373,6 @@ func _log_device_diagnostics(phase: String) -> void:
 		HarnessLog.write_line("ARCORE DEVICE %s unavailable" % phase)
 		return
 	var plugin: Object = Engine.get_singleton("PocketARPlugin")
-	if not bool(plugin.call("has_java_method", "getDiagnostics")):
-		HarnessLog.write_line("ARCORE DEVICE %s getDiagnostics unavailable" % phase)
-		return
 	var diagnostics: String = String(plugin.call("getDiagnostics"))
 	var values: Dictionary = JSON.parse_string(diagnostics) as Dictionary
 	HarnessLog.write_line("ARCORE DEVICE %s pss_kib=%s thermal=%s plugged=%s details=device-%s.json" % [phase, values.get("process_pss_kib", "unavailable"), values.get("thermal_status", "unavailable"), values.get("battery_plugged", "unavailable"), phase])
@@ -479,44 +387,6 @@ func _log_periodic_device_diagnostics() -> void:
 	if not result_printed:
 		var elapsed_seconds: int = roundi(float(Time.get_ticks_usec() - started_usec) / 1000000.0)
 		_log_device_diagnostics("%ds" % elapsed_seconds)
-
-
-func _diagnostics() -> Dictionary:
-	return view.interface.call("get_diagnostics") as Dictionary
-
-
-func _delta(key: String) -> int:
-	return int(observed.get(key, 0)) - int(baseline.get(key, 0))
-
-
-func _require(step: String, data: Dictionary, keys: Array[String]) -> bool:
-	var missing: PackedStringArray = []
-	for key: String in keys:
-		if not data.has(key):
-			missing.append(key)
-	if not missing.is_empty():
-		_step(step, "FAIL", "missing diagnostics: " + ",".join(missing))
-		return false
-	return true
-
-
-func _save_image(image: Image, name: String) -> bool:
-	if image == null or image.is_empty():
-		return false
-	return image.save_png(output_dir.path_join(name)) == OK
-
-
-func _step(name: String, level: String, message: String) -> void:
-	if result_printed:
-		return
-	failed = failed or level == "FAIL"
-	HarnessLog.write_line("HARNESS STEP %s %s %s" % [name, level, message])
-
-
-func _timeout() -> void:
-	if not result_printed:
-		_step("timeout", "FAIL", "exceeded %.1f seconds" % timeout_seconds)
-		_finish()
 
 
 func _finish() -> void:
@@ -537,6 +407,4 @@ func _finish() -> void:
 			HarnessLog.write_line("ARCORE DIAGNOSTICS saved=diagnostics.json")
 		else:
 			_step("output", "FAIL", "cannot save diagnostics: " + error_string(FileAccess.get_open_error()))
-	result_printed = true
-	HarnessLog.write_line("HARNESS RESULT " + ("FAIL" if failed else "PASS"))
-	get_tree().quit(1 if failed else 0)
+	super._finish()

@@ -27,7 +27,6 @@ import org.godotengine.godot.Godot
 import org.godotengine.godot.plugin.GodotPlugin
 import org.godotengine.godot.plugin.UsedByGodot
 import org.json.JSONObject
-import javax.microedition.khronos.opengles.GL10
 
 class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayListener {
     companion object {
@@ -49,15 +48,13 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
 
     private data class SurfaceSize(val width: Int, val height: Int)
 
-    private var initialized = false
-    @Volatile private var destroyed = false
+    @Volatile private var initialized = false
     @Volatile private var resumed = false
     @Volatile private var lifecycleGeneration = 0L
     private var installRequested = false
     private var permissionRequested = false
     private var permissionPending = false
     private var waitingForSurface = false
-    private var harnessPaused = false
     private var availability: ArCoreApk.Availability? = null
     private var displayManager: DisplayManager? = null
     private var displayListening = false
@@ -90,12 +87,12 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
 
     override fun onMainCreate(activity: Activity?): View? {
         val host = activity ?: return null
-        runOnRenderThread { nativeInitialize(host, host.applicationContext) }
+        runOnRenderThread { nativeInitialize(host.applicationContext) }
         initialized = true
         displayManager = host.getSystemService(DisplayManager::class.java)
         publishStatus(CHECKING, "Checking ARCore availability")
         ArCoreApk.getInstance().checkAvailabilityAsync(host.applicationContext) { result ->
-            if (!destroyed) {
+            if (initialized) {
                 availability = result
                 if (resumed) prepareSession()
             }
@@ -106,7 +103,7 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
     override fun onMainResume() {
         resumed = true
         ++lifecycleGeneration
-        if (!initialized || destroyed) return
+        if (!initialized) return
         if (!displayListening) {
             displayManager?.registerDisplayListener(this, Handler(Looper.getMainLooper()))
             displayListening = true
@@ -119,11 +116,18 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
         resumed = false
         ++lifecycleGeneration
         stopDisplayListener()
-        if (initialized && !destroyed) enqueuePause("onMainPause")
+        if (!initialized) return
+        val start = SystemClock.elapsedRealtimeNanos()
+        runOnRenderThread {
+            nativePause()
+            pauseQueueReturnMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000.0
+            pauseQueueReturnMaxMs = maxOf(pauseQueueReturnMaxMs, pauseQueueReturnMs)
+            ++pauseQueueSamples
+            Log.i(TAG, "onMainPause queue_to_pause_return_ms=$pauseQueueReturnMs")
+        }
     }
 
     override fun onMainDestroy() {
-        destroyed = true
         resumed = false
         ++lifecycleGeneration
         stopDisplayListener()
@@ -144,19 +148,8 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
         displayListening = false
     }
 
-    private fun enqueuePause(origin: String) {
-        val start = SystemClock.elapsedRealtimeNanos()
-        runOnRenderThread {
-            nativePause()
-            pauseQueueReturnMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000.0
-            pauseQueueReturnMaxMs = maxOf(pauseQueueReturnMaxMs, pauseQueueReturnMs)
-            ++pauseQueueSamples
-            Log.i(TAG, "$origin queue_to_pause_return_ms=$pauseQueueReturnMs")
-        }
-    }
-
     private fun prepareSession() {
-        if (!initialized || destroyed || !resumed || harnessPaused) return
+        if (!initialized || !resumed) return
         val host = activity ?: return
         val support = availability ?: return
         if (!support.isSupported) {
@@ -207,14 +200,14 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
         waitingForSurface = false
         val generation = lifecycleGeneration
         runOnRenderThread {
-            if (generation != lifecycleGeneration || !resumed || destroyed) return@runOnRenderThread
-            nativeStatus(READY, version, "ARCore SDK 1.56.0; Google Play Services for AR $version")
+            if (generation != lifecycleGeneration || !resumed || !initialized) return@runOnRenderThread
+            nativeStatus(READY, version)
             nativeResume()
         }
     }
 
     override fun onMainRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        if (requestCode != CAMERA_PERMISSION_REQUEST || destroyed) return
+        if (requestCode != CAMERA_PERMISSION_REQUEST || !initialized) return
         permissionPending = false
         val index = permissions.indexOf(Manifest.permission.CAMERA)
         if (index < 0 || grantResults.getOrNull(index) != PackageManager.PERMISSION_GRANTED) {
@@ -227,7 +220,7 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
     private fun publishStatus(state: Int, detail: String) {
         val version = installedApkVersion()
         Log.i(TAG, "state=$state apk=$version sdk=1.56.0 $detail")
-        runOnRenderThread { nativeStatus(state, version, detail) }
+        runOnRenderThread { nativeStatus(state, version) }
     }
 
     @Suppress("DEPRECATION")
@@ -251,7 +244,7 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
     }
 
     private fun updateDisplayGeometry(): Boolean {
-        if (!initialized || destroyed) return false
+        if (!initialized) return false
         val rotation = currentDisplay()?.rotation ?: return false
         val size = surfaceSize
         if (size.width <= 0 || size.height <= 0) return false
@@ -272,25 +265,6 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
         runOnHostThread {
             updateDisplayGeometry()
             if (waitingForSurface) prepareSession()
-        }
-    }
-
-    override fun onGLSurfaceChanged(gl: GL10, width: Int, height: Int) {
-        surfaceSize = SurfaceSize(width, height)
-        runOnHostThread {
-            updateDisplayGeometry()
-            if (waitingForSurface) prepareSession()
-        }
-    }
-
-    @UsedByGodot
-    fun setHarnessPaused(paused: Boolean) {
-        if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
-        runOnHostThread {
-            if (!initialized || destroyed) return@runOnHostThread
-            harnessPaused = paused
-            ++lifecycleGeneration
-            if (paused) enqueuePause("harnessPause") else prepareSession()
         }
     }
 
@@ -326,8 +300,8 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
     @UsedByGodot
     fun getExternalFilesDir(): String = context.getExternalFilesDir(null)?.absolutePath ?: ""
 
-    private external fun nativeInitialize(activity: Activity, applicationContext: Context)
-    private external fun nativeStatus(state: Int, apkVersion: String, detail: String)
+    private external fun nativeInitialize(applicationContext: Context)
+    private external fun nativeStatus(state: Int, apkVersion: String)
     private external fun nativeResume()
     private external fun nativePause()
     private external fun nativeDisplayGeometry(rotation: Int, width: Int, height: Int)

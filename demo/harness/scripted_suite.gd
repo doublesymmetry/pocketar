@@ -210,10 +210,6 @@ func _check_planes(view: ARView, visualizer: ARPlaneVisualizer) -> void:
 	for child: Node in visualizer.get_children():
 		var mesh: MeshInstance3D = child as MeshInstance3D
 		_check(mesh != null and mesh.global_transform in expected_transforms and mesh.mesh != null and mesh.mesh.get_surface_count() == 1, "visualizer creates polygon meshes only at active plane poses")
-	visualizer.enabled = false
-	_check(not visualizer.visible, "plane visualizer can be hidden")
-	visualizer.enabled = true
-	_check(visualizer.visible and visualizer.plane_count == 2, "plane visualizer can be restored")
 
 
 func _check_helpers(view: ARView) -> void:
@@ -223,7 +219,6 @@ func _check_helpers(view: ARView) -> void:
 	_check(point.y > view.size.y * 0.5, "table centre projects below the view centre")
 	var down: Vector2 = view.world_to_screen(TABLE_CENTER + Vector3.DOWN * 0.1) - point
 	_check(absf(down.x) < 0.001 and down.y > 0.0, "world gravity points down the screen")
-	_check(view.screen_to_point(point, 2.0).distance_to(TABLE_CENTER) < 0.001, "screen_to_point roundtrips at camera depth")
 	var viewport_point: Vector2 = view.get_global_transform_with_canvas() * point
 	_check(view.view_point(viewport_point).distance_to(point) < 0.0001, "view_point reverses the scaled canvas transform")
 

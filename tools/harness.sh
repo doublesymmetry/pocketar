@@ -18,5 +18,5 @@ case "$platform" in
     ios)
         : "${IOS_DEVICE:?Set IOS_DEVICE to the connected device identifier}"
         exec python3 tools/run-harness.py --ios "$IOS_DEVICE" -- "$@" ;;
-    *) echo "Usage: $0 [desktop|android|android-ar|ios|ios-ar] [-harness-out dir] [-harness-steps names] [-harness-duration seconds] [-harness-probes] [-harness-camera-config index] [-harness-camera-path auto|cpu] [-harness-gpu-validate] [-harness-record name.mp4|-harness-playback name.mp4]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [desktop|android|android-ar|ios|ios-ar] [-harness-out dir] [-harness-steps names] [-harness-duration seconds] [-harness-camera-config index] [-harness-camera-path auto|cpu] [-harness-gpu-validate] [-harness-record name.mp4|-harness-playback name.mp4]" >&2; exit 2 ;;
 esac

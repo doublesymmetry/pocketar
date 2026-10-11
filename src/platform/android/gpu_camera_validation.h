@@ -9,15 +9,11 @@ namespace pocketar {
 
 constexpr int GPU_VALIDATION_PIXELS = 9 * 16 * 16;
 using CameraRGB = std::array<double, 3>;
-using CameraBlockMeans = std::array<std::array<CameraRGB, 9>, 4>;
+using CameraBlockMeans = std::array<CameraRGB, 9>;
 
-inline CameraRGB camera_yuv_to_rgb(double p_y, double p_u, double p_v, int p_candidate) {
-	const bool narrow = p_candidate % 2;
-	const double y = narrow ? (p_y - 16) * 255 / 219 : p_y;
-	const double u = (p_u - 128) * (narrow ? 255.0 / 224 : 1);
-	const double v = (p_v - 128) * (narrow ? 255.0 / 224 : 1);
-	CameraRGB rgb = p_candidate < 2 ? CameraRGB{y + 1.402 * v, y - 0.344136 * u - 0.714136 * v, y + 1.772 * u} :
-		CameraRGB{y + 1.5748 * v, y - 0.187324 * u - 0.468124 * v, y + 1.8556 * u};
+inline CameraRGB camera_yuv_to_rgb(double p_y, double p_u, double p_v) {
+	const double u = p_u - 128, v = p_v - 128;
+	CameraRGB rgb{p_y + 1.402 * v, p_y - 0.344136 * u - 0.714136 * v, p_y + 1.772 * u};
 	for (double &channel : rgb) channel = std::clamp(channel, 0.0, 255.0);
 	return rgb;
 }
@@ -63,10 +59,8 @@ inline bool cpu_camera_block_means(int p_width, int p_height, const ImagePlane (
 		luma[i / 256] += y / 256;
 		cb_means[i / 256] += (cb - 128) / 256;
 		cr_means[i / 256] += (cr - 128) / 256;
-		for (int candidate = 0; candidate < 4; ++candidate) {
-			const CameraRGB rgb = camera_yuv_to_rgb(y, cb, cr, candidate);
-			for (int channel = 0; channel < 3; ++channel) r_means[candidate][i / 256][channel] += rgb[channel] / 256;
-		}
+		const CameraRGB rgb = camera_yuv_to_rgb(y, cb, cr);
+		for (int channel = 0; channel < 3; ++channel) r_means[i / 256][channel] += rgb[channel] / 256;
 	}
 	const auto range = std::minmax_element(luma.begin(), luma.end());
 	r_luma_range = *range.second - *range.first;

@@ -7,19 +7,14 @@
 using namespace pocketar;
 
 int main() {
-	for (int candidate = 0; candidate < 4; ++candidate) {
-		const bool narrow = candidate % 2;
-		const auto black = camera_yuv_to_rgb(narrow ? 16 : 0, 128, 128, candidate);
-		const auto white = camera_yuv_to_rgb(narrow ? 235 : 255, 128, 128, candidate);
-		for (int channel = 0; channel < 3; ++channel) {
-			assert(std::abs(black[channel]) < 1e-9);
-			assert(std::abs(white[channel] - 255) < 1e-9);
-		}
+	const auto black = camera_yuv_to_rgb(0, 128, 128);
+	const auto white = camera_yuv_to_rgb(255, 128, 128);
+	for (int channel = 0; channel < 3; ++channel) {
+		assert(std::abs(black[channel]) < 1e-9);
+		assert(std::abs(white[channel] - 255) < 1e-9);
 	}
-	const auto red601 = camera_yuv_to_rgb(76, 85, 255, 0);
-	const auto red709 = camera_yuv_to_rgb(54, 99, 255, 2);
-	assert(red601[0] > 253 && red601[1] < 2 && red601[2] < 2);
-	assert(red709[0] > 253 && red709[1] < 2 && red709[2] < 2);
+	const auto red = camera_yuv_to_rgb(76, 85, 255);
+	assert(red[0] > 253 && red[1] < 2 && red[2] < 2);
 	constexpr int width = 128, height = 96, gpu_width = 192, gpu_height = 144;
 	std::vector<uint8_t> y(width * height), uv(width * height / 2, 128);
 	for (int row = 0; row < height; ++row) for (int col = 0; col < width; ++col) y[row * width + col] = uint8_t(col + row);
@@ -44,7 +39,7 @@ int main() {
 				const int i = block * 256 + pixel;
 				expected += image_uv[2 * i] * width - 0.5 + image_uv[2 * i + 1] * height - 0.5;
 			}
-			for (int channel = 0; channel < 3; ++channel) assert(std::abs(means[0][block][channel] - expected / 256) < 1e-5);
+			for (int channel = 0; channel < 3; ++channel) assert(std::abs(means[block][channel] - expected / 256) < 1e-5);
 		}
 	}
 	CameraBlockMeans means{};
@@ -62,5 +57,5 @@ int main() {
 	planes[2].length = 1;
 	assert(!cpu_camera_block_means(width, height, planes, image_uv, means, luma_range, chroma_magnitude));
 	assert(!gpu_validation_coordinates(16, 16, texture_uv));
-	puts("GPU camera color models, strided samples, crop/rotation and unequal resolutions PASS");
+	puts("GPU camera BT.601 full, strided samples, crop/rotation and unequal resolutions PASS");
 }

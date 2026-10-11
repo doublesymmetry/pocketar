@@ -11,20 +11,13 @@ def parser():
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--output", type=Path, required=True)
     result.add_argument("--view-size", type=int, nargs=2, default=[640, 480], metavar=("W", "H"))
-    result.add_argument("--quarter-turns", type=int, choices=range(4))
-    result.add_argument("--semantics", choices=("arkit", "arcore"), default="arkit")
-    result.add_argument("--duration", type=float, default=2.0)
-    result.add_argument("--fps", type=float, default=30.0)
     result.add_argument("--table-height", type=float, default=0.7, help="Metres below the camera origin")
     result.add_argument("--camera", choices=("static", "orbit"), default="static")
     result.add_argument("--tracking-at", type=float, default=0.5)
     result.add_argument("--loss-at", type=float)
-    result.add_argument("--loss-duration", type=float, default=0.25)
     result.add_argument("--reset-at", type=float)
     result.add_argument("--pause-at", type=float)
-    result.add_argument("--pause-duration", type=float, default=0.1)
     result.add_argument("--tap-at", type=float, action="append", default=[])
-    result.add_argument("--tap-world", type=float, nargs=3, metavar=("X", "Y", "Z"))
     result.add_argument("--drag-to", type=float, nargs=3, metavar=("X", "Y", "Z"))
     result.add_argument("--plane-examples", action="store_true", help="Include vertical, paused and subsumed planes")
     return result
@@ -65,38 +58,28 @@ def image_to_view(uv, image_size, view_size, quarter_turns):
 
 
 def generate(options):
-    numeric = [options.duration, options.fps, options.table_height, options.tracking_at,
-               options.loss_duration, options.pause_duration, *options.tap_at]
+    numeric = [options.table_height, options.tracking_at, *options.tap_at]
     numeric += [value for value in (options.loss_at, options.reset_at, options.pause_at) if value is not None]
-    numeric += options.tap_world or []
     numeric += options.drag_to or []
     if not all(math.isfinite(value) for value in numeric):
         raise ValueError("all numeric options must be finite")
-    if not 0 < options.duration <= 3600 or not 0 < options.fps <= 240 or options.table_height <= 0:
-        raise ValueError("duration must be in (0,3600], fps in (0,240], and table height positive")
-    if not 0 <= options.tracking_at <= options.duration or options.loss_duration <= 0 or options.pause_duration <= 0:
-        raise ValueError("tracking time must be within duration and loss/pause durations positive")
+    if options.table_height <= 0:
+        raise ValueError("table height must be positive")
+    if not 0 <= options.tracking_at <= 2.0:
+        raise ValueError("tracking time must be within duration")
     for event in (options.loss_at, options.reset_at, options.pause_at, *options.tap_at):
-        if event is not None and not 0 <= event <= options.duration:
+        if event is not None and not 0 <= event <= 2.0:
             raise ValueError("event times must be within the fixture duration")
-    for start, duration in ((options.loss_at, options.loss_duration), (options.pause_at, options.pause_duration)):
-        if start is not None and start + duration > options.duration:
+    for start, duration in ((options.loss_at, 0.25), (options.pause_at, 0.1)):
+        if start is not None and start + duration > 2.0:
             raise ValueError("loss and pause must end within the fixture duration")
     if not all(0 < size <= 16384 for size in options.view_size):
         raise ValueError("view dimensions must be in [1,16384]")
-    turns = options.quarter_turns
-    if turns is None:
-        turns = 1 if options.view_size[1] > options.view_size[0] else 0
+    turns = 1 if options.view_size[1] > options.view_size[0] else 0
     header = {
-        "format": "pocketar-session", "version": 1, "semantics": options.semantics,
+        "format": "pocketar-session", "version": 1, "semantics": "arkit",
         "view_size": options.view_size, "quarter_turns": turns,
         "image_size": [640, 480], "intrinsics": {"fx": 520, "fy": 510, "cx": 320, "cy": 240},
-        "conventions": {"units": "metres", "axes": "+X right,+Y up,-Z forward",
-                        "matrices": "column-major affine world-from-local, rigid, 16 numbers",
-                        "camera_transform": "physical image-camera pose before display rotation",
-                        "planes": "local XZ polygon, +Y normal, extents are full lengths",
-                        "uv": "top-left viewport origin, normalized to view_size at quarter_turns",
-                        "time": "microseconds since fixture start; equal timestamps retain file order"},
     }
     center = [0, -options.table_height, -2]
     table = {"id": 1, "alignment": "horizontal_upward_facing", "transform": transform(center),
@@ -108,23 +91,23 @@ def generate(options):
         planes += [wall, dict(table, id=3, tracking_state="paused"), dict(table, id=4, subsumed_by=1)]
     records = []
     frames = []
-    reset_frame = math.ceil(options.reset_at * options.fps) if options.reset_at is not None else -2
+    reset_frame = math.ceil(options.reset_at * 30.0) if options.reset_at is not None else -2
     plane_mode = None
     if options.reset_at is not None:
         records.append({"t_usec": round(options.reset_at * 1_000_000), "reset": True})
     if options.pause_at is not None:
         records += [{"t_usec": round(options.pause_at * 1_000_000), "lifecycle": "pause"},
-                    {"t_usec": round((options.pause_at + options.pause_duration) * 1_000_000), "lifecycle": "resume"}]
-    for index in range(math.floor(options.duration * options.fps) + 1):
-        time = index / options.fps
-        lost = options.loss_at is not None and options.loss_at <= time < options.loss_at + options.loss_duration
-        paused = options.pause_at is not None and options.pause_at <= time < options.pause_at + options.pause_duration
+                    {"t_usec": round((options.pause_at + 0.1) * 1_000_000), "lifecycle": "resume"}]
+    for index in range(math.floor(2.0 * 30.0) + 1):
+        time = index / 30.0
+        lost = options.loss_at is not None and options.loss_at <= time < options.loss_at + 0.25
+        paused = options.pause_at is not None and options.pause_at <= time < options.pause_at + 0.1
         tracking = time >= options.tracking_at and not lost and not paused and index != reset_frame
         state = "paused" if paused else "tracking" if tracking else "initializing"
-        yaw = 0.35 * math.sin(2 * math.pi * time / options.duration) if options.camera == "orbit" else 0.0
+        yaw = 0.35 * math.sin(2 * math.pi * time / 2.0) if options.camera == "orbit" else 0.0
         camera = transform([2 * math.sin(yaw), 0, -2 + 2 * math.cos(yaw)], yaw, roll=-turns * math.pi / 2)
         frame = {"t_usec": round(time * 1_000_000), "frame_id": index + 1,
-                 "camera_transform": camera, "tracking_valid": tracking or (lost and options.semantics == "arkit"),
+                 "camera_transform": camera, "tracking_valid": tracking or lost,
                  "session_state": state, "tracking_reason": "insufficient_features" if lost else "none"}
         if index == reset_frame:
             plane_mode = None
@@ -136,8 +119,8 @@ def generate(options):
         frames.append(frame)
         records.append(frame)
     for tap_time in options.tap_at:
-        first = round(tap_time * options.fps)
-        points = [options.tap_world or center]
+        first = round(tap_time * 30.0)
+        points = [center]
         kinds = ["down"]
         if options.drag_to:
             points += [options.drag_to, options.drag_to]

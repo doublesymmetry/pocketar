@@ -8,7 +8,6 @@ namespace godot { class ARCoreInterface; }
 
 struct ARCoreBridgeState {
 	JavaVM *vm = nullptr;
-	jobject activity = nullptr;
 	jobject context = nullptr;
 	int state = 1;
 	bool resumed = false;
@@ -17,7 +16,6 @@ struct ARCoreBridgeState {
 	int height = 1;
 	uint64_t geometry_revision = 0;
 	std::string apk_version;
-	std::string detail;
 	std::vector<int> state_history;
 };
 

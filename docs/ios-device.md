@@ -11,11 +11,11 @@ response schema is verified; unlock the phone before running the harness.
 
 ```sh
 export IOS_DEVICE=<udid>
-tools/device.sh ios preflight
-tools/device.sh ios install /path/to/signed.app
-tools/device.sh ios launch -- -harness-ar -harness-duration 60
-tools/device.sh ios terminate <pid>
-tools/device.sh ios pull Documents/logs/godot.log /tmp/ios.log
+python3 tools/ios-device.py preflight
+python3 tools/ios-device.py install /path/to/signed.app
+python3 tools/ios-device.py launch -- -harness-ar -harness-duration 60
+python3 tools/ios-device.py terminate <pid>
+python3 tools/ios-device.py pull Documents/logs/godot.log /tmp/ios.log
 tools/harness.sh ios-ar -harness-duration 60
 ```
 
@@ -25,16 +25,16 @@ launch the app once and tap **Allow** on the camera prompt before starting an au
 run. An XCUITest alert handler can perform that step when available. If permission
 was denied, enable camera access in Settings before retrying. Launch prints its PID
 and saves `launch.json`. App flags follow the devicectl `--` separator and are also
-sent as a JSON array of strings in `POCKETAR_ARGS`. Commands have a 30-second
-CoreDevice timeout and a 35-second subprocess limit.
+sent as a JSON array of strings in `POCKETAR_ARGS`.
 
 The `ios-ar` lane runs the ARKit checks; `ios` runs the synthetic rendering suite
-and retains its libimobiledevice transport for older devices. Both launch detached
+and uses afcclient/idevicedebug 1.4.0 for older devices, with a UDID in
+`IOS_DEVICE`; `IOS_VERSION` overrides OS discovery. Both launch detached
 and pull `Documents/harness-<id>.log` and `Documents/logs/godot.log`. Only a file
 containing `HARNESS RUN <id>` can supply results, so a forwarded devicectl separator
 or a stale log cannot silently select another run. The host terminates the PID,
 pulls the final log and captures, then requires exactly one `HARNESS RESULT PASS`,
-all eight ARKit steps for `ios-ar`, no failed steps and no
+all required ARKit steps for `ios-ar`, no failed steps and no
 script or shader compilation errors. `-harness-steps` certifies only the selected
 subset plus `arkit-session`. The app must enable iOS file logging; console output
 is not used to determine success.
@@ -54,28 +54,12 @@ cleanup failure fails the run. The default Godot log remains available and uses
 Godot's bounded rotation.
 Cleanup accepts command-line requests in debug and release synthetic builds;
 `POCKETAR_ARGS` remains debug-only.
-`HARNESS_TIMEOUT` overrides the default duration plus 180 seconds. Termination
-waits up to five seconds for the PID to disappear, then sends SIGKILL if needed.
-An already absent PID makes manual termination a no-op. The harness treats an
-app that vanished before host termination as a failed run, and still attempts
+`HARNESS_TIMEOUT` overrides the default duration plus 180 seconds. The harness treats
+an app that vanished before host termination as a failed run, and still attempts
 the final log/capture pulls if termination fails.
 
-The eight default steps are `arkit-session`, `camera-image`, `projection-form`,
-`display-transform`, `composite`, `packet-retention`, `tracking` and `lifecycle`. The tooling accepts
-`-harness-probes` and `-harness-lifecycle`; it rejects Android dataset/config flags.
 Offline tests cover transport construction and log verification. Actual CoreDevice
 JSON fields, file-log flushing, copy behavior and device lifecycle ordering still
 need a signed-device run.
 
-On iOS, the export plugin links ARKit, Metal, CoreVideo and AVFoundation.
-`privacy/camera_usage_description` stays editable and an empty value produces a
-warning. `capabilities/additional` also stays editable. When
-`pocketar/ar_required` is enabled, the plugin merges `arkit` into the generated
-plist's existing capability array. User capabilities and camera descriptions are
-preserved, including a manually requested `arkit` capability in optional mode.
-
-Presets below iOS 16.0, or with malformed version strings, fail export validation.
-Godot 4.7.2 has no export-plugin abort hook, so unsupported presets receive missing
-debug and release template overrides plus the explicit iOS-version warning.
-Supported presets keep their chosen templates. This guard does not change the
-library's deployment target or certify the diagnostic iOS 15 build override.
+Enable `pocketar/ar_required` to require ARKit hardware in the exported app.

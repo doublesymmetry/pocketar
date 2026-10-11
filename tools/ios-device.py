@@ -149,21 +149,17 @@ class Device:
 
 def harness_options(arguments, token):
     values = {"-harness-duration", "-harness-out", "-harness-steps"}
-    flags = {"-harness-probes", "-harness-lifecycle"}
     options = {}
     index = 0
     while index < len(arguments):
         key = arguments[index]
-        if key in options or key not in values | flags:
+        if key in options or key not in values:
             raise ValueError("Unknown or duplicate iOS harness option: " + key)
         index += 1
-        if key in values:
-            if index == len(arguments):
-                raise ValueError(key + " needs a value")
-            options[key] = arguments[index]
-            index += 1
-        else:
-            options[key] = True
+        if index == len(arguments):
+            raise ValueError(key + " needs a value")
+        options[key] = arguments[index]
+        index += 1
     duration = float(options.get("-harness-duration", "60"))
     if not math.isfinite(duration) or duration <= 0:
         raise ValueError("Duration must be finite and positive")

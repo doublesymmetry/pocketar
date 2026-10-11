@@ -7,10 +7,11 @@
 #include "core/ar_frame_packet.h"
 #include "core/ar_plane_tracker.h"
 #include "core/pocketar.h"
+#include "core/timing_samples.h"
 #include <godot_cpp/classes/image_texture.hpp>
+#include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/classes/xr_interface_extension.hpp>
 #include <atomic>
-#include <array>
 #include <map>
 #include <memory>
 #include <thread>
@@ -18,28 +19,10 @@
 
 namespace godot {
 
+inline uint64_t tick_usec() { return Time::get_singleton()->get_ticks_usec(); }
+
 class ARCoreInterface : public XRInterfaceExtension {
 	GDCLASS(ARCoreInterface, XRInterfaceExtension)
-public:
-	using SessionState = PocketAR::SessionState;
-	using TrackingReason = PocketAR::TrackingReason;
-	static constexpr SessionState UNSUPPORTED = PocketAR::UNSUPPORTED;
-	static constexpr SessionState CHECKING = PocketAR::CHECKING;
-	static constexpr SessionState NEEDS_INSTALL = PocketAR::NEEDS_INSTALL;
-	static constexpr SessionState INSTALLING = PocketAR::INSTALLING;
-	static constexpr SessionState PERMISSION_DENIED = PocketAR::PERMISSION_DENIED;
-	static constexpr SessionState READY = PocketAR::READY;
-	static constexpr SessionState INITIALIZING = PocketAR::INITIALIZING;
-	static constexpr SessionState TRACKING = PocketAR::TRACKING;
-	static constexpr SessionState PAUSED = PocketAR::PAUSED;
-	static constexpr SessionState FAILED = PocketAR::FAILED;
-	static constexpr TrackingReason NONE = PocketAR::NONE;
-	static constexpr TrackingReason BAD_STATE = PocketAR::BAD_STATE;
-	static constexpr TrackingReason INSUFFICIENT_LIGHT = PocketAR::INSUFFICIENT_LIGHT;
-	static constexpr TrackingReason EXCESSIVE_MOTION = PocketAR::EXCESSIVE_MOTION;
-	static constexpr TrackingReason INSUFFICIENT_FEATURES = PocketAR::INSUFFICIENT_FEATURES;
-	static constexpr TrackingReason CAMERA_UNAVAILABLE = PocketAR::CAMERA_UNAVAILABLE;
-
 private:
 	struct TextureSlot {
 		Ref<ImageTexture> y;
@@ -71,7 +54,6 @@ private:
 	bool running = false;
 	bool application_suspended = false;
 	bool geometry_dirty = true;
-	bool focus_auto = true;
 	int camera_config_index = -1;
 	String camera_path = "auto";
 	Ref<Texture2D> gpu_texture;
@@ -82,11 +64,10 @@ private:
 	int gpu_color_range = 0;
 	int gpu_buffer_misses = 0;
 	uint64_t gpu_validation_swap = 0;
-	int64_t gpu_validation_timestamp = 0;
 	Vector2i gpu_validation_size;
 	pocketar::CameraBlockMeans gpu_cpu_means{};
 	double gpu_validation_luma_range = 0, gpu_validation_chroma_magnitude = 0;
-	std::array<double, 4> gpu_validation_worst{}, gpu_validation_sum{};
+	double gpu_validation_worst = 0;
 	int64_t generation = 0;
 	int64_t sequence = 0;
 	int64_t plane_sequence = 0;
@@ -105,8 +86,8 @@ private:
 	PackedByteArray luma, chroma;
 	double near_plane = 0.05, far_plane = 100.0;
 	Transform3D last_good_pose;
-	SessionState state = CHECKING;
-	TrackingReason reason = NONE;
+	PocketAR::SessionState state = PocketAR::CHECKING;
+	PocketAR::TrackingReason reason = PocketAR::NONE;
 	TrackingStatus tracking_status = XR_UNKNOWN_TRACKING;
 	Ref<XRPositionalTracker> head;
 	Ref<ARFramePacket> current_packet, presented_packet, applied_packet;
@@ -124,8 +105,8 @@ private:
 	uint64_t frame_setup_swap = 0;
 
 	bool on_owner_thread() const;
-	void set_state(SessionState p_state);
-	void set_reason(TrackingReason p_reason);
+	void set_state(PocketAR::SessionState p_state);
+	void set_reason(PocketAR::TrackingReason p_reason);
 	void increment(const char *p_key, int64_t p_amount = 1);
 	void fail(ArStatus p_status, const String &p_operation);
 	bool create_session();
@@ -143,27 +124,23 @@ private:
 	bool texture_slot_active(const TextureSlot &p_slot) const;
 	void inspect_projection(const ArCamera *p_camera, const float *p_projection);
 	void inspect_intrinsics(const ArCamera *p_camera, ARFramePacket &r_packet);
-	void inspect_hardware_buffer();
 	void detect_gpu_camera();
 	void fallback_gpu_camera(const String &p_reason);
 	void gpu_camera_completed(int p_status, int64_t p_generation);
 	bool submit_gpu_camera();
 	void capture_gpu_validation(int64_t p_timestamp);
 	void finish_gpu_validation();
-	static void sample(std::vector<double> &r_values, size_t &r_cursor, double p_value);
-	static double percentile(const std::vector<double> &p_values, double p_fraction);
 
 protected:
 	static void _bind_methods();
 
 public:
 	~ARCoreInterface();
-	SessionState get_session_state() const { return state; }
-	TrackingReason get_tracking_reason() const { return reason; }
+	PocketAR::SessionState get_session_state() const { return state; }
+	PocketAR::TrackingReason get_tracking_reason() const { return reason; }
 	int64_t get_session_generation() const { return generation; }
 	Dictionary get_diagnostics() const;
 	void reset();
-	void set_focus_auto(bool p_auto);
 	void set_camera_config_index(int p_index);
 	void set_camera_path(const String &p_path);
 	void set_gpu_validation_enabled(bool p_enabled);
@@ -175,26 +152,15 @@ public:
 	Dictionary get_dataset_diagnostics() const { return extras.diagnostics(); }
 	Array live_hit_test(const Vector2 &p_pixels) { return extras.live_hit_test(p_pixels); }
 	Array live_hit_test_ray(const Vector3 &p_origin, const Vector3 &p_direction) { return extras.live_hit_test_ray(p_origin, p_direction); }
-	Dictionary create_live_anchor(int64_t p_query_id) { return extras.create_live_anchor(p_query_id); }
-	Dictionary create_anchor(const Ref<ARFramePacket> &p_packet, const Ref<ARRaycastHit> &p_hit, bool p_fallback) { return extras.create_anchor(p_packet, p_hit, p_fallback); }
-	Array get_anchors() { return extras.get_anchors(); }
-	bool remove_anchor(int64_t p_id) { return extras.remove_anchor(p_id); }
 	Dictionary start_recording(const String &p_uri) { return extras.start_recording(p_uri); }
 	Dictionary stop_recording() { return extras.stop_recording(); }
 	void start_playback(const String &p_uri);
-	void stop_playback();
 	Dictionary record_input(const PackedByteArray &p_data) { return extras.record_input(p_data); }
 	Array get_playback_inputs() { return extras.get_playback_inputs(); }
 	void set_point_cloud_enabled(bool p_enabled) { extras.set_point_cloud_enabled(p_enabled); }
-	Dictionary begin_image_capacity_probe();
-	void cancel_image_capacity_probe() { extras.cancel_image_capacity_probe(); }
-	void begin_old_frame_probe();
-	void set_frame_probes_enabled(bool p_enabled) { extras.set_frame_probes_enabled(p_enabled); }
 	void bridge_changed();
 	void application_pause();
 	void application_resume();
-	void harness_pause() { application_pause(); }
-	void harness_resume() { application_resume(); }
 
 	StringName _get_name() const override { return "PocketARCore"; }
 	uint32_t _get_capabilities() const override { return XR_MONO | XR_AR; }

@@ -4,11 +4,6 @@ plugins {
 }
 
 val arcoreVersion = "1.56.0"
-val arcoreNative by configurations.creating {
-    isCanBeConsumed = false
-    isTransitive = false
-}
-
 android {
     namespace = "org.doublesymmetry.pocketar"
     compileSdk = 36
@@ -35,18 +30,6 @@ dependencies {
     compileOnly("org.godotengine:godot:4.7.2.stable")
     implementation("com.google.ar:core:$arcoreVersion")
     testImplementation("junit:junit:4.13.2")
-    add(arcoreNative.name, "com.google.ar:core:$arcoreVersion@aar")
-}
-
-val extractArcoreNative by tasks.registering(Sync::class) {
-    from({ zipTree(arcoreNative.singleFile) })
-    include("jni/arm64-v8a/libarcore_sdk_c.so", "**/arcore_c_api.h")
-    into(layout.buildDirectory.dir("arcore-native/$arcoreVersion"))
-    doLast {
-        check(destinationDir.resolve("jni/arm64-v8a/libarcore_sdk_c.so").isFile) {
-            "ARCore $arcoreVersion does not contain the arm64 C API shim"
-        }
-    }
 }
 
 val copyExtension by tasks.registering(Copy::class) {
@@ -54,7 +37,7 @@ val copyExtension by tasks.registering(Copy::class) {
     into(layout.buildDirectory.dir("generated/assets/addons/pocketar"))
 }
 
-tasks.named("preBuild") { dependsOn(copyExtension, extractArcoreNative) }
+tasks.named("preBuild") { dependsOn(copyExtension) }
 for ((variant, target) in listOf("debug" to "template_debug", "release" to "template_release")) {
     val capitalized = variant.replaceFirstChar { it.uppercase() }
     val library = file("../../demo/addons/pocketar/bin/android/$target/arm64/libpocketar.so")

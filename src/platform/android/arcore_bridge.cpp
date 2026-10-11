@@ -37,20 +37,17 @@ static void notify_owner() {
 }
 
 extern "C" {
-JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativeInitialize(JNIEnv *p_env, jobject, jobject p_activity, jobject p_context) {
+JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativeInitialize(JNIEnv *p_env, jobject, jobject p_context) {
 	std::lock_guard<std::mutex> lock(bridge_mutex);
 	p_env->GetJavaVM(&bridge.vm);
-	if (bridge.activity) p_env->DeleteGlobalRef(bridge.activity);
 	if (bridge.context) p_env->DeleteGlobalRef(bridge.context);
-	bridge.activity = p_env->NewGlobalRef(p_activity);
 	bridge.context = p_env->NewGlobalRef(p_context);
 }
-JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativeStatus(JNIEnv *p_env, jobject, jint p_state, jstring p_version, jstring p_detail) {
+JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativeStatus(JNIEnv *p_env, jobject, jint p_state, jstring p_version) {
 	{
 		std::lock_guard<std::mutex> lock(bridge_mutex);
 		bridge.state = p_state;
 		bridge.apk_version = java_string(p_env, p_version);
-		bridge.detail = java_string(p_env, p_detail);
 		bridge.state_history.push_back(p_state);
 	}
 	notify_owner();
@@ -75,8 +72,7 @@ JNIEXPORT void JNICALL Java_org_doublesymmetry_pocketar_PocketARPlugin_nativeShu
 	std::lock_guard<std::mutex> lock(bridge_mutex);
 	bridge.resumed = false;
 	bridge.state = 1;
-	if (bridge.activity) p_env->DeleteGlobalRef(bridge.activity);
 	if (bridge.context) p_env->DeleteGlobalRef(bridge.context);
-	bridge.activity = bridge.context = nullptr;
+	bridge.context = nullptr;
 }
 }

@@ -10,13 +10,8 @@ signal planes_changed()
 
 @export_range(-1, 3) var orientation_quarter_turns: int = -1
 @export_enum("Synthetic", "ARCore", "ARKit", "Scripted") var backend: int = 0
-@export_file("*.jsonl") var fixture_path: String = ""
 @export var handle_presses: bool = false
-@export var environment: Environment:
-	set(value):
-		environment = value
-		if is_node_ready():
-			_sync_environment()
+@export var environment: Environment
 
 @onready var virtual_scene: SubViewport = $VirtualScene
 @onready var camera: XRCamera3D = $VirtualScene/XROrigin3D/XRCamera3D
@@ -49,8 +44,6 @@ var world_3d: World3D:
 func _ready() -> void:
 	virtual_scene.own_world_3d = true
 	world_environment.environment = Environment.new()
-	if environment == null:
-		environment = Environment.new()
 	_sync_environment()
 	composite.texture = virtual_scene.get_texture()
 	background.hide()
@@ -63,24 +56,19 @@ func _ready() -> void:
 				return
 			interface = ClassDB.instantiate(native_class) as XRInterfaceExtension
 		elif backend == 3:
-			var scripted := ScriptedARInterface.new()
-			if scripted.load_fixture(fixture_path) != OK:
-				push_error("Cannot load PocketAR fixture: " + fixture_path)
-				return
-			interface = scripted
+			push_error("The Scripted backend requires a supplied interface")
+			return
 		else:
 			interface = SyntheticARInterface.new()
 	interface.connect("session_state_changed", _on_session_state_changed)
 	interface.connect("tracking_reason_changed", _on_tracking_reason_changed)
 	interface.connect("session_generation_changed", _on_session_generation_changed)
-	interface.connect("planes_changed", _on_planes_changed)
+	interface.connect("planes_changed", planes_changed.emit)
 	XRServer.add_interface(interface)
 	_update_geometry()
 	if not interface.initialize():
 		push_error("%s initialization failed" % interface.get_name())
 		return
-	if OS.is_debug_build() and interface.has_method("debug_set_camera_material"):
-		interface.call("debug_set_camera_material", background.material.get_rid())
 	RenderingServer.frame_pre_draw.connect(_apply_packet)
 	RenderingServer.frame_post_draw.connect(_mark_presented)
 	_apply_packet()
@@ -97,10 +85,6 @@ func _exit_tree() -> void:
 		shader.set_shader_parameter("cbcr_texture", null)
 		shader.set_shader_parameter("rgb_texture", null)
 		applied_packet = null
-		if interface.is_initialized() and interface.has_method("mark_applied"):
-			interface.call("mark_applied", null)
-		if interface.is_initialized() and OS.is_debug_build() and interface.has_method("debug_set_camera_material"):
-			interface.call("debug_set_camera_material", RID())
 		interface.uninitialize()
 		XRServer.remove_interface(interface)
 
@@ -131,10 +115,6 @@ func _on_session_generation_changed(generation: int) -> void:
 	if _session_generation != generation:
 		_session_generation = generation
 		session_generation_changed.emit(generation)
-
-
-func _on_planes_changed() -> void:
-	planes_changed.emit()
 
 
 func _notification(what: int) -> void:
@@ -184,7 +164,6 @@ func _apply_packet() -> void:
 	var uv: Transform2D = packet.display_transform
 	var uv_matrix := Basis(Vector3(uv.x.x, uv.x.y, 0), Vector3(uv.y.x, uv.y.y, 0), Vector3(uv.origin.x, uv.origin.y, 1))
 	shader.set_shader_parameter("display_transform", uv_matrix)
-	shader.set_shader_parameter("color_encoding", packet.color_encoding)
 	shader.set_shader_parameter("imported_chroma", packet.imported_chroma)
 	applied_packet = packet
 	if interface.has_method("mark_applied"):
@@ -259,18 +238,6 @@ func world_to_screen(world_point: Vector3) -> Vector2:
 	if clip.w <= 0.0:
 		return Vector2.INF
 	return Vector2(clip.x / clip.w + 1.0, 1.0 - clip.y / clip.w) * size * 0.5
-
-
-func screen_to_point(screen_point: Vector2, depth: float) -> Vector3:
-	var packet: ARFramePacket = _presented_packet()
-	if packet == null or not screen_point.is_finite() or not is_finite(depth) or depth < 0.0:
-		return Vector3.INF
-	var ray: Dictionary = PocketAR.screen_to_ray(packet, size, screen_point)
-	var direction: Vector3 = ray["direction"]
-	var local_direction: Vector3 = packet.camera_transform.basis.inverse() * direction
-	if local_direction.z >= 0.0:
-		return Vector3.INF
-	return packet.camera_transform.origin + direction * (depth / -local_direction.z)
 
 
 func view_point(event_position: Vector2) -> Vector2:

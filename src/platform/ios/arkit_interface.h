@@ -14,27 +14,6 @@ namespace godot {
 class ARKitInterface : public XRInterfaceExtension {
 	GDCLASS(ARKitInterface, XRInterfaceExtension)
 
-public:
-	using SessionState = PocketAR::SessionState;
-	using TrackingReason = PocketAR::TrackingReason;
-	static constexpr SessionState UNSUPPORTED = PocketAR::UNSUPPORTED;
-	static constexpr SessionState CHECKING = PocketAR::CHECKING;
-	static constexpr SessionState NEEDS_INSTALL = PocketAR::NEEDS_INSTALL;
-	static constexpr SessionState INSTALLING = PocketAR::INSTALLING;
-	static constexpr SessionState PERMISSION_DENIED = PocketAR::PERMISSION_DENIED;
-	static constexpr SessionState READY = PocketAR::READY;
-	static constexpr SessionState INITIALIZING = PocketAR::INITIALIZING;
-	static constexpr SessionState TRACKING = PocketAR::TRACKING;
-	static constexpr SessionState PAUSED = PocketAR::PAUSED;
-	static constexpr SessionState FAILED = PocketAR::FAILED;
-	static constexpr TrackingReason NONE = PocketAR::NONE;
-	static constexpr TrackingReason BAD_STATE = PocketAR::BAD_STATE;
-	static constexpr TrackingReason INSUFFICIENT_LIGHT = PocketAR::INSUFFICIENT_LIGHT;
-	static constexpr TrackingReason EXCESSIVE_MOTION = PocketAR::EXCESSIVE_MOTION;
-	static constexpr TrackingReason INSUFFICIENT_FEATURES = PocketAR::INSUFFICIENT_FEATURES;
-	static constexpr TrackingReason CAMERA_UNAVAILABLE = PocketAR::CAMERA_UNAVAILABLE;
-
-private:
 	struct Impl;
 	std::unique_ptr<Impl> impl;
 	Ref<ARKitTexturePool> textures;
@@ -47,24 +26,19 @@ private:
 	bool initialized = false;
 	bool suspended = false;
 	bool geometry_dirty = true;
-	bool focus_auto = true;
-	bool light_estimation = false;
-	bool relocalization_enabled = true;
-	int plane_detection = 3;
 	Vector2i viewport_size = Vector2i(1, 1);
 	double near_plane = 0.05, far_plane = 100.0;
 	Transform3D last_good_pose;
-	SessionState state = CHECKING;
-	TrackingReason reason = NONE;
+	PocketAR::SessionState state = PocketAR::CHECKING;
+	PocketAR::TrackingReason reason = PocketAR::NONE;
 	TrackingStatus tracking_status = XR_UNKNOWN_TRACKING;
 	Dictionary diagnostics, timings;
 	Array state_history;
-	void set_state(SessionState p_state);
-	void set_reason(TrackingReason p_reason);
+	void set_state(PocketAR::SessionState p_state);
+	void set_reason(PocketAR::TrackingReason p_reason);
 	void increment(const char *p_key);
 	void run_session(bool p_reset);
 	void clear_packets();
-	void reset_relocalization();
 	void clear_planes();
 	bool copy_planes(void *p_frame, ARFramePacket &r_packet);
 	bool on_owner_thread() const;
@@ -75,25 +49,18 @@ protected:
 public:
 	ARKitInterface();
 	~ARKitInterface();
-	SessionState get_session_state() const { return state; }
-	TrackingReason get_tracking_reason() const { return reason; }
+	PocketAR::SessionState get_session_state() const { return state; }
+	PocketAR::TrackingReason get_tracking_reason() const { return reason; }
 	int64_t get_session_generation() const { return generation; }
 	Dictionary get_diagnostics() const;
 	Dictionary get_native_plane_identifiers() const;
-	int64_t get_native_anchor_count() const { return native_anchor_count; }
 	void reset();
-	void set_focus_auto(bool p_enabled);
-	void set_light_estimation_enabled(bool p_enabled);
-	void set_relocalization_enabled(bool p_enabled) { relocalization_enabled = p_enabled; }
-	bool get_relocalization_enabled() const { return relocalization_enabled; }
-	void set_plane_detection(int p_mask);
 	void set_display_geometry(const Vector2i &p_size, int p_turns, double p_near, double p_far);
 	Ref<ARFramePacket> get_current_packet() const { return current_packet; }
 	Ref<ARFramePacket> get_presented_packet() const { return presented_packet; }
 	void mark_applied(const Ref<ARFramePacket> &p_packet);
 	void mark_presented();
 	bool debug_check_camera_material(const RID &p_material);
-	void debug_set_camera_material(const RID &p_material);
 	Array live_hit_test(const Vector2 &p_pixels);
 	void application_pause();
 	void application_resume();

@@ -1,11 +1,11 @@
 #include "arkit_texture_pool.h"
 #include "import_retirement.h"
+#include "core/timing_samples.h"
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/rendering_device.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/classes/xr_server.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
 #import <CoreVideo/CoreVideo.h>
 #import <Metal/Metal.h>
 #include <algorithm>
@@ -46,20 +46,9 @@ struct ARKitTexturePool::Impl {
 	size_t import_cursor = 0, retire_cursor = 0;
 #ifdef DEBUG_ENABLED
 	std::unordered_set<uint64_t> retired_rs_rids;
-	RID camera_material;
 #endif
 
 	void increment(const char *p_key) { diagnostics[p_key] = int64_t(diagnostics.get(p_key, 0)) + 1; }
-	static void sample(std::vector<double> &p_samples, size_t &p_cursor, double p_value) {
-		if (p_samples.size() < 131072) p_samples.push_back(p_value);
-		else { p_samples[p_cursor] = p_value; p_cursor = (p_cursor + 1) % p_samples.size(); }
-	}
-	static double percentile(std::vector<double> p_samples, double p_fraction) {
-		if (p_samples.empty()) return 0;
-		const size_t index = size_t((p_samples.size() - 1) * p_fraction);
-		std::nth_element(p_samples.begin(), p_samples.begin() + index, p_samples.end());
-		return p_samples[index];
-	}
 	void free_imports(Entry &p_entry, uint64_t p_swap) {
 		for (int plane = 0; plane < 2; ++plane) {
 			// Texture2DRD owns the RS shared view, which must disappear before its RD source.
@@ -141,25 +130,19 @@ bool ARKitTexturePool::setup() {
 	ERR_FAIL_COND_V_MSG(!same, false, "ARKit Metal retain probe did not take the same-format import branch.");
 	if (CVMetalTextureCacheCreate(kCFAllocatorDefault, nullptr, device, nullptr, &impl->cache) != kCVReturnSuccess) return false;
 	impl->diagnostics["retain_probe_delta"] = int64_t(after - before);
-	impl->diagnostics["retain_probe_same_branch"] = same;
 	impl->diagnostics["retain_workaround_active"] = !impl->engine_retains;
 	impl->diagnostics["engine_version"] = Engine::get_singleton()->get_version_info();
-	impl->diagnostics["flush_policy"] = "after swaps that release retired native owners";
 	impl->diagnostics["camera_path"] = "cvmetaltexturecache_texture2drd";
-	impl->diagnostics["buffer_limit"] = 7;
 	impl->diagnostics["frame_delay"] = int(impl->delay);
 #ifdef DEBUG_ENABLED
 	impl->diagnostics["retirement_canary_enabled"] = true;
 #else
 	impl->diagnostics["retirement_canary_enabled"] = false;
 #endif
-	impl->diagnostics["retirement_canary_kind"] = "native retain-count drop heuristic";
-	impl->diagnostics["last_import_error"] = String();
 	impl->diagnostics["retain_drop_swaps_min"] = int64_t(-1);
 	impl->diagnostics["retain_drop_swaps_max"] = int64_t(-1);
 	for (const char *key : { "imports", "retirement_count", "native_release_count", "buffer_drops", "buffer_high_water", "premature_release_count", "sample_after_free_count", "sample_checks", "material_sample_checks", "retain_drop_count", "same_branch_failures", "long_swap_count", "color_tag_missing" }) impl->diagnostics[key] = int64_t(0);
 	impl->ready = true;
-	UtilityFunctions::print("ARKIT Metal retain probe ", impl->diagnostics);
 	return true;
 }
 
@@ -168,7 +151,6 @@ bool ARKitTexturePool::import_image(void *p_pixel_buffer, Import &r_import) {
 	impl->import_error = String();
 	if (impl->entries.size() >= 7) {
 		impl->increment("buffer_drops");
-		impl->diagnostics["last_import_error"] = "camera buffer limit reached";
 		return false;
 	}
 	CVPixelBufferRef buffer = (CVPixelBufferRef)p_pixel_buffer;
@@ -176,15 +158,9 @@ bool ARKitTexturePool::import_image(void *p_pixel_buffer, Import &r_import) {
 	CFTypeRef matrix = CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nullptr);
 	const bool full_601 = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange && (!matrix || CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_601_4));
 	if (!matrix) impl->increment("color_tag_missing");
-	impl->diagnostics["pixel_format"] = int64_t(format);
-	impl->diagnostics["ycbcr_matrix"] = matrix ? String([(NSString *)CFBridgingRelease(matrix) UTF8String]) : String("missing");
-	for (const auto &attachment : { std::pair<CFStringRef, const char *>(kCVImageBufferColorPrimariesKey, "color_primaries"), { kCVImageBufferTransferFunctionKey, "transfer_function" } }) {
-		CFTypeRef value = CVBufferCopyAttachment(buffer, attachment.first, nullptr);
-		impl->diagnostics[attachment.second] = value ? String([(NSString *)CFBridgingRelease(value) UTF8String]) : String("missing");
-	}
+	if (matrix) CFRelease(matrix);
 	if (!full_601 || CVPixelBufferGetPlaneCount(buffer) != 2) {
 		impl->import_error = "ARKit requires two-plane 420f BT.601; an explicit different matrix or range is unsupported";
-		impl->diagnostics["last_import_error"] = impl->import_error;
 		return false;
 	}
 	const uint64_t started = Time::get_singleton()->get_ticks_usec();
@@ -212,15 +188,13 @@ bool ARKitTexturePool::import_image(void *p_pixel_buffer, Import &r_import) {
 	if (ok) {
 		r_import.y = entry.texture[0];
 		r_import.cbcr = entry.texture[1];
-		r_import.color = ARFramePacket::BT601_FULL;
 		impl->increment("imports");
 	} else {
-		impl->diagnostics["last_import_error"] = "CVMetalTexture or RenderingDevice import failed";
 		impl->free_imports(entry, rd_swaps);
 	}
 	impl->entries.push_back(std::move(entry));
 	impl->diagnostics["buffer_high_water"] = std::max(int64_t(impl->entries.size()), int64_t(impl->diagnostics["buffer_high_water"]));
-	Impl::sample(impl->import_times, impl->import_cursor, double(Time::get_singleton()->get_ticks_usec() - started));
+	sample_timing(impl->import_times, impl->import_cursor, double(Time::get_singleton()->get_ticks_usec() - started));
 	return ok;
 }
 
@@ -232,18 +206,11 @@ void ARKitTexturePool::set_active_packets(const Ref<ARFramePacket> &p_current, c
 	}
 }
 
-void ARKitTexturePool::clear_active_packets() {
-	set_active_packets(Ref<ARFramePacket>(), Ref<ARFramePacket>(), Ref<ARFramePacket>());
-}
-
 void ARKitTexturePool::_pre_render() {
 	impl->draw_started = Time::get_singleton()->get_ticks_usec();
 	for (auto &entry : impl->entries) {
 		if (entry.lifetime.retirement_ready()) impl->free_imports(entry, rd_swaps);
 	}
-#ifdef DEBUG_ENABLED
-	check_material(impl->camera_material);
-#endif
 }
 
 void ARKitTexturePool::_end_frame() {
@@ -273,7 +240,7 @@ void ARKitTexturePool::_end_frame() {
 			if (canary.armed && !canary.drop_observed) impl->increment("premature_release_count");
 		}
 #endif
-		Impl::sample(impl->retire_times, impl->retire_cursor, double(now - it->free_usec));
+		sample_timing(impl->retire_times, impl->retire_cursor, double(now - it->free_usec));
 		Impl::release_native(*it);
 		impl->increment("native_release_count");
 		it = impl->entries.erase(it);
@@ -296,12 +263,6 @@ bool ARKitTexturePool::check_sample(const Ref<ARFramePacket> &p_packet) {
 #endif
 }
 
-void ARKitTexturePool::set_camera_material(const RID &p_material) {
-#ifdef DEBUG_ENABLED
-	impl->camera_material = p_material;
-#endif
-}
-
 bool ARKitTexturePool::check_material(const RID &p_material) {
 #ifdef DEBUG_ENABLED
 	if (!p_material.is_valid()) return true;
@@ -321,10 +282,10 @@ Dictionary ARKitTexturePool::get_diagnostics() const {
 	Dictionary result = impl->diagnostics.duplicate(true);
 	result["rd_swaps"] = int64_t(rd_swaps);
 	result["held_buffers"] = int64_t(impl->entries.size());
-	result["import_p50_us"] = Impl::percentile(impl->import_times, 0.5);
-	result["import_p95_us"] = Impl::percentile(impl->import_times, 0.95);
-	result["retire_p50_us"] = Impl::percentile(impl->retire_times, 0.5);
-	result["retire_p95_us"] = Impl::percentile(impl->retire_times, 0.95);
+	result["import_p50_us"] = timing_percentile(impl->import_times, 0.5);
+	result["import_p95_us"] = timing_percentile(impl->import_times, 0.95);
+	result["retire_p50_us"] = timing_percentile(impl->retire_times, 0.5);
+	result["retire_p95_us"] = timing_percentile(impl->retire_times, 0.95);
 	return result;
 }
 

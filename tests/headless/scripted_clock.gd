@@ -45,14 +45,6 @@ func _run() -> void:
 	_check(generations == [interface.get_session_generation()], "reinitialization publishes its generation to a new listener")
 	interface.uninitialize()
 	XRServer.remove_interface(interface)
-	interface = ScriptedARInterface.new()
-	_check(interface.load_fixture("res://harness/fixtures/table.jsonl") == OK, "wall clock fixture loads")
-	XRServer.add_interface(interface)
-	_check(interface.initialize(), "wall clock initializes")
-	await create_timer(0.12).timeout
-	_check(interface.get_current_packet().timestamp_usec > 0, "wall clock advances without advance_to")
-	interface.uninitialize()
-	XRServer.remove_interface(interface)
 	interface = null
 	await process_frame
 	print("SCRIPTED CLOCK RESULT " + ("PASS" if failures == 0 else "FAIL"))

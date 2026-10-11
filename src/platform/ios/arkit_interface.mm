@@ -6,7 +6,6 @@
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/classes/xr_server.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
 #import <ARKit/ARKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <QuartzCore/QuartzCore.h>
@@ -35,7 +34,7 @@
 	if (self.owner) self.owner->session_interrupted(false);
 }
 - (BOOL)sessionShouldAttemptRelocalization:(ARSession *)session {
-	return self.owner && self.owner->get_relocalization_enabled();
+	return YES;
 }
 @end
 
@@ -47,12 +46,9 @@ struct ARKitInterface::Impl {
 	HARSessionDelegate *delegate = nil;
 	bool running = false, interrupted = false, permission_requested = false;
 	bool reset_pending = false;
-	int reset_samples = 0;
 	double last_timestamp = 0, reset_cutoff = 0;
-	uint64_t start_tick = 0, reset_tick = 0;
-	bool first_frame = false, normal_tracking = false;
-	uint64_t relocalization_tick = 0;
-	bool relocalization_timeout_sent = false;
+	uint64_t start_tick = 0;
+	bool first_frame = false;
 	UIInterfaceOrientation orientation = UIInterfaceOrientationUnknown;
 	ARKitOrientationTransition orientation_transition;
 };
@@ -86,13 +82,8 @@ static int orientation_turns(UIInterfaceOrientation p_orientation) {
 
 static AVAuthorizationStatus camera_authorization(Dictionary &r_diagnostics) {
 	const AVAuthorizationStatus authorization = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
-	r_diagnostics["camera_authorization"] = int(authorization);
-	switch (authorization) {
-		case AVAuthorizationStatusNotDetermined: r_diagnostics["camera_authorization_name"] = "not_determined"; break;
-		case AVAuthorizationStatusRestricted: r_diagnostics["camera_authorization_name"] = "restricted"; break;
-		case AVAuthorizationStatusDenied: r_diagnostics["camera_authorization_name"] = "denied"; break;
-		case AVAuthorizationStatusAuthorized: r_diagnostics["camera_authorization_name"] = "authorized"; break;
-	}
+	static const char *names[] = { "not_determined", "restricted", "denied", "authorized" };
+	r_diagnostics["camera_authorization_name"] = authorization >= 0 && authorization < 4 ? names[authorization] : "unknown";
 	return authorization;
 }
 
@@ -105,48 +96,32 @@ void ARKitInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &ARKitInterface::get_session_generation);
 	ClassDB::bind_method(D_METHOD("get_diagnostics"), &ARKitInterface::get_diagnostics);
 	ClassDB::bind_method(D_METHOD("get_native_plane_identifiers"), &ARKitInterface::get_native_plane_identifiers);
-	ClassDB::bind_method(D_METHOD("get_native_anchor_count"), &ARKitInterface::get_native_anchor_count);
 	ClassDB::bind_method(D_METHOD("reset"), &ARKitInterface::reset);
-	ClassDB::bind_method(D_METHOD("set_focus_auto", "enabled"), &ARKitInterface::set_focus_auto);
-	ClassDB::bind_method(D_METHOD("set_light_estimation_enabled", "enabled"), &ARKitInterface::set_light_estimation_enabled);
-	ClassDB::bind_method(D_METHOD("set_relocalization_enabled", "enabled"), &ARKitInterface::set_relocalization_enabled);
-	ClassDB::bind_method(D_METHOD("get_relocalization_enabled"), &ARKitInterface::get_relocalization_enabled);
-	ADD_SIGNAL(MethodInfo("relocalization_timeout", PropertyInfo(Variant::INT, "session_generation")));
-	ClassDB::bind_method(D_METHOD("set_plane_detection", "mask"), &ARKitInterface::set_plane_detection);
 	ClassDB::bind_method(D_METHOD("set_display_geometry", "size", "turns", "near", "far"), &ARKitInterface::set_display_geometry);
 	ClassDB::bind_method(D_METHOD("get_current_packet"), &ARKitInterface::get_current_packet);
 	ClassDB::bind_method(D_METHOD("get_presented_packet"), &ARKitInterface::get_presented_packet);
 	ClassDB::bind_method(D_METHOD("mark_applied", "packet"), &ARKitInterface::mark_applied);
 	ClassDB::bind_method(D_METHOD("mark_presented"), &ARKitInterface::mark_presented);
 	ClassDB::bind_method(D_METHOD("debug_check_camera_material", "material"), &ARKitInterface::debug_check_camera_material);
-	ClassDB::bind_method(D_METHOD("debug_set_camera_material", "material"), &ARKitInterface::debug_set_camera_material);
 	ClassDB::bind_method(D_METHOD("application_pause"), &ARKitInterface::application_pause);
 	ClassDB::bind_method(D_METHOD("application_resume"), &ARKitInterface::application_resume);
-	ClassDB::bind_method(D_METHOD("harness_pause"), &ARKitInterface::application_pause);
-	ClassDB::bind_method(D_METHOD("harness_resume"), &ARKitInterface::application_resume);
 	ClassDB::bind_method(D_METHOD("live_hit_test", "view_pixels"), &ARKitInterface::live_hit_test);
 	ADD_SIGNAL(MethodInfo("session_state_changed", PropertyInfo(Variant::INT, "state")));
 	ADD_SIGNAL(MethodInfo("tracking_reason_changed", PropertyInfo(Variant::INT, "reason")));
 	ADD_SIGNAL(MethodInfo("session_generation_changed", PropertyInfo(Variant::INT, "generation")));
 	ADD_SIGNAL(MethodInfo("planes_changed"));
-	BIND_ENUM_CONSTANT(UNSUPPORTED); BIND_ENUM_CONSTANT(CHECKING); BIND_ENUM_CONSTANT(NEEDS_INSTALL);
-	BIND_ENUM_CONSTANT(INSTALLING); BIND_ENUM_CONSTANT(PERMISSION_DENIED); BIND_ENUM_CONSTANT(READY);
-	BIND_ENUM_CONSTANT(INITIALIZING); BIND_ENUM_CONSTANT(TRACKING); BIND_ENUM_CONSTANT(PAUSED); BIND_ENUM_CONSTANT(FAILED);
-	BIND_ENUM_CONSTANT(NONE); BIND_ENUM_CONSTANT(BAD_STATE); BIND_ENUM_CONSTANT(INSUFFICIENT_LIGHT);
-	BIND_ENUM_CONSTANT(EXCESSIVE_MOTION); BIND_ENUM_CONSTANT(INSUFFICIENT_FEATURES); BIND_ENUM_CONSTANT(CAMERA_UNAVAILABLE);
 }
 
 bool ARKitInterface::on_owner_thread() const { return [NSThread isMainThread] && RenderingServer::get_singleton()->is_on_render_thread(); }
 void ARKitInterface::increment(const char *p_key) { diagnostics[p_key] = int64_t(diagnostics.get(p_key, 0)) + 1; }
-void ARKitInterface::set_state(SessionState p_state) {
+void ARKitInterface::set_state(PocketAR::SessionState p_state) {
 	const bool changed = state != p_state;
 	if (!changed && !state_history.is_empty()) return;
 	state = p_state;
 	state_history.append(int(state));
-	UtilityFunctions::print("ARKIT state=", int(state), " generation=", generation, " reason=", int(reason));
 	if (changed) call_deferred("emit_signal", "session_state_changed", int(state));
 }
-void ARKitInterface::set_reason(TrackingReason p_reason) {
+void ARKitInterface::set_reason(PocketAR::TrackingReason p_reason) {
 	if (reason == p_reason) return;
 	reason = p_reason;
 	call_deferred("emit_signal", "tracking_reason_changed", int(reason));
@@ -159,12 +134,12 @@ bool ARKitInterface::_initialize() {
 	geometry_dirty = true;
 	last_good_pose = Transform3D();
 	tracking_status = XR_UNKNOWN_TRACKING;
-	set_reason(NONE);
+	set_reason(PocketAR::NONE);
 	diagnostics.clear(); timings.clear(); state_history.clear();
 	RenderingServer *rs = RenderingServer::get_singleton();
 	if (rs->get_current_rendering_driver_name() != "metal" || !rs->get_rendering_device()) {
 		diagnostics["last_error"] = "ARKit zero-copy camera requires the Metal rendering driver";
-		set_state(UNSUPPORTED);
+		set_state(PocketAR::UNSUPPORTED);
 		return false;
 	}
 	ERR_FAIL_COND_V_MSG(!on_owner_thread(), false, "ARKit requires the main thread and Safe rendering thread mode.");
@@ -172,24 +147,18 @@ bool ARKitInterface::_initialize() {
 	ERR_FAIL_COND_V_MSG(XRServer::get_singleton()->get_primary_interface().is_valid(), false, "Only one ARView may own the primary XR interface.");
 	if (![ARWorldTrackingConfiguration isSupported]) {
 		diagnostics["last_error"] = "ARWorldTrackingConfiguration is unsupported on this device";
-		set_state(UNSUPPORTED);
+		set_state(PocketAR::UNSUPPORTED);
 		return false;
 	}
 	textures = arkit_texture_pool();
-	if (textures.is_null()) { diagnostics["last_error"] = "Metal retain probe or CoreVideo texture cache failed"; set_state(UNSUPPORTED); return false; }
-	for (const char *key : { "new_frame_count", "packets_published", "packets_presented", "repeated_updates", "dropped_frames", "texture_refusals", "timestamp_regressions", "projection_form_samples", "projection_aspect_mismatch_count", "display_transform_samples", "pause_count", "resume_count", "reset_count", "retired_tracker_count", "orientation_transition_drops" }) diagnostics[key] = int64_t(0);
+	if (textures.is_null()) { diagnostics["last_error"] = "Metal retain probe or CoreVideo texture cache failed"; set_state(PocketAR::UNSUPPORTED); return false; }
+	for (const char *key : { "new_frame_count", "packets_published", "packets_presented", "repeated_updates", "texture_refusals", "timestamp_regressions", "projection_aspect_mismatch_count", "pause_count", "resume_count", "reset_count", "retired_tracker_count", "orientation_transition_drops" }) diagnostics[key] = int64_t(0);
 	diagnostics["projection_form_valid"] = true;
 	diagnostics["display_transform_valid"] = true;
 	diagnostics["native_depth_zero_to_one"] = true;
 	diagnostics["projection_near_far_error"] = 0.0;
 	diagnostics["projection_core_error_px"] = 0.0;
-	diagnostics["projection_half_pixel_error_px"] = 0.0;
-	diagnostics["projection_no_half_pixel_error_px"] = 0.0;
-	diagnostics["projection_aspect_mismatch"] = false;
 	diagnostics["orientations_seen"] = Array();
-	diagnostics["reset_frame_samples"] = Array();
-	diagnostics["plane_extent_rotation_sign"] = "positive_Y_assumed_pending_device_overlay";
-	UtilityFunctions::print("ARKIT plane_extent_rotation=positive_Y assumption_requires_device_overlay");
 	diagnostics["display_transform_error_px"] = 0.0;
 	diagnostics["pose_error"] = 0.0;
 	diagnostics["configured"] = false;
@@ -197,9 +166,7 @@ bool ARKitInterface::_initialize() {
 	diagnostics["driver"] = rs->get_current_rendering_driver_name();
 	NSBundle *framework = [NSBundle bundleForClass:[ARSession class]];
 	NSString *version = [framework objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
-	NSString *build = [framework objectForInfoDictionaryKey:@"CFBundleVersion"];
 	diagnostics["arkit_version"] = version ? String(version.UTF8String) : String("OS-bundled");
-	diagnostics["arkit_build"] = build ? String(build.UTF8String) : String("unavailable");
 	diagnostics["ios_version"] = String(NSProcessInfo.processInfo.operatingSystemVersionString.UTF8String);
 	struct utsname hardware;
 	diagnostics["device_model"] = uname(&hardware) == 0 ? String(hardware.machine) : String("unknown");
@@ -213,8 +180,8 @@ bool ARKitInterface::_initialize() {
 	active_interfaces.insert(this);
 	impl->start_tick = tick_usec();
 	set_primary(true);
-	if (state == CHECKING) call_deferred("emit_signal", "session_state_changed", int(CHECKING));
-	set_state(CHECKING);
+	if (state == PocketAR::CHECKING) call_deferred("emit_signal", "session_state_changed", int(PocketAR::CHECKING));
+	set_state(PocketAR::CHECKING);
 	call_deferred("emit_signal", "session_generation_changed", generation);
 	return true;
 }
@@ -232,19 +199,17 @@ void ARKitInterface::_uninitialize() {
 	tracking_status = XR_NOT_TRACKING;
 	current_packet.unref(); presented_packet.unref(); applied_packet.unref();
 	clear_planes();
-	textures->set_camera_material(RID());
-	textures->clear_active_packets();
+	textures->set_active_packets(current_packet, presented_packet, applied_packet);
 	textures.unref();
 	XRServer::get_singleton()->remove_tracker(head);
 	head.unref();
 	set_primary(false);
 	initialized = false;
-	set_state(PAUSED);
+	set_state(PocketAR::PAUSED);
 	active_interfaces.erase(this);
 }
 
 void ARKitInterface::run_session(bool p_reset) {
-	ERR_FAIL_COND(!on_owner_thread());
 	if (suspended) return;
 	const AVAuthorizationStatus authorization = camera_authorization(diagnostics);
 	if (authorization == AVAuthorizationStatusDenied || authorization == AVAuthorizationStatusRestricted) {
@@ -253,8 +218,8 @@ void ARKitInterface::run_session(bool p_reset) {
 		clear_packets();
 		head->invalidate_pose("default");
 		tracking_status = XR_NOT_TRACKING;
-		set_reason(CAMERA_UNAVAILABLE);
-		set_state(PERMISSION_DENIED);
+		set_reason(PocketAR::CAMERA_UNAVAILABLE);
+		set_state(PocketAR::PERMISSION_DENIED);
 		return;
 	}
 	if (authorization == AVAuthorizationStatusNotDetermined) {
@@ -263,7 +228,7 @@ void ARKitInterface::run_session(bool p_reset) {
 			// Completion is off-thread; _process observes authorization again on the main thread.
 			[AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {}];
 		}
-		set_state(CHECKING);
+		set_state(PocketAR::CHECKING);
 		return;
 	}
 	if (!impl->session) {
@@ -276,21 +241,17 @@ void ARKitInterface::run_session(bool p_reset) {
 		impl->config.worldAlignment = ARWorldAlignmentGravity;
 		impl->config.frameSemantics = ARFrameSemanticNone;
 		impl->config.videoHDRAllowed = NO;
+		impl->config.planeDetection = ARPlaneDetectionHorizontal | ARPlaneDetectionVertical;
+		impl->config.lightEstimationEnabled = NO;
 		NSArray<ARVideoFormat *> *formats = ARWorldTrackingConfiguration.supportedVideoFormats;
 		if (formats.count) impl->config.videoFormat = formats[0];
 	}
-	impl->config.planeDetection = ARPlaneDetection(plane_detection);
-	impl->config.autoFocusEnabled = focus_auto;
-	impl->config.lightEstimationEnabled = light_estimation;
 	Dictionary config;
 	config["width"] = int(impl->config.videoFormat.imageResolution.width);
 	config["height"] = int(impl->config.videoFormat.imageResolution.height);
 	config["fps"] = int(impl->config.videoFormat.framesPerSecond);
-	config["plane_detection"] = plane_detection;
-	config["autofocus"] = focus_auto;
-	config["light_estimation"] = light_estimation;
 	diagnostics["config"] = config;
-	set_state(READY);
+	set_state(PocketAR::READY);
 	const uint64_t started = tick_usec();
 	if (!bool(diagnostics["configured"])) impl->start_tick = started;
 	if (p_reset || impl->reset_pending) impl->reset_cutoff = CACurrentMediaTime();
@@ -298,15 +259,12 @@ void ARKitInterface::run_session(bool p_reset) {
 	timings[p_reset || impl->reset_pending ? "reset_ms" : "resume_ms"] = (tick_usec() - started) / 1000.0;
 	impl->reset_pending = false;
 	impl->running = true;
-	reset_relocalization();
 	tracking_status = XR_UNKNOWN_TRACKING;
 	impl->interrupted = false;
-	diagnostics["interrupted"] = false;
 	diagnostics["configured"] = true;
-	diagnostics["session_id"] = String(impl->session.identifier.UUIDString.UTF8String);
-	set_reason(NONE);
+	set_reason(PocketAR::NONE);
 	increment("resume_count");
-	set_state(INITIALIZING);
+	set_state(PocketAR::INITIALIZING);
 }
 
 void ARKitInterface::application_pause() {
@@ -319,13 +277,11 @@ void ARKitInterface::application_pause() {
 	timings["pause_ms"] = (tick_usec() - started) / 1000.0;
 	impl->running = false;
 	clear_packets();
-	reset_relocalization();
 	impl->interrupted = false;
-	diagnostics["interrupted"] = false;
 	tracking_status = XR_NOT_TRACKING;
-	if (head.is_valid()) head->invalidate_pose("default");
+	head->invalidate_pose("default");
 	increment("pause_count");
-	set_state(PAUSED);
+	set_state(PocketAR::PAUSED);
 }
 
 void ARKitInterface::application_resume() {
@@ -337,47 +293,34 @@ void ARKitInterface::application_resume() {
 }
 
 void ARKitInterface::session_interrupted(bool p_interrupted) {
-	if (!initialized) return;
-	ERR_FAIL_COND(!on_owner_thread());
 	if (!impl->running || suspended) return;
 	impl->interrupted = p_interrupted;
-	diagnostics["interrupted"] = p_interrupted;
-	set_reason(p_interrupted ? CAMERA_UNAVAILABLE : NONE);
+	set_reason(p_interrupted ? PocketAR::CAMERA_UNAVAILABLE : PocketAR::NONE);
 	if (p_interrupted) {
 		clear_packets();
 		head->invalidate_pose("default");
 		tracking_status = XR_NOT_TRACKING;
-		set_state(PAUSED);
+		set_state(PocketAR::PAUSED);
 	} else {
-		reset_relocalization();
 		tracking_status = XR_UNKNOWN_TRACKING;
-		set_state(INITIALIZING);
+		set_state(PocketAR::INITIALIZING);
 	}
 }
 
 void ARKitInterface::session_failed(int p_code, const String &p_message) {
-	if (!initialized) return;
-	ERR_FAIL_COND(!on_owner_thread());
 	impl->running = false;
 	diagnostics["last_error"] = p_message;
 	diagnostics["arkit_error_code"] = p_code;
 	clear_packets();
 	head->invalidate_pose("default");
 	tracking_status = XR_NOT_TRACKING;
-	set_reason(p_code == 103 ? CAMERA_UNAVAILABLE : BAD_STATE);
-	set_state(p_code == 103 ? PERMISSION_DENIED : p_code == 100 ? UNSUPPORTED : FAILED);
+	set_reason(p_code == 103 ? PocketAR::CAMERA_UNAVAILABLE : PocketAR::BAD_STATE);
+	set_state(p_code == 103 ? PocketAR::PERMISSION_DENIED : p_code == 100 ? PocketAR::UNSUPPORTED : PocketAR::FAILED);
 }
 
 void ARKitInterface::clear_packets() {
 	current_packet.unref(); presented_packet.unref();
-	if (textures.is_valid()) textures->set_active_packets(current_packet, presented_packet, applied_packet);
-}
-
-void ARKitInterface::reset_relocalization() {
-	impl->relocalization_tick = 0;
-	impl->relocalization_timeout_sent = false;
-	diagnostics["relocalizing"] = false;
-	diagnostics["relocalization_ms"] = 0.0;
+	textures->set_active_packets(current_packet, presented_packet, applied_packet);
 }
 
 void ARKitInterface::clear_planes() {
@@ -398,32 +341,12 @@ void ARKitInterface::reset() {
 	tracking_status = XR_UNKNOWN_TRACKING;
 	last_good_pose = Transform3D();
 	impl->last_timestamp = 0;
-	impl->reset_tick = tick_usec();
 	impl->reset_pending = true;
-	impl->reset_samples = 0;
-	reset_relocalization();
-	set_reason(NONE);
+	set_reason(PocketAR::NONE);
 	geometry_dirty = true;
 	increment("reset_count");
 	call_deferred("emit_signal", "session_generation_changed", generation);
 	run_session(true);
-}
-
-void ARKitInterface::set_focus_auto(bool p_enabled) {
-	if (focus_auto == p_enabled) return;
-	focus_auto = p_enabled;
-	if (initialized) reset();
-}
-void ARKitInterface::set_light_estimation_enabled(bool p_enabled) {
-	if (light_estimation == p_enabled) return;
-	light_estimation = p_enabled;
-	if (initialized) reset();
-}
-void ARKitInterface::set_plane_detection(int p_mask) {
-	ERR_FAIL_COND(p_mask < 0 || p_mask > 3);
-	if (plane_detection == p_mask) return;
-	plane_detection = p_mask;
-	if (initialized) reset();
 }
 
 void ARKitInterface::set_display_geometry(const Vector2i &p_size, int, double p_near, double p_far) {
@@ -488,7 +411,7 @@ void ARKitInterface::_process() {
 	@autoreleasepool {
 		const AVAuthorizationStatus authorization = camera_authorization(diagnostics);
 		if (!impl->running || authorization != AVAuthorizationStatusAuthorized) {
-			if (state != FAILED && state != UNSUPPORTED) run_session(false);
+			if (state != PocketAR::FAILED && state != PocketAR::UNSUPPORTED) run_session(false);
 			if (!impl->running) return;
 		}
 		UIView *view = (__bridge UIView *)(void *)DisplayServer::get_singleton()->window_get_native_handle(DisplayServer::WINDOW_VIEW);
@@ -504,23 +427,6 @@ void ARKitInterface::_process() {
 		}
 		if (orientation != impl->orientation) geometry_dirty = true;
 		ARFrame *frame = impl->session.currentFrame;
-		if (frame && impl->reset_cutoff > 0 && impl->reset_samples < 10) {
-			Dictionary sample;
-			sample["timestamp"] = frame.timestamp;
-			sample["reset_cutoff"] = impl->reset_cutoff;
-			sample["session_generation"] = generation;
-			sample["tracking_state"] = int(frame.camera.trackingState);
-			sample["tracking_reason"] = int(frame.camera.trackingStateReason);
-			sample["anchor_count"] = int64_t(frame.anchors.count);
-			sample["accepted"] = frame.timestamp > impl->reset_cutoff && frame.timestamp >= impl->last_timestamp && (frame.timestamp != impl->last_timestamp || (geometry_dirty && !impl->interrupted));
-			Array plane_uuids;
-			for (ARAnchor *anchor in frame.anchors) if ([anchor isKindOfClass:[ARPlaneAnchor class]]) plane_uuids.append(String(anchor.identifier.UUIDString.UTF8String));
-			sample["plane_uuids"] = plane_uuids;
-			Array samples = diagnostics["reset_frame_samples"];
-			if (samples.size() >= 100) samples.pop_front();
-			samples.append(sample);
-			++impl->reset_samples;
-		}
 		if (!frame || frame.timestamp <= impl->reset_cutoff) return;
 		if (frame.timestamp < impl->last_timestamp) { increment("timestamp_regressions"); return; }
 		const bool new_frame = frame.timestamp != impl->last_timestamp;
@@ -528,19 +434,18 @@ void ARKitInterface::_process() {
 		if (new_frame) {
 			increment("new_frame_count"); impl->last_timestamp = frame.timestamp;
 			impl->interrupted = false;
-			diagnostics["interrupted"] = false;
 		}
 		ARCamera *camera = frame.camera;
 		Ref<ARFramePacket> packet;
 		packet.instantiate();
 		const int64_t timestamp = llround(frame.timestamp * 1e9);
 		ARKitTexturePool::Import imported;
-		if (current_packet.is_valid() && current_packet->timestamp_ns == timestamp) {
-			packet->y_texture = current_packet->y_texture;
-			packet->cbcr_texture = current_packet->cbcr_texture;
-			packet->color_encoding = current_packet->color_encoding;
+		const bool repeated = current_packet.is_valid() && current_packet->timestamp_ns == timestamp;
+		if (!repeated && textures->import_image((void *)frame.capturedImage, imported)) {
+			packet->y_texture = imported.y;
+			packet->cbcr_texture = imported.cbcr;
 		} else {
-			if (!textures->import_image((void *)frame.capturedImage, imported)) {
+			if (!repeated) {
 				increment("texture_refusals");
 				if (!textures->get_import_error().is_empty()) {
 					diagnostics["last_error"] = textures->get_import_error();
@@ -549,19 +454,14 @@ void ARKitInterface::_process() {
 					tracking_status = XR_NOT_TRACKING;
 					head->invalidate_pose("default");
 					clear_packets();
-					set_reason(BAD_STATE);
-					set_state(UNSUPPORTED);
+					set_reason(PocketAR::BAD_STATE);
+					set_state(PocketAR::UNSUPPORTED);
 					return;
 				}
-				if (current_packet.is_valid()) {
-					packet->y_texture = current_packet->y_texture;
-					packet->cbcr_texture = current_packet->cbcr_texture;
-					packet->color_encoding = current_packet->color_encoding;
-				}
-			} else {
-				packet->y_texture = imported.y;
-				packet->cbcr_texture = imported.cbcr;
-				packet->color_encoding = imported.color;
+			}
+			if (current_packet.is_valid()) {
+				packet->y_texture = current_packet->y_texture;
+				packet->cbcr_texture = current_packet->cbcr_texture;
 			}
 		}
 		packet->imported_chroma = true;
@@ -569,11 +469,8 @@ void ARKitInterface::_process() {
 		packet->frame_id = ++sequence;
 		packet->timestamp_ns = timestamp;
 		packet->timestamp_usec = llround(frame.timestamp * 1e6);
-		packet->clock_domain = "arkit_host_time_seconds";
 		packet->viewport_size = viewport_size;
 		packet->image_size = Vector2i(camera.imageResolution.width, camera.imageResolution.height);
-		packet->gpu_image_size = packet->image_size;
-		packet->camera_fps = Vector2i(impl->config.videoFormat.framesPerSecond, impl->config.videoFormat.framesPerSecond);
 		packet->quarter_turns = turns;
 		packet->tracking_valid = camera.trackingState == ARTrackingStateNormal || camera.trackingState == ARTrackingStateLimited;
 		if (packet->tracking_valid) last_good_pose = from_simd(camera.transform);
@@ -586,11 +483,7 @@ void ARKitInterface::_process() {
 		const CGAffineTransform uv = CGAffineTransformInvert([frame displayTransformForOrientation:orientation viewportSize:size]);
 		packet->display_transform = Transform2D(uv.a, uv.b, uv.c, uv.d, uv.tx, uv.ty);
 		const Projection oracle = arkit_intrinsics_projection(packet->intrinsics, viewport_size, turns, near_plane, far_plane);
-		ARIntrinsics no_half_pixel = packet->intrinsics;
-		no_half_pixel.cx -= 0.5; no_half_pixel.cy -= 0.5;
-		const Projection alternate = arkit_intrinsics_projection(no_half_pixel, viewport_size, turns, near_plane, far_plane);
 		const double projection_error = arkit_projection_residual_px(native, oracle, viewport_size);
-		const double alternate_error = arkit_projection_residual_px(native, alternate, viewport_size);
 		double pose_error = 0, uv_error = 0;
 		const Transform3D apple_pose = from_simd(simd_inverse([camera viewMatrixForOrientation:orientation]));
 		if (packet->tracking_valid) {
@@ -608,54 +501,30 @@ void ARKitInterface::_process() {
 		diagnostics["projection_form_valid"] = bool(diagnostics["projection_form_valid"]) && projection_valid;
 		diagnostics["display_transform_valid"] = bool(diagnostics["display_transform_valid"]) && uv_valid;
 		diagnostics["native_depth_zero_to_one"] = bool(diagnostics["native_depth_zero_to_one"]) && std::abs(native[2][2] - 100.0 / (0.1 - 100)) < 1e-5 && std::abs(native[3][2] - 10.0 / (0.1 - 100)) < 1e-5;
-		diagnostics["native_projection_z22"] = native[2][2]; diagnostics["native_projection_z32"] = native[3][2];
 		diagnostics["projection_core_error_px"] = std::max(double(diagnostics["projection_core_error_px"]), projection_error);
-		diagnostics["projection_half_pixel_error_px"] = std::max(double(diagnostics["projection_half_pixel_error_px"]), projection_error);
-		diagnostics["projection_no_half_pixel_error_px"] = std::max(double(diagnostics["projection_no_half_pixel_error_px"]), alternate_error);
 		diagnostics["pose_error"] = std::max(double(diagnostics["pose_error"]), pose_error);
 		diagnostics["display_transform_error_px"] = std::max(double(diagnostics["display_transform_error_px"]), uv_error);
-		diagnostics["host_minus_frame_ms"] = (CACurrentMediaTime() - frame.timestamp) * 1000.0;
-		diagnostics["orientation_turns"] = turns;
 		Array orientations_seen = diagnostics["orientations_seen"];
 		if (!orientations_seen.has(turns)) orientations_seen.append(turns);
-		diagnostics["committed_viewport"] = viewport_size;
-		increment("projection_form_samples"); increment("display_transform_samples");
-		TrackingReason next_reason = NONE;
+		PocketAR::TrackingReason next_reason = PocketAR::NONE;
 		if (camera.trackingState == ARTrackingStateLimited) {
 			switch (camera.trackingStateReason) {
 				case ARTrackingStateReasonNone:
 				case ARTrackingStateReasonInitializing:
-				case ARTrackingStateReasonRelocalizing: next_reason = NONE; break;
-				case ARTrackingStateReasonExcessiveMotion: next_reason = EXCESSIVE_MOTION; break;
-				case ARTrackingStateReasonInsufficientFeatures: next_reason = INSUFFICIENT_FEATURES; break;
-				default: next_reason = BAD_STATE; break;
+				case ARTrackingStateReasonRelocalizing: next_reason = PocketAR::NONE; break;
+				case ARTrackingStateReasonExcessiveMotion: next_reason = PocketAR::EXCESSIVE_MOTION; break;
+				case ARTrackingStateReasonInsufficientFeatures: next_reason = PocketAR::INSUFFICIENT_FEATURES; break;
+				default: next_reason = PocketAR::BAD_STATE; break;
 			}
-		} else if (camera.trackingState != ARTrackingStateNormal && camera.trackingState != ARTrackingStateNotAvailable) next_reason = BAD_STATE;
+		} else if (camera.trackingState != ARTrackingStateNormal && camera.trackingState != ARTrackingStateNotAvailable) next_reason = PocketAR::BAD_STATE;
 		set_reason(next_reason);
-		const bool relocalizing = camera.trackingState == ARTrackingStateLimited && camera.trackingStateReason == ARTrackingStateReasonRelocalizing;
-		diagnostics["relocalizing"] = relocalizing;
-		if (relocalizing) {
-			if (!impl->relocalization_tick) impl->relocalization_tick = tick_usec();
-			const double elapsed = (tick_usec() - impl->relocalization_tick) / 1000.0;
-			diagnostics["relocalization_ms"] = elapsed;
-			if (elapsed >= 30000 && !impl->relocalization_timeout_sent) {
-				impl->relocalization_timeout_sent = true;
-				call_deferred("emit_signal", "relocalization_timeout", generation);
-			}
-		} else if (camera.trackingState == ARTrackingStateNormal) {
-			reset_relocalization();
-		}
 		tracking_status = camera.trackingState == ARTrackingStateNormal ? XR_NORMAL_TRACKING :
-			reason == EXCESSIVE_MOTION ? XR_EXCESSIVE_MOTION : reason == INSUFFICIENT_FEATURES ? XR_INSUFFICIENT_FEATURES :
-			reason == NONE ? XR_UNKNOWN_TRACKING : XR_NOT_TRACKING;
+			reason == PocketAR::EXCESSIVE_MOTION ? XR_EXCESSIVE_MOTION : reason == PocketAR::INSUFFICIENT_FEATURES ? XR_INSUFFICIENT_FEATURES :
+			reason == PocketAR::NONE ? XR_UNKNOWN_TRACKING : XR_NOT_TRACKING;
 		if (packet->tracking_valid) head->set_pose("default", packet->camera_transform, Vector3(), Vector3(), camera.trackingState == ARTrackingStateNormal ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_LOW);
 		else head->invalidate_pose("default");
 		const bool changed_planes = copy_planes((__bridge void *)frame, *packet.ptr());
 		if (!impl->first_frame) { timings["first_frame_ms"] = (tick_usec() - impl->start_tick) / 1000.0; impl->first_frame = true; }
-		if (camera.trackingState == ARTrackingStateNormal) {
-			if (!impl->normal_tracking) { timings["normal_tracking_ms"] = (tick_usec() - impl->start_tick) / 1000.0; impl->normal_tracking = true; }
-			if (impl->reset_tick) { timings["reset_to_tracking_ms"] = (tick_usec() - impl->reset_tick) / 1000.0; impl->reset_tick = 0; }
-		}
 		impl->orientation = orientation;
 		geometry_dirty = false;
 		current_packet = packet;
@@ -670,7 +539,7 @@ void ARKitInterface::_process() {
 			diagnostics["projection_near_far_error"] = std::max(double(diagnostics["projection_near_far_error"]), error);
 		}
 		increment("packets_published");
-		set_state(camera.trackingState == ARTrackingStateNormal ? TRACKING : INITIALIZING);
+		set_state(camera.trackingState == ARTrackingStateNormal ? PocketAR::TRACKING : PocketAR::INITIALIZING);
 		if (changed_planes) call_deferred("emit_signal", "planes_changed");
 	}
 }
@@ -686,10 +555,7 @@ PackedFloat64Array ARKitInterface::_get_projection_for_view(uint32_t, double p_a
 	if (std::isfinite(p_near) && std::isfinite(p_far) && p_near > 0 && p_far > p_near) projection = arkit_projection_depth(projection, p_near, p_far);
 	if (current_packet.is_valid() && std::isfinite(p_aspect) && p_aspect > 0) {
 		const Vector2 size = current_packet->get_viewport_size();
-		if (std::abs(p_aspect - size.x / size.y) > 1e-3) {
-			diagnostics["projection_aspect_mismatch"] = true;
-			increment("projection_aspect_mismatch_count");
-		}
+		if (std::abs(p_aspect - size.x / size.y) > 1e-3) increment("projection_aspect_mismatch_count");
 		projection = arkit_projection_aspect(projection, current_packet->get_image_size(), size, current_packet->get_quarter_turns(), p_aspect);
 	}
 	for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r) values[c * 4 + r] = projection[c][r];
@@ -715,11 +581,6 @@ void ARKitInterface::mark_presented() {
 		textures->set_active_packets(current_packet, presented_packet, applied_packet);
 		increment("packets_presented");
 	}
-}
-
-void ARKitInterface::debug_set_camera_material(const RID &p_material) {
-	ERR_FAIL_COND(!initialized || !on_owner_thread());
-	textures->set_camera_material(p_material);
 }
 
 bool ARKitInterface::debug_check_camera_material(const RID &p_material) {
@@ -767,20 +628,10 @@ Dictionary ARKitInterface::get_diagnostics() const {
 	result["timings"] = timings.duplicate(true);
 	result["state_history"] = state_history.duplicate();
 	result["plane_count"] = int64_t(planes.size());
-	result["native_plane_uuids"] = get_native_plane_identifiers();
 	result["native_anchor_count"] = native_anchor_count;
 	result["session_generation"] = generation;
 	result["state"] = int(state);
 	result["reason"] = int(reason);
-	int stale = 0;
-	const Dictionary trackers = XRServer::get_singleton()->get_trackers(XRServer::TRACKER_ANCHOR);
-	const Array names = trackers.keys();
-	for (int i = 0; i < names.size(); ++i) {
-		Object *object = trackers[names[i]];
-		ARPlaneTracker *plane = Object::cast_to<ARPlaneTracker>(object);
-		if (plane && plane->get_session_generation() != generation) ++stale;
-	}
-	result["stale_tracker_count"] = stale;
 	return result;
 }
 

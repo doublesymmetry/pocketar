@@ -35,35 +35,20 @@ class FixtureTests(unittest.TestCase):
 
     def test_table_is_below_center_and_gravity_is_screen_down(self):
         for view in ((640, 480), (432, 768)):
-            for turns in (None, 0, 1, 2, 3):
-                for camera in ("static", "orbit"):
-                    with self.subTest(view=view, turns=turns, camera=camera):
-                        rotation = [] if turns is None else ["--quarter-turns", str(turns)]
-                        records = self.generate("--view-size", *map(str, view), "--camera", camera,
-                                                "--table-height", "0.4", "--tap-at", "0.6", *rotation)
-                        frames = {r["frame_id"]: r for r in records if "frame_id" in r}
-                        for event in (r for r in records if "kind" in r):
-                            self.assertAlmostEqual(event["uv"][0], 0.5)
-                            self.assertGreater(event["uv"][1], 0.5)
-                            matrix = frames[event["target_frame"]]["camera_transform"]
-                            gx, gy = -matrix[1], matrix[5]
-                            for _ in range(records[0]["quarter_turns"]):
-                                gx, gy = -gy, gx
-                            self.assertAlmostEqual(gx, 0)
-                            self.assertAlmostEqual(gy, 1)
-
-    def test_explicit_rotations_project_into_a_cropped_view(self):
-        for turns in range(4):
-            records = self.generate("--view-size", "1080", "1920", "--quarter-turns", str(turns),
-                                    "--tap-at", "0.6", "--tap-world", "0.1", "-0.2", "-2")
-            self.assertEqual(records[0]["quarter_turns"], turns)
-            width, height = (480, 640) if turns % 2 else (640, 480)
-            fx, fy = (510, 520) if turns % 2 else (520, 510)
-            scale = max(1080 / width, 1920 / height)
-            expected = [0.5 + 0.05 * fx * scale / 1080, 0.5 + 0.1 * fy * scale / 1920]
-            for event in (r for r in records if "kind" in r):
-                for actual, wanted in zip(event["uv"], expected):
-                    self.assertAlmostEqual(actual, wanted)
+            for camera in ("static", "orbit"):
+                with self.subTest(view=view, camera=camera):
+                    records = self.generate("--view-size", *map(str, view), "--camera", camera,
+                                            "--table-height", "0.4", "--tap-at", "0.6")
+                    frames = {r["frame_id"]: r for r in records if "frame_id" in r}
+                    for event in (r for r in records if "kind" in r):
+                        self.assertAlmostEqual(event["uv"][0], 0.5)
+                        self.assertGreater(event["uv"][1], 0.5)
+                        matrix = frames[event["target_frame"]]["camera_transform"]
+                        gx, gy = -matrix[1], matrix[5]
+                        for _ in range(records[0]["quarter_turns"]):
+                            gx, gy = -gy, gx
+                        self.assertAlmostEqual(gx, 0)
+                        self.assertAlmostEqual(gy, 1)
 
     def test_view_crop_rejects_an_input_outside_the_view(self):
         with self.assertRaisesRegex(ValueError, "outside the target view"):
@@ -72,36 +57,30 @@ class FixtureTests(unittest.TestCase):
             self.generate("--view-size", "0", "1920")
 
     def test_reset_omits_planes_until_following_frame(self):
-        records = self.generate("--reset-at", "1.5", "--loss-at", "1", "--loss-duration", "0.25")
+        records = self.generate("--reset-at", "1.5", "--loss-at", "1")
         frames = {r["t_usec"]: r for r in records[1:] if "frame_id" in r}
         self.assertNotIn("planes", frames[1_500_000])
         self.assertEqual(frames[1_533_333]["planes"][0]["id"], 1)
         self.assertEqual(frames[1_000_000]["tracking_reason"], "insufficient_features")
         self.assertTrue(frames[1_000_000]["tracking_valid"])
-        arcore = self.generate("--semantics", "arcore", "--loss-at", "1")
-        self.assertFalse(next(r for r in arcore if r.get("t_usec") == 1_000_000 and "frame_id" in r)["tracking_valid"])
 
     def test_tracking_loss_and_pause_publish_paused_planes_then_restore(self):
-        for semantics in ("arkit", "arcore"):
-            records = self.generate("--semantics", semantics, "--loss-at", "1", "--pause-at", "1.75", "--plane-examples")
-            frames = {r["t_usec"]: r for r in records[1:] if "frame_id" in r}
-            for time in (1_000_000, 1_766_667):
-                self.assertIn("planes", frames[time])
-                self.assertTrue(all(p["tracking_state"] == "paused" for p in frames[time]["planes"]))
-            for time in (1_266_667, 1_866_667):
-                states = [p["tracking_state"] for p in frames[time]["planes"]]
-                self.assertEqual(states, ["tracking", "tracking", "paused", "tracking"])
+        records = self.generate("--loss-at", "1", "--pause-at", "1.75", "--plane-examples")
+        frames = {r["t_usec"]: r for r in records[1:] if "frame_id" in r}
+        for time in (1_000_000, 1_766_667):
+            self.assertIn("planes", frames[time])
+            self.assertTrue(all(p["tracking_state"] == "paused" for p in frames[time]["planes"]))
+        for time in (1_266_667, 1_866_667):
+            states = [p["tracking_state"] for p in frames[time]["planes"]]
+            self.assertEqual(states, ["tracking", "tracking", "paused", "tracking"])
 
     def test_oriented_touch_unprojects_to_requested_world_point(self):
         for view in ((640, 480), (432, 768), (1080, 1920)):
-            for turns in range(4):
-                for camera in ("static", "orbit"):
-                    for semantics in ("arkit", "arcore"):
-                        with self.subTest(view=view, turns=turns, camera=camera, semantics=semantics):
-                            records = self.generate("--view-size", *map(str, view), "--quarter-turns", str(turns),
-                                                    "--camera", camera, "--semantics", semantics, "--tap-at", "0.6",
-                                                    "--table-height", "0.4", "--tap-world", "0.1", "-0.4", "-2")
-                            self.assert_inputs_hit(records, (0.1, -0.4, -2))
+            for camera in ("static", "orbit"):
+                with self.subTest(view=view, camera=camera):
+                    records = self.generate("--view-size", *map(str, view), "--camera", camera,
+                                            "--tap-at", "0.6", "--table-height", "0.4")
+                    self.assert_inputs_hit(records, (0, -0.4, -2))
 
     def assert_inputs_hit(self, records, target):
         header = records[0]
@@ -134,7 +113,7 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual([p["id"] for p in plane_list], [1, 2, 3, 4])
 
     def test_invalid_ranges_and_unprojectable_inputs_fail(self):
-        for args in (("--fps", "0"), ("--duration", "-1"), ("--fps", "nan"), ("--table-height", "0"), ("--tap-at", "3"), ("--tap-at", "0.6", "--tap-world", "0", "0", "1")):
+        for args in (("--table-height", "0"), ("--table-height", "nan"), ("--tap-at", "3"), ("--tap-at", "0.6", "--drag-to", "0", "0", "1")):
             with self.subTest(args=args), self.assertRaises(ValueError):
                 self.generate(*args)
 

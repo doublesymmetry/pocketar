@@ -3,14 +3,11 @@
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
-#include <godot_cpp/variant/quaternion.hpp>
-#include <cmath>
 #include <cstring>
 
 namespace godot {
 
 static constexpr uint8_t INPUT_TRACK_UUID[16] = { 0x61, 0xa9, 0x77, 0x25, 0x8b, 0xe4, 0x4e, 0x8f, 0xa1, 0x96, 0x6a, 0xf3, 0x8c, 0xa1, 0x07, 0x35 };
-static constexpr const char *INPUT_TRACK_UUID_TEXT = "61a97725-8be4-4e8f-a196-6af38ca10735";
 static constexpr const char *INPUT_TRACK_METADATA = "{\"format\":\"pocketar-input\",\"version\":1,\"payload\":\"application-owned bytes\"}";
 static constexpr size_t MAX_PENDING_INPUTS = 128;
 static constexpr int MAX_INPUT_BYTES = 65536;
@@ -40,9 +37,7 @@ Dictionary ARCoreExtras::result(const String &p_status, ArStatus p_code) const {
 }
 
 Transform3D ARCoreExtras::read_pose() const {
-	float raw[7];
-	api.ArPose_getPoseRaw(session, scratch_pose, raw);
-	return Transform3D(Basis(Quaternion(raw[0], raw[1], raw[2], raw[3]).normalized()), Vector3(raw[4], raw[5], raw[6]));
+	return read_arcore_pose(api, session, scratch_pose);
 }
 
 void ARCoreExtras::setup(ArSession *p_session, int64_t p_generation) {
@@ -75,16 +70,6 @@ void ARCoreExtras::before_update() {
 void ARCoreExtras::close() {
 	ERR_FAIL_COND(session && !usable());
 	before_update();
-	cancel_image_capacity_probe();
-	if (old_probe_frame) {
-		api.ArFrame_destroy(old_probe_frame);
-		old_probe_frame = nullptr;
-	}
-	for (auto &entry : anchors) {
-		api.ArAnchor_detach(session, entry.second);
-		api.ArAnchor_release(entry.second);
-	}
-	anchors.clear();
 	if (scratch_pose) {
 		api.ArPose_destroy(scratch_pose);
 		scratch_pose = nullptr;
@@ -105,19 +90,13 @@ void ARCoreExtras::close() {
 	playback_status = AR_PLAYBACK_NONE;
 }
 
-void ARCoreExtras::on_tick(ArFrame *p_frame, bool p_probe_cpu_image) {
+void ARCoreExtras::on_tick(ArFrame *p_frame) {
 	ERR_FAIL_COND(!usable() || !p_frame);
 	recording_frame = p_frame;
 	api.ArSession_getRecordingStatus(session, &recording_status);
 	api.ArSession_getPlaybackStatus(session, &playback_status);
 	int64_t timestamp = 0;
 	api.ArFrame_getTimestamp(session, p_frame, &timestamp);
-	if (old_probe_frame && timestamp > 0 && timestamp != old_probe_timestamp) {
-		probe_old_frame(p_frame);
-	}
-	if (p_probe_cpu_image && frame_probes_enabled && !image_capacity_probe && timestamp > 0 && timestamp == last_track_timestamp) {
-		probe_repeated_frame(p_frame, timestamp);
-	}
 	if (timestamp <= 0 || timestamp == last_track_timestamp) {
 		return;
 	}
@@ -160,16 +139,8 @@ Dictionary ARCoreExtras::diagnostics() const {
 	value["recording_status"] = int(recording_status);
 	value["playback_status"] = int(playback_status);
 	value["playback_finished"] = playback_status == AR_PLAYBACK_FINISHED;
-	value["anchor_count"] = int64_t(anchors.size());
 	value["pending_input_count"] = int64_t(pending_inputs.size());
-	value["input_track_uuid"] = INPUT_TRACK_UUID_TEXT;
-	value["input_track_version"] = 1;
-	value["input_retry_limit"] = MAX_INPUT_ATTEMPTS;
 	value["point_cloud_enabled"] = point_cloud_enabled;
-	value["frame_probes_enabled"] = frame_probes_enabled;
-	value["image_capacity_probe_active"] = image_capacity_probe;
-	value["image_capacity_held"] = int64_t(probe_images_held.size());
-	value["old_frame_probe_pending"] = old_probe_frame != nullptr;
 	return value;
 }
 
@@ -266,126 +237,6 @@ Array ARCoreExtras::live_hit_test_ray(const Vector3 &p_origin, const Vector3 &p_
 	return results;
 }
 
-Dictionary ARCoreExtras::anchor_snapshot(int64_t p_id, ArAnchor *p_anchor) {
-	ArTrackingState tracking;
-	api.ArAnchor_getTrackingState(session, p_anchor, &tracking);
-	api.ArAnchor_getPose(session, p_anchor, scratch_pose);
-	Dictionary value = result("OK");
-	value["anchor_id"] = p_id;
-	value["tracking_state"] = int(tracking);
-	value["pose"] = read_pose();
-	return value;
-}
-
-Dictionary ARCoreExtras::keep_anchor(ArAnchor *p_anchor, ArStatus p_status, bool p_fallback) {
-	if (p_status != AR_SUCCESS || !p_anchor) {
-		if (p_anchor) {
-			api.ArAnchor_release(p_anchor);
-		}
-		increment("anchor_create_failures");
-		return result("NATIVE_ERROR", p_status == AR_SUCCESS ? AR_ERROR_FATAL : p_status);
-	}
-	const int64_t anchor_id = next_ar_id();
-	anchors.emplace(anchor_id, p_anchor);
-	Dictionary value = anchor_snapshot(anchor_id, p_anchor);
-	value["fallback"] = p_fallback;
-	increment("anchors_created");
-	return value;
-}
-
-Dictionary ARCoreExtras::create_live_anchor(int64_t p_query_id) {
-	if (!live_ready()) {
-		return result("NOT_READY", AR_ERROR_NOT_TRACKING);
-	}
-	const auto found = live_hits.find(p_query_id);
-	if (found == live_hits.end()) {
-		return result("STALE_QUERY", AR_ERROR_DEADLINE_EXCEEDED);
-	}
-	ArAnchor *anchor = nullptr;
-	const ArStatus status = api.ArHitResult_acquireNewAnchor(session, found->second, &anchor);
-	return keep_anchor(anchor, status, false);
-}
-
-Dictionary ARCoreExtras::create_anchor(const Ref<ARFramePacket> &p_old_packet, const Ref<ARRaycastHit> &p_hit, bool p_allow_fallback) {
-	if (p_old_packet.is_null() || p_hit.is_null()) {
-		return result("INVALID_ARGUMENT", AR_ERROR_INVALID_ARGUMENT);
-	}
-	if (p_old_packet->get_session_generation() != generation || p_hit->get_session_generation() != generation) {
-		return result("STALE_GENERATION", AR_ERROR_ILLEGAL_STATE);
-	}
-	if (!live_ready() || !p_old_packet->get_tracking_valid()) {
-		return result("NOT_TRACKING", AR_ERROR_NOT_TRACKING);
-	}
-	if (p_hit->get_frame_id() != p_old_packet->get_frame_id()) {
-		return result("INVALID_ARGUMENT", AR_ERROR_INVALID_ARGUMENT);
-	}
-	const ARPlaneSnapshot *old_plane = nullptr;
-	const ARPlaneSnapshot *current_plane = nullptr;
-	for (const ARPlaneSnapshot &plane : p_old_packet->get_plane_snapshots()) {
-		if (plane.plane_id == p_hit->get_plane_id() && plane.session_generation == generation) {
-			old_plane = &plane;
-			break;
-		}
-	}
-	for (const ARPlaneSnapshot &plane : latest_packet->get_plane_snapshots()) {
-		if (plane.plane_id == p_hit->get_plane_id() && plane.session_generation == generation) {
-			current_plane = &plane;
-			break;
-		}
-	}
-	if (!old_plane || old_plane->tracking_state != AR_TRACKING_STATE_TRACKING || old_plane->subsumed_by != 0) {
-		return result("INVALID_TARGET", AR_ERROR_INVALID_ARGUMENT);
-	}
-	const auto native = native_planes.find(p_hit->get_plane_id());
-	bool stale = !current_plane || current_plane->tracking_state != AR_TRACKING_STATE_TRACKING || current_plane->subsumed_by != old_plane->subsumed_by || native == native_planes.end();
-	if (!stale) {
-		ArTrackingState tracking;
-		api.ArTrackable_getTrackingState(session, ArAsTrackable(native->second), &tracking);
-		ArPlane *parent = nullptr;
-		api.ArPlane_acquireSubsumedBy(session, native->second, &parent);
-		stale = tracking != AR_TRACKING_STATE_TRACKING || parent;
-		if (parent) {
-			api.ArTrackable_release(ArAsTrackable(parent));
-		}
-	}
-	if (stale && !p_allow_fallback) {
-		return result("STALE_TARGET", AR_ERROR_NOT_TRACKING);
-	}
-	const Transform3D rebased = stale ? latest_packet->get_physical_camera_transform() * p_old_packet->get_physical_camera_transform().affine_inverse() * p_hit->get_pose() : current_plane->transform * old_plane->transform.affine_inverse() * p_hit->get_pose();
-	const Quaternion rotation = rebased.basis.get_rotation_quaternion().normalized();
-	const float raw[7] = { rotation.x, rotation.y, rotation.z, rotation.w, rebased.origin.x, rebased.origin.y, rebased.origin.z };
-	ArPose *pose = nullptr;
-	api.ArPose_create(session, raw, &pose);
-	ArAnchor *anchor = nullptr;
-	const ArStatus status = stale ? api.ArSession_acquireNewAnchor(session, pose, &anchor) : api.ArTrackable_acquireNewAnchor(session, ArAsTrackable(native->second), pose, &anchor);
-	api.ArPose_destroy(pose);
-	return keep_anchor(anchor, status, stale);
-}
-
-Array ARCoreExtras::get_anchors() {
-	Array results;
-	if (usable()) {
-		for (const auto &entry : anchors) {
-			results.push_back(anchor_snapshot(entry.first, entry.second));
-		}
-	}
-	return results;
-}
-
-bool ARCoreExtras::remove_anchor(int64_t p_anchor_id) {
-	if (!usable()) {
-		return false;
-	}
-	const auto found = anchors.find(p_anchor_id);
-	if (found == anchors.end()) {
-		return false;
-	}
-	api.ArAnchor_detach(session, found->second);
-	api.ArAnchor_release(found->second);
-	anchors.erase(found);
-	return true;
-}
-
 bool ARCoreExtras::valid_dataset_uri(const String &p_uri) {
 	return p_uri.begins_with("file:///") && !p_uri.contains(" ") && !p_uri.contains("\n") && !p_uri.contains("\r") && !p_uri.contains("?") && !p_uri.contains("#");
 }
@@ -415,7 +266,6 @@ Dictionary ARCoreExtras::start_recording(const String &p_file_uri) {
 		pending_inputs.clear();
 	}
 	api.ArSession_getRecordingStatus(session, &recording_status);
-	counters["recording_start_status"] = int(status);
 	return result(status == AR_SUCCESS ? "OK" : "NATIVE_ERROR", status);
 }
 
@@ -427,7 +277,6 @@ Dictionary ARCoreExtras::stop_recording() {
 	api.ArSession_getRecordingStatus(session, &recording_status);
 	increment("record_inputs_cancelled", pending_inputs.size());
 	pending_inputs.clear();
-	counters["recording_stop_status"] = int(status);
 	return result(status == AR_SUCCESS ? "OK" : "NATIVE_ERROR", status);
 }
 
@@ -440,7 +289,6 @@ Dictionary ARCoreExtras::set_playback_dataset(const String &p_file_uri) {
 	}
 	const ArStatus status = api.ArSession_setPlaybackDatasetUri(session, p_file_uri.utf8().get_data());
 	api.ArSession_getPlaybackStatus(session, &playback_status);
-	counters["playback_set_status"] = int(status);
 	if (status == AR_SUCCESS) {
 		before_update();
 		last_track_timestamp = 0;
@@ -491,14 +339,12 @@ void ARCoreExtras::retry_inputs() {
 		const ArStatus status = api.ArFrame_recordTrackData(session, recording_frame, INPUT_TRACK_UUID, pending.payload.ptr(), pending.payload.size());
 		pending.attempts++;
 		if (status == AR_ERROR_ILLEGAL_STATE && pending.attempts < MAX_INPUT_ATTEMPTS) {
-			increment("record_input_retries");
 			break;
 		}
 		if (status == AR_SUCCESS) {
 			increment("record_inputs_written");
 		} else {
 			increment("record_inputs_failed");
-			counters["record_input_last_error"] = int(status);
 		}
 		pending_inputs.pop_front();
 	}
@@ -585,138 +431,6 @@ void ARCoreExtras::copy_point_cloud() {
 	point_cloud["positions"] = positions;
 	point_cloud["confidences"] = confidences;
 	point_cloud["ids"] = ids;
-}
-
-Dictionary ARCoreExtras::begin_image_capacity_probe() {
-	if (!usable() || !live_frame || latest_packet.is_null() || latest_packet->get_session_generation() != generation || old_probe_frame) {
-		return result("NOT_READY", AR_ERROR_ILLEGAL_STATE);
-	}
-	if (image_capacity_probe) {
-		return result("ALREADY_RUNNING", AR_ERROR_ILLEGAL_STATE);
-	}
-	image_capacity_probe = true;
-	image_probe_ticks = 0;
-	image_probe_timestamp = 0;
-	counters["image_capacity_complete"] = false;
-	counters["image_capacity_exhausted"] = false;
-	counters["image_capacity_capped"] = false;
-	counters["image_capacity_timed_out"] = false;
-	counters["image_capacity_max_held"] = 0;
-	return result("OK");
-}
-
-void ARCoreExtras::cancel_image_capacity_probe() {
-	ERR_FAIL_COND(session && !usable());
-	for (ArImage *image : probe_images_held) {
-		api.ArImage_release(image);
-	}
-	probe_images_held.clear();
-	image_capacity_probe = false;
-}
-
-bool ARCoreExtras::probe_images(ArFrame *p_frame) {
-	if (!usable() || !image_capacity_probe || !p_frame) {
-		return false;
-	}
-	if (++image_probe_ticks > 512) {
-		counters["image_capacity_timed_out"] = true;
-		cancel_image_capacity_probe();
-		return true;
-	}
-	int64_t timestamp = 0;
-	api.ArFrame_getTimestamp(session, p_frame, &timestamp);
-	if (timestamp <= 0 || timestamp == image_probe_timestamp) {
-		return true;
-	}
-	image_probe_timestamp = timestamp;
-	ArImage *image = nullptr;
-	const ArStatus status = api.ArFrame_acquireCameraImage(session, p_frame, &image);
-	counters["image_capacity_last_status"] = int(status);
-	if (status == AR_SUCCESS && image) {
-		probe_images_held.push_back(image);
-		counters["image_capacity_max_held"] = int64_t(probe_images_held.size());
-		if (probe_images_held.size() < 64) {
-			return true;
-		}
-		counters["image_capacity_capped"] = true;
-	} else {
-		if (image) {
-			api.ArImage_release(image);
-		}
-		if (status == AR_ERROR_NOT_YET_AVAILABLE) {
-			increment("image_capacity_not_yet_available");
-			return true;
-		}
-		counters["image_capacity_exhausted"] = status == AR_ERROR_RESOURCE_EXHAUSTED;
-	}
-	counters["image_capacity_complete"] = true;
-	cancel_image_capacity_probe();
-	return true;
-}
-
-ArFrame *ARCoreExtras::begin_old_frame_probe(ArFrame *p_current) {
-	if (!live_ready() || !p_current || old_probe_frame || image_capacity_probe) {
-		return p_current;
-	}
-	ArFrame *replacement = nullptr;
-	api.ArFrame_create(session, &replacement);
-	if (!replacement) {
-		return p_current;
-	}
-	old_probe_frame = p_current;
-	api.ArFrame_getTimestamp(session, p_current, &old_probe_timestamp);
-	const Transform3D camera = latest_packet->get_camera_transform();
-	old_probe_ray = { camera.origin, -camera.basis.get_column(2) };
-	old_probe_pixel = latest_packet->get_viewport_size() * 0.5;
-	counters["old_frame_probe_complete"] = false;
-	return replacement;
-}
-
-void ARCoreExtras::probe_old_frame(ArFrame *p_current) {
-	ArHitResultList *list = nullptr;
-	api.ArHitResultList_create(session, &list);
-	const float origin[3] = { old_probe_ray.origin.x, old_probe_ray.origin.y, old_probe_ray.origin.z };
-	const float direction[3] = { old_probe_ray.direction.x, old_probe_ray.direction.y, old_probe_ray.direction.z };
-	int32_t count = 0;
-	api.ArFrame_hitTestRay(session, old_probe_frame, origin, direction, list);
-	api.ArHitResultList_getSize(session, list, &count);
-	counters["old_frame_hit_test_ray_count"] = count;
-	api.ArFrame_hitTestRay(session, p_current, origin, direction, list);
-	api.ArHitResultList_getSize(session, list, &count);
-	counters["current_frame_hit_test_ray_count"] = count;
-	api.ArFrame_hitTest(session, old_probe_frame, old_probe_pixel.x, old_probe_pixel.y, list);
-	api.ArHitResultList_getSize(session, list, &count);
-	counters["old_frame_hit_test_count"] = count;
-	api.ArFrame_hitTest(session, p_current, old_probe_pixel.x, old_probe_pixel.y, list);
-	api.ArHitResultList_getSize(session, list, &count);
-	counters["current_frame_hit_test_count"] = count;
-	counters["old_frame_probe_complete"] = true;
-	api.ArHitResultList_destroy(list);
-	api.ArFrame_destroy(old_probe_frame);
-	old_probe_frame = nullptr;
-}
-
-void ARCoreExtras::probe_repeated_frame(ArFrame *p_frame, int64_t p_timestamp) {
-	ArTrackableList *list = nullptr;
-	api.ArTrackableList_create(session, &list);
-	api.ArFrame_getUpdatedTrackables(session, p_frame, AR_TRACKABLE_PLANE, list);
-	int32_t count = 0;
-	api.ArTrackableList_getSize(session, list, &count);
-	api.ArTrackableList_destroy(list);
-	counters["repeated_frame_updated_plane_count"] = count;
-	ArImage *image = nullptr;
-	const ArStatus status = api.ArFrame_acquireCameraImage(session, p_frame, &image);
-	counters["repeated_frame_image_status"] = int(status);
-	if (status == AR_SUCCESS && image) {
-		int64_t timestamp = 0;
-		api.ArImage_getTimestamp(session, image, &timestamp);
-		counters["repeated_frame_image_timestamp_ns"] = timestamp;
-		counters["repeated_frame_image_matches_frame"] = timestamp == p_timestamp;
-	}
-	if (image) {
-		api.ArImage_release(image);
-	}
-	increment("repeated_frame_probe_count");
 }
 
 }

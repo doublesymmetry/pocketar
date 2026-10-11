@@ -26,6 +26,7 @@ static void initialize_pocketar(ModuleInitializationLevel p_level) {
 	GDREGISTER_CLASS(ARPlaneTracker);
 	GDREGISTER_CLASS(ARRaycastHit);
 	GDREGISTER_CLASS(PocketAR);
+	GDREGISTER_ABSTRACT_CLASS(SimulatedARInterface);
 	GDREGISTER_CLASS(SyntheticARInterface);
 	GDREGISTER_CLASS(ScriptedARInterface);
 #ifdef IOS_ENABLED

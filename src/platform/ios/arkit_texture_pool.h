@@ -19,7 +19,6 @@ protected:
 public:
 	struct Import {
 		Ref<Texture2DRD> y, cbcr;
-		ARFramePacket::ColorEncoding color = ARFramePacket::BT601_FULL;
 	};
 	ARKitTexturePool();
 	~ARKitTexturePool();
@@ -27,9 +26,7 @@ public:
 	bool import_image(void *p_pixel_buffer, Import &r_import);
 	String get_import_error() const;
 	void set_active_packets(const Ref<ARFramePacket> &p_current, const Ref<ARFramePacket> &p_presented, const Ref<ARFramePacket> &p_applied);
-	void clear_active_packets();
 	bool check_sample(const Ref<ARFramePacket> &p_packet);
-	void set_camera_material(const RID &p_material);
 	bool check_material(const RID &p_material);
 	Dictionary get_diagnostics() const;
 	void shutdown();

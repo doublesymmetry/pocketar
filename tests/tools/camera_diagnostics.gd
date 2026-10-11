@@ -26,7 +26,7 @@ func _initialize() -> void:
 		"image_timestamp_delta_min_ns": 0, "image_timestamp_delta_mean_ns": 4340000.0,
 		"image_timestamp_delta_max_ns": 9180000, "timestamp_regressions": 0,
 		"image_layout": "NV21",
-		"texture_refusals": 0, "ring_drops": 0,
+		"texture_refusals": 0,
 		"staging_block_size_kb": 4096, "texture_upload_region_size_px": 1024,
 		"image_plane_layout": [
 			{"row_stride": 1920, "pixel_stride": 1, "data_length": 2073600},
@@ -47,7 +47,6 @@ func _initialize() -> void:
 		{"camera_image_count": 1000},
 		{"image_not_yet_available": 100},
 		{"texture_refusals": 1},
-		{"ring_drops": 1},
 	]:
 		var data: Dictionary = observed.duplicate(true)
 		data.merge(invalid, true)
@@ -71,27 +70,22 @@ func _initialize() -> void:
 		"camera_path": "gpu", "gpu_validation_enabled": true,
 		"gpu_validation_samples": 3, "gpu_validation_failures": 0,
 		"gpu_validation_luma_range_255": 80.0, "gpu_validation_chroma_magnitude_255": 30.0,
-		"gpu_validation_candidates": {
-			"bt601_full": {"worst_block_error_255": 12.0},
-			"bt601_narrow": {"worst_block_error_255": 15.0},
-			"bt709_full": {"worst_block_error_255": 1.0},
-			"bt709_narrow": {"worst_block_error_255": 14.0},
-		},
+		"gpu_validation_worst_error_255": 12.0,
 	}
-	check_level(harness, "FAIL", "another candidate cannot pass CPU parity")
-	harness.observed["gpu_validation_candidates"]["bt601_full"]["worst_block_error_255"] = 6.0
+	check_level(harness, "FAIL", "CPU parity error exceeds threshold")
+	harness.observed["gpu_validation_worst_error_255"] = 6.0
 	check_level(harness, "OK", "inclusive parity threshold")
 	harness.observed["gpu_validation_luma_range_255"] = 5.0
 	check_level(harness, "INFO", "flat luma cannot certify parity")
 	harness.observed["gpu_validation_luma_range_255"] = 80.0
 	harness.observed["gpu_validation_chroma_magnitude_255"] = 1.0
 	check_level(harness, "INFO", "neutral chroma cannot certify parity")
-	harness.observed["gpu_validation_candidates"]["bt601_full"]["worst_block_error_255"] = 6.1
+	harness.observed["gpu_validation_worst_error_255"] = 6.1
 	check_level(harness, "FAIL", "low variation cannot hide parity errors")
-	harness.observed["gpu_validation_candidates"]["bt601_full"]["worst_block_error_255"] = NAN
+	harness.observed["gpu_validation_worst_error_255"] = NAN
 	check_level(harness, "FAIL", "nonfinite parity error")
 	var validation: Dictionary = harness.observed.duplicate(true)
-	validation["gpu_validation_candidates"]["bt601_full"]["worst_block_error_255"] = 6.0
+	validation["gpu_validation_worst_error_255"] = 6.0
 	for invalid: Dictionary in [{"camera_path": "cpu"}, {"gpu_validation_samples": 0}, {"gpu_validation_samples": 2}, {"gpu_validation_failures": 1}, {"gpu_completion_failures": 1}]:
 		var data: Dictionary = validation.duplicate(true)
 		data.merge(invalid, true)

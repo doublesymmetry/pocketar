@@ -11,14 +11,8 @@ static func read() -> Dictionary:
 
 static func _parse_environment(value: String) -> Dictionary:
 	var json := JSON.new()
-	if json.parse(value) != OK:
-		return {"args": PackedStringArray(), "error": "POCKETAR_ARGS must be a JSON array"}
+	json.parse(value)
 	var decoded: Variant = json.data
-	if not decoded is Array:
-		return {"args": PackedStringArray(), "error": "POCKETAR_ARGS must be a JSON array"}
-	var args := PackedStringArray()
-	for item: Variant in decoded:
-		if not item is String:
-			return {"args": PackedStringArray(), "error": "POCKETAR_ARGS entries must be strings"}
-		args.append(item)
-	return {"args": args, "error": ""}
+	if not decoded is Array or decoded.any(func(item: Variant) -> bool: return not item is String):
+		return {"args": PackedStringArray(), "error": "POCKETAR_ARGS must be a JSON array of strings"}
+	return {"args": PackedStringArray(decoded), "error": ""}

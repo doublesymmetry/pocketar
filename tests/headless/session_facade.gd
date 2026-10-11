@@ -14,16 +14,10 @@ func _check(condition: bool, message: String) -> void:
 
 
 func _run() -> void:
-	_check(PocketAR.alignment_mask([]) == 0, "empty alignment list gives an empty mask")
-	_check(PocketAR.alignment_mask([ARPlaneTracker.HORIZONTAL_UPWARD_FACING]) == PocketAR.ALIGNMENT_MASK_HORIZONTAL_UPWARD, "upward alignment maps to its mask")
-	_check(PocketAR.alignment_mask([ARPlaneTracker.HORIZONTAL_DOWNWARD_FACING]) == PocketAR.ALIGNMENT_MASK_HORIZONTAL_DOWNWARD, "downward alignment maps to its mask")
-	_check(PocketAR.alignment_mask([ARPlaneTracker.VERTICAL]) == PocketAR.ALIGNMENT_MASK_VERTICAL, "vertical alignment maps to its distinct mask")
-	_check(PocketAR.alignment_mask([ARPlaneTracker.HORIZONTAL_UPWARD_FACING, ARPlaneTracker.HORIZONTAL_DOWNWARD_FACING, ARPlaneTracker.VERTICAL, ARPlaneTracker.VERTICAL]) == PocketAR.ALIGNMENT_MASK_ALL, "alignment masks combine and deduplicate")
 	var scene: PackedScene = load("res://addons/pocketar/ar_view.tscn") as PackedScene
 	var view: ARView = scene.instantiate() as ARView
 	_check(view.has_method("reset"), "ARView has a session reset facade")
 	_check(view.has_method("world_to_screen"), "ARView projects from the presented packet")
-	_check(view.has_method("screen_to_point"), "ARView unprojects at camera depth")
 	_check(view.has_method("view_point"), "ARView converts canvas coordinates")
 	_check(view.has_signal("session_state_changed"), "ARView exposes state transitions")
 	if failures > 0:
@@ -39,10 +33,6 @@ func _run() -> void:
 	_check(int(view.get("tracking_reason")) == 0, "synthetic has no tracking failure")
 	_check(not bool(view.get("handle_presses")), "input is opt-in")
 	view.interface.call("mark_presented")
-	var point := Vector3(0.2, -0.1, -2.0)
-	var pixel: Vector2 = view.call("world_to_screen", point)
-	var restored: Vector3 = view.call("screen_to_point", pixel, 2.0)
-	_check(restored.distance_to(point) < 0.00001, "projection roundtrip at optical depth")
 	view.position = Vector2(20, 30)
 	view.scale = Vector2(1.5, 0.75)
 	var local := Vector2(70, 90)
@@ -69,7 +59,6 @@ func _run() -> void:
 	view.call("_unhandled_input", mouse)
 	_check(presses.size() == 2, "physical mouse remains supported")
 	_check(Vector2(view.call("world_to_screen", Vector3(0, 0, 1))) == Vector2.INF, "behind-camera mapping is invalid")
-	_check(Vector3(view.call("screen_to_point", pixel, -1.0)) == Vector3.INF, "negative optical depth is invalid")
 	var changes: Array[int] = []
 	view.connect("session_generation_changed", func(value: int) -> void: changes.append(value))
 	var previous: int = int(view.get("session_generation"))

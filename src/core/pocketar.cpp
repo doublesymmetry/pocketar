@@ -1,5 +1,4 @@
 #include "pocketar.h"
-#include "ar_plane_tracker.h"
 #include <godot_cpp/classes/xr_interface.hpp>
 #include <godot_cpp/classes/xr_server.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -7,7 +6,6 @@
 namespace godot {
 
 void PocketAR::_bind_methods() {
-	ClassDB::bind_static_method("PocketAR", D_METHOD("alignment_mask", "alignments"), &PocketAR::alignment_mask);
 	ClassDB::bind_method(D_METHOD("get_version"), &PocketAR::get_version);
 	ClassDB::bind_method(D_METHOD("get_backend"), &PocketAR::get_backend);
 	ClassDB::bind_method(D_METHOD("screen_to_ray", "packet", "viewport_size", "screen_point"), &PocketAR::screen_to_ray);
@@ -32,16 +30,6 @@ void PocketAR::_bind_methods() {
 	BIND_ENUM_CONSTANT(ALIGNMENT_MASK_HORIZONTAL_DOWNWARD);
 	BIND_ENUM_CONSTANT(ALIGNMENT_MASK_VERTICAL);
 	BIND_ENUM_CONSTANT(ALIGNMENT_MASK_ALL);
-}
-
-int PocketAR::alignment_mask(const TypedArray<int> &p_alignments) {
-	int mask = 0;
-	for (int i = 0; i < p_alignments.size(); ++i) {
-		const int alignment = p_alignments[i];
-		ERR_FAIL_COND_V(alignment < ARPlaneTracker::HORIZONTAL_UPWARD_FACING || alignment > ARPlaneTracker::VERTICAL, 0);
-		mask |= 1 << alignment;
-	}
-	return mask;
 }
 
 String PocketAR::get_backend() const {
@@ -70,20 +58,7 @@ Dictionary PocketAR::screen_to_ray(const Ref<ARFramePacket> &p_packet, const Vec
 }
 
 TypedArray<ARRaycastHit> PocketAR::raycast_planes(const Ref<ARFramePacket> &p_packet, const Dictionary &p_ray) const {
-	if (p_packet.is_null() || !p_packet->get_tracking_valid()) {
-		return {};
-	}
-	const Variant generation = p_ray.get("session_generation", Variant());
-	const Variant frame = p_ray.get("frame_id", Variant());
-	const Variant origin = p_ray.get("origin", Variant());
-	const Variant direction = p_ray.get("direction", Variant());
-	if (generation.get_type() != Variant::INT || frame.get_type() != Variant::INT || origin.get_type() != Variant::VECTOR3 || direction.get_type() != Variant::VECTOR3) {
-		return {};
-	}
-	if (int64_t(generation) != p_packet->get_session_generation() || int64_t(frame) != p_packet->get_frame_id()) {
-		return {};
-	}
-	return godot::raycast_planes(p_packet, { Vector3(origin), Vector3(direction) });
+	return godot::raycast_planes(p_packet, { p_ray.get("origin", Vector3()), p_ray.get("direction", Vector3()) });
 }
 
 }

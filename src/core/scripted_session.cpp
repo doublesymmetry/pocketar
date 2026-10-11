@@ -42,66 +42,14 @@ class JsonReader {
 		return true;
 	}
 
-	bool hex4(uint32_t &r_codepoint) {
-		r_codepoint = 0;
-		for (int i = 0; i < 4; ++i) {
-			if (offset == text.size()) return fail("incomplete Unicode escape");
-			const char c = text[offset++];
-			const int digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
-			if (digit < 0) return fail("invalid Unicode escape");
-			r_codepoint = r_codepoint * 16 + digit;
-		}
-		return true;
-	}
-
 	bool read_string(std::string &r_value) {
 		if (!take('"')) return fail("expected a JSON string");
 		while (offset < text.size()) {
 			const unsigned char c = text[offset++];
 			if (c == '"') return true;
 			if (c < 32) return fail("control character in string");
-			if (c != '\\') {
-				r_value += char(c);
-				continue;
-			}
-			if (offset == text.size()) return fail("incomplete string escape");
-			const char escape = text[offset++];
-			switch (escape) {
-				case '"': case '\\': case '/': r_value += escape; break;
-				case 'b': r_value += '\b'; break;
-				case 'f': r_value += '\f'; break;
-				case 'n': r_value += '\n'; break;
-				case 'r': r_value += '\r'; break;
-				case 't': r_value += '\t'; break;
-				case 'u': {
-					uint32_t codepoint;
-					if (!hex4(codepoint)) return false;
-					if (codepoint >= 0xd800 && codepoint <= 0xdbff) {
-						if (text.compare(offset, 2, "\\u") != 0) return fail("missing low surrogate");
-						offset += 2;
-						uint32_t low;
-						if (!hex4(low)) return false;
-						if (low < 0xdc00 || low > 0xdfff) return fail("invalid low surrogate");
-						codepoint = 0x10000 + ((codepoint - 0xd800) << 10) + low - 0xdc00;
-					} else if (codepoint >= 0xdc00 && codepoint <= 0xdfff) return fail("unpaired low surrogate");
-					if (codepoint < 0x80) r_value += char(codepoint);
-					else if (codepoint < 0x800) {
-						r_value += char(0xc0 | (codepoint >> 6));
-						r_value += char(0x80 | (codepoint & 63));
-					} else if (codepoint < 0x10000) {
-						r_value += char(0xe0 | (codepoint >> 12));
-						r_value += char(0x80 | ((codepoint >> 6) & 63));
-						r_value += char(0x80 | (codepoint & 63));
-					} else {
-						r_value += char(0xf0 | (codepoint >> 18));
-						r_value += char(0x80 | ((codepoint >> 12) & 63));
-						r_value += char(0x80 | ((codepoint >> 6) & 63));
-						r_value += char(0x80 | (codepoint & 63));
-					}
-					break;
-				}
-				default: return fail("invalid string escape");
-			}
+			if (c == '\\') return fail("string escapes are not supported");
+			r_value += char(c);
 		}
 		return fail("unterminated string");
 	}

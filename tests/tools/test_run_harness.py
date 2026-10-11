@@ -46,9 +46,6 @@ class AndroidHarnessTest(unittest.TestCase):
     def test_ar_duration_extends_monitor_deadline(self):
         self.assertEqual(RUNNER.harness_timeout(["-harness-duration", "1800"], True), 1980)
 
-    def test_optional_probes_have_time_to_finish_after_observation(self):
-        self.assertEqual(RUNNER.harness_timeout(["-harness-duration", "1800", "-harness-probes"], True), 2005)
-
     def test_bad_duration_is_rejected_before_launch(self):
         for value in ["0", "-1", "nan", "inf", "abc"]:
             with self.subTest(value=value), self.assertRaises(ValueError):
@@ -68,7 +65,7 @@ class AndroidHarnessTest(unittest.TestCase):
 
     def test_dataset_and_camera_options_allow_separate_runs(self):
         RUNNER.validate_harness_options(["-harness-record", "room-1080p.mp4", "-harness-camera-config", "2"])
-        RUNNER.validate_harness_options(["-harness-playback", "room-1080p.mp4", "-harness-probes"])
+        RUNNER.validate_harness_options(["-harness-playback", "room-1080p.mp4"])
 
     def test_android_extra_preserves_space_comma_and_shell_metacharacters(self):
         command = RUNNER.android_launch(

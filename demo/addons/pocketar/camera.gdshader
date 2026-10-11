@@ -6,7 +6,6 @@ uniform sampler2D cbcr_texture : filter_linear, repeat_disable;
 uniform sampler2D rgb_texture : filter_linear, repeat_disable;
 uniform bool rgb_input = false;
 uniform mat3 display_transform;
-uniform int color_encoding = 0;
 uniform bool imported_chroma = false;
 
 void fragment() {
@@ -21,6 +20,6 @@ void fragment() {
 		vec3 rgb = vec3(y + 1.402 * cbcr.y,
 			y - 0.344136 * cbcr.x - 0.714136 * cbcr.y,
 			y + 1.772 * cbcr.x);
-		COLOR = color_encoding == 0 ? vec4(clamp(rgb, 0.0, 1.0), 1.0) : vec4(1.0, 0.0, 1.0, 1.0);
+		COLOR = vec4(clamp(rgb, 0.0, 1.0), 1.0);
 	}
 }

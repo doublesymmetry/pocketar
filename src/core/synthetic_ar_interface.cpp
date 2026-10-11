@@ -1,14 +1,8 @@
 #include "synthetic_ar_interface.h"
-#include "synthetic_camera_image.h"
 #include "ar_ids.h"
 
-#include <godot_cpp/classes/image_texture.hpp>
-#include <godot_cpp/classes/os.hpp>
-#include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/time.hpp>
-#include <godot_cpp/classes/xr_server.hpp>
 #include <godot_cpp/core/class_db.hpp>
-#include <algorithm>
 #include <cmath>
 
 namespace godot {
@@ -17,36 +11,19 @@ void SyntheticARInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reset"), &SyntheticARInterface::reset);
 	ClassDB::bind_method(D_METHOD("get_session_state"), &SyntheticARInterface::get_session_state);
 	ClassDB::bind_method(D_METHOD("get_tracking_reason"), &SyntheticARInterface::get_tracking_reason);
-	ClassDB::bind_method(D_METHOD("get_session_generation"), &SyntheticARInterface::get_session_generation);
-	ADD_SIGNAL(MethodInfo("session_state_changed", PropertyInfo(Variant::INT, "state")));
-	ADD_SIGNAL(MethodInfo("tracking_reason_changed", PropertyInfo(Variant::INT, "reason")));
-	ADD_SIGNAL(MethodInfo("session_generation_changed", PropertyInfo(Variant::INT, "generation")));
-	ADD_SIGNAL(MethodInfo("planes_changed"));
 	ClassDB::bind_method(D_METHOD("set_intrinsics", "fx", "fy", "cx", "cy", "image_size"), &SyntheticARInterface::set_intrinsics);
 	ClassDB::bind_method(D_METHOD("set_pose", "pose"), &SyntheticARInterface::set_pose);
 	ClassDB::bind_method(D_METHOD("set_camera_rate", "fps"), &SyntheticARInterface::set_camera_rate);
-	ClassDB::bind_method(D_METHOD("set_display_geometry", "viewport_size", "quarter_turns", "near", "far"), &SyntheticARInterface::set_display_geometry);
 	ClassDB::bind_method(D_METHOD("set_frame_id_pose", "enabled"), &SyntheticARInterface::set_frame_id_pose);
-	ClassDB::bind_method(D_METHOD("get_current_packet"), &SyntheticARInterface::get_current_packet);
-	ClassDB::bind_method(D_METHOD("get_presented_packet"), &SyntheticARInterface::get_presented_packet);
-	ClassDB::bind_method(D_METHOD("mark_presented"), &SyntheticARInterface::mark_presented);
 }
 
 bool SyntheticARInterface::_initialize() {
 	if (initialized) {
 		return true;
 	}
-	ERR_FAIL_COND_V_MSG(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id() || !RenderingServer::get_singleton()->is_on_render_thread(), false, "The synchronous synthetic backend requires Safe rendering thread mode on the main thread.");
-	ERR_FAIL_COND_V_MSG(XRServer::get_singleton()->get_primary_interface().is_valid(), false, "Only one ARView may own the primary XR interface.");
-	head.instantiate();
-	head->set_tracker_name("head");
-	head->set_tracker_type(XRServer::TRACKER_HEAD);
-	head->set_tracker_desc("Synthetic handheld camera");
-	XRServer::get_singleton()->add_tracker(head);
-	initialized = true;
+	if (!start("Synthetic handheld camera")) return false;
 	generation = next_ar_id();
 	sequence = 0;
-	set_primary(true);
 	make_packet(Time::get_singleton()->get_ticks_usec());
 	call_deferred("emit_signal", "session_generation_changed", generation);
 	call_deferred("emit_signal", "session_state_changed", PocketAR::TRACKING);
@@ -66,12 +43,7 @@ void SyntheticARInterface::_uninitialize() {
 	if (!initialized) {
 		return;
 	}
-	set_primary(false);
-	XRServer::get_singleton()->remove_tracker(head);
-	head.unref();
-	current_packet.unref();
-	presented_packet.unref();
-	initialized = false;
+	stop();
 	call_deferred("emit_signal", "session_state_changed", PocketAR::PAUSED);
 }
 
@@ -92,27 +64,11 @@ void SyntheticARInterface::set_camera_rate(double p_fps) {
 	camera_rate = p_fps;
 }
 
-void SyntheticARInterface::set_display_geometry(const Vector2i &p_viewport_size, int p_quarter_turns, double p_near, double p_far) {
-	ERR_FAIL_COND(p_viewport_size.x <= 0 || p_viewport_size.y <= 0 || !std::isfinite(p_near) || !std::isfinite(p_far) || p_near <= 0 || p_far <= p_near);
-	const int turns = ((p_quarter_turns % 4) + 4) % 4;
-	if (viewport_size == Vector2(p_viewport_size) && quarter_turns == turns && near_plane == p_near && far_plane == p_far) {
-		return;
-	}
-	viewport_size = p_viewport_size;
-	quarter_turns = turns;
-	near_plane = p_near;
-	far_plane = p_far;
-	geometry_dirty = true;
-}
-
 void SyntheticARInterface::set_frame_id_pose(bool p_enabled) {
 	frame_id_pose = p_enabled;
 }
 
 void SyntheticARInterface::_process() {
-	if (!initialized) {
-		return;
-	}
 	const uint64_t tick = Time::get_singleton()->get_ticks_usec();
 	if (geometry_dirty || tick - last_tick >= uint64_t(1000000.0 / camera_rate)) {
 		make_packet(tick);
@@ -121,25 +77,14 @@ void SyntheticARInterface::_process() {
 
 void SyntheticARInterface::make_packet(uint64_t p_tick) {
 	last_tick = p_tick;
-	geometry_dirty = false;
 	sequence++;
-	const int width = int(intrinsics.image_size.x);
-	const int height = int(intrinsics.image_size.y);
-	const int slot = sequence % 3;
-	fill_synthetic_camera_image(width, height, sequence, y_images[slot], cbcr_images[slot]);
 	Ref<ARFramePacket> packet;
 	packet.instantiate();
 	packet->session_generation = generation;
 	packet->frame_id = sequence;
 	packet->timestamp_usec = p_tick;
 	packet->timestamp_ns = p_tick * 1000;
-	packet->intrinsics = intrinsics;
-	packet->viewport_size = viewport_size;
-	packet->quarter_turns = quarter_turns;
-	packet->projection = projection_from_intrinsics(intrinsics, viewport_size, quarter_turns, near_plane, far_plane);
-	packet->display_transform = display_transform_for_view(intrinsics.image_size, viewport_size, quarter_turns);
-	packet->physical_camera_transform = pose;
-	packet->camera_transform = display_oriented_pose(pose, quarter_turns);
+	fill_packet(packet, pose);
 	if (frame_id_pose) {
 		const Vector2 pixel((double(sequence % 16) + 0.5) * viewport_size.x / 16.0, viewport_size.y * 0.5);
 		const ARRay ray = ray_from_screen(packet->projection, display_oriented_pose(Transform3D(), quarter_turns), viewport_size, pixel);
@@ -147,46 +92,9 @@ void SyntheticARInterface::make_packet(uint64_t p_tick) {
 		packet->physical_camera_transform = Transform3D(Basis(), Vector3(0, 0, -2) - point);
 		packet->camera_transform = display_oriented_pose(packet->physical_camera_transform, quarter_turns);
 	}
-	packet->image_size = Vector2i(width, height);
-	packet->gpu_image_size = packet->image_size;
-	packet->camera_fps = Vector2i(int(std::lround(camera_rate)), int(std::lround(camera_rate)));
-	// Reuse CPU storage only; packet textures are immutable and retire with Godot's RID fences.
-	packet->y_texture = ImageTexture::create_from_image(y_images[slot]);
-	packet->cbcr_texture = ImageTexture::create_from_image(cbcr_images[slot]);
 	packet->tracking_valid = true;
 	current_packet = packet;
 	head->set_pose("default", packet->camera_transform, Vector3(), Vector3(), XRPose::XR_TRACKING_CONFIDENCE_HIGH);
-}
-
-Vector2 SyntheticARInterface::_get_render_target_size() {
-	return current_packet.is_valid() ? current_packet->viewport_size : viewport_size;
-}
-
-Transform3D SyntheticARInterface::_get_camera_transform() {
-	return current_packet.is_valid() ? current_packet->camera_transform : Transform3D();
-}
-
-Transform3D SyntheticARInterface::_get_transform_for_view(uint32_t p_view, const Transform3D &p_cam_transform) {
-	return p_cam_transform * _get_camera_transform();
-}
-
-PackedFloat64Array SyntheticARInterface::_get_projection_for_view(uint32_t p_view, double p_aspect, double p_z_near, double p_z_far) {
-	PackedFloat64Array values;
-	values.resize(16);
-	const ARIntrinsics &calibration = current_packet.is_valid() ? current_packet->intrinsics : intrinsics;
-	const Vector2 size = current_packet.is_valid() ? current_packet->viewport_size : viewport_size;
-	const int turns = current_packet.is_valid() ? current_packet->quarter_turns : quarter_turns;
-	const Projection matrix = projection_from_intrinsics(calibration, Vector2(size.y * p_aspect, size.y), turns, p_z_near, p_z_far);
-	for (int col = 0; col < 4; col++) {
-		for (int row = 0; row < 4; row++) {
-			values[col * 4 + row] = matrix[col][row];
-		}
-	}
-	return values;
-}
-
-void SyntheticARInterface::mark_presented() {
-	presented_packet = current_packet;
 }
 
 }

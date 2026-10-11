@@ -27,9 +27,6 @@ TypedArray<ARRaycastHit> raycast_planes(const Ref<ARFramePacket> &p_packet, cons
 	}
 	std::vector<ARPlaneRaycastInput> planes;
 	for (const ARPlaneSnapshot &plane : p_packet->get_plane_snapshots()) {
-		if (plane.session_generation != p_packet->get_session_generation()) {
-			continue;
-		}
 		planes.push_back({ plane.plane_id, plane.tracking_state, plane.subsumed_by, plane.transform, plane.polygon.ptr(), size_t(plane.polygon.size()) });
 	}
 	for (const ARPlaneIntersection &intersection : raycast_plane_polygons(planes, p_ray)) {

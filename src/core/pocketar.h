@@ -17,7 +17,6 @@ public:
 	enum SessionState { UNSUPPORTED, CHECKING, NEEDS_INSTALL, INSTALLING, PERMISSION_DENIED, READY, INITIALIZING, TRACKING, PAUSED, FAILED };
 	enum TrackingReason { NONE, BAD_STATE, INSUFFICIENT_LIGHT, EXCESSIVE_MOTION, INSUFFICIENT_FEATURES, CAMERA_UNAVAILABLE };
 	enum AlignmentMask { ALIGNMENT_MASK_HORIZONTAL_UPWARD = 1, ALIGNMENT_MASK_HORIZONTAL_DOWNWARD = 2, ALIGNMENT_MASK_VERTICAL = 4, ALIGNMENT_MASK_ALL = 7 };
-	static int alignment_mask(const TypedArray<int> &p_alignments);
 	String get_version() const { return "0.0.1-dev"; }
 	String get_backend() const;
 	Dictionary screen_to_ray(const Ref<ARFramePacket> &p_packet, const Vector2 &p_viewport_size, const Vector2 &p_screen_point) const;

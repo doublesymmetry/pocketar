@@ -2,10 +2,6 @@ class_name ARPlaneVisualizer
 extends Node3D
 
 @export var ar_view: ARView
-@export var enabled: bool = true:
-	set(value):
-		enabled = value
-		visible = value
 
 var plane_count: int:
 	get:
@@ -14,21 +10,13 @@ var _meshes: Dictionary[int, MeshInstance3D] = {}
 
 
 func _ready() -> void:
-	visible = enabled
 	if ar_view == null:
 		push_error("ARPlaneVisualizer requires an ARView")
 		return
 	ar_view.packet_applied.connect(_update_planes)
-	ar_view.session_generation_changed.connect(_generation_changed)
-	ar_view.session_state_changed.connect(_state_changed)
-	_update_planes(ar_view.applied_packet)
-
-
-func _generation_changed(_generation: int) -> void:
-	_update_planes(ar_view.applied_packet)
-
-
-func _state_changed(_state: PocketAR.SessionState) -> void:
+	var update := func(_value: int) -> void: _update_planes(ar_view.applied_packet)
+	ar_view.session_generation_changed.connect(update)
+	ar_view.session_state_changed.connect(update)
 	_update_planes(ar_view.applied_packet)
 
 
@@ -44,7 +32,7 @@ func _update_planes(packet: ARFramePacket) -> void:
 		return
 	var visible_ids: Dictionary[int, bool] = {}
 	for plane: Dictionary in packet.planes:
-		if plane.session_generation != ar_view.session_generation or plane.tracking_state != ARPlaneTracker.TRACKING or plane.subsumed_by != 0:
+		if plane.tracking_state != ARPlaneTracker.TRACKING or plane.subsumed_by != 0:
 			continue
 		var polygon: PackedVector2Array = plane.polygon
 		if polygon.size() < 3:
