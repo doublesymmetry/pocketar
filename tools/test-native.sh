@@ -21,4 +21,9 @@ build/tests/test_import_retirement
 xcrun clang++ -std=c++17 -arch "$arch" -Isrc tests/native/test_yuv.cpp -o build/tests/test_yuv
 build/tests/test_yuv
 xcrun clang++ -std=c++17 -arch "$arch" -Isrc tests/native/test_gpu_camera.cpp -o build/tests/test_gpu_camera
-exec build/tests/test_gpu_camera
+build/tests/test_gpu_camera
+xcrun clang++ -std=c++17 -arch "$arch" -Isrc tests/native/test_scripted_session.cpp src/core/scripted_session.cpp -o build/tests/test_scripted_session
+build/tests/test_scripted_session
+build/tests/test_scripted_session demo/harness/fixtures/table.jsonl
+build/tests/test_scripted_session demo/harness/fixtures/table-portrait.jsonl
+python3 -m unittest discover -s tests/tools -p test_fixtures.py

@@ -11,6 +11,7 @@
 namespace godot {
 
 class SyntheticARInterface;
+class ScriptedARInterface;
 class ARCoreInterface;
 class ARKitInterface;
 
@@ -18,6 +19,7 @@ class ARKitInterface;
 class ARFramePacket : public RefCounted {
 	GDCLASS(ARFramePacket, RefCounted)
 	friend class SyntheticARInterface;
+	friend class ScriptedARInterface;
 	friend class ARCoreInterface;
 	friend class ARKitInterface;
 

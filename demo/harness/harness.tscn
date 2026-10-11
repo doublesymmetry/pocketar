@@ -7,3 +7,4 @@
 script = ExtResource("1")
 
 [node name="ARView" parent="." instance=ExtResource("2")]
+handle_presses = true

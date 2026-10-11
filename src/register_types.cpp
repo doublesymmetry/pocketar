@@ -2,6 +2,7 @@
 #include "core/ar_plane_tracker.h"
 #include "core/ar_raycast_hit.h"
 #include "core/synthetic_ar_interface.h"
+#include "core/scripted_ar_interface.h"
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/godot.hpp>
@@ -26,6 +27,7 @@ static void initialize_pocketar(ModuleInitializationLevel p_level) {
 	GDREGISTER_CLASS(ARRaycastHit);
 	GDREGISTER_CLASS(PocketAR);
 	GDREGISTER_CLASS(SyntheticARInterface);
+	GDREGISTER_CLASS(ScriptedARInterface);
 #ifdef IOS_ENABLED
 	GDREGISTER_CLASS(ARKitInterface);
 	GDREGISTER_INTERNAL_CLASS(ARKitTexturePool);

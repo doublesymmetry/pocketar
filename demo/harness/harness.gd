@@ -1,6 +1,6 @@
 extends Node
 
-const STEPS: Array[String] = ["loaded", "xr-mono-2d", "projection", "camera-transform", "color-invariance", "transparency", "frame-consistency", "resize"]
+const STEPS: Array[String] = ["loaded", "xr-mono-2d", "projection", "camera-transform", "color-invariance", "transparency", "frame-consistency", "resize", "scripted"]
 const BARS: Array[Color] = [Color.RED, Color.BLUE, Color.GREEN, Color.YELLOW, Color.CYAN, Color.MAGENTA, Color.WHITE, Color.BLACK]
 const DEFAULT_K := Vector4(520.0, 510.0, 301.0, 227.0)
 const IMAGE_SIZE := Vector2i(640, 480)
@@ -19,7 +19,15 @@ var timeout_seconds: float = 240.0
 
 
 func _ready() -> void:
-	var launch: Dictionary = preload("res://ar/harness_args.gd").read()
+	if OS.get_name() in ["Android", "iOS"]:
+		selected_steps.remove_at(selected_steps.find("scripted"))
+	var launch: Dictionary = PocketARArgs.read()
+	if OS.get_name() == "iOS" and String(launch["error"]).is_empty():
+		launch = preload("res://ar/harness_args.gd").validate(launch["args"])
+	if not String(launch["error"]).is_empty():
+		_step("arguments", false, String(launch["error"]))
+		_finish()
+		return
 	var args: PackedStringArray = launch["args"]
 	if preload("res://ar/harness_args.gd").cleanup(args):
 		get_tree().quit()
@@ -27,7 +35,7 @@ func _ready() -> void:
 	for index: int in range(args.size()):
 		if args[index] == "-harness-run-id" and index + 1 < args.size():
 			HarnessLog.write_line("HARNESS RUN " + args[index + 1])
-	if args.has("-harness-ar") or args.has("-ar-demo") or not String(launch["error"]).is_empty():
+	if args.has("-harness-ar") or args.has("-ar-demo"):
 		get_tree().change_scene_to_file.call_deferred("res://ar/ar_demo.tscn")
 		return
 	for index: int in range(args.size()):
@@ -78,8 +86,23 @@ func _run() -> void:
 			"transparency": ok = await _transparency()
 			"frame-consistency": ok = await _frame_consistency()
 			"resize": ok = await _resize()
+			"scripted": ok = await _scripted()
 		_step(name, ok, detail)
 	_finish()
+
+
+func _scripted() -> bool:
+	view.free()
+	view = null
+	var result: Dictionary = await preload("res://harness/scripted_suite.gd").new().run(self)
+	detail = result["detail"]
+	view = preload("res://addons/pocketar/ar_view.tscn").instantiate() as ARView
+	view.handle_presses = true
+	add_child(view)
+	view.virtual_scene.msaa_3d = Viewport.MSAA_4X
+	_make_button()
+	view.screen_pressed.connect(_on_game_pressed)
+	return result["ok"]
 
 
 func _step(name: String, ok: bool, message: String) -> void:

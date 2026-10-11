@@ -1,4 +1,5 @@
 #include "synthetic_ar_interface.h"
+#include "synthetic_camera_image.h"
 #include "ar_ids.h"
 
 #include <godot_cpp/classes/image_texture.hpp>
@@ -13,6 +14,14 @@
 namespace godot {
 
 void SyntheticARInterface::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("reset"), &SyntheticARInterface::reset);
+	ClassDB::bind_method(D_METHOD("get_session_state"), &SyntheticARInterface::get_session_state);
+	ClassDB::bind_method(D_METHOD("get_tracking_reason"), &SyntheticARInterface::get_tracking_reason);
+	ClassDB::bind_method(D_METHOD("get_session_generation"), &SyntheticARInterface::get_session_generation);
+	ADD_SIGNAL(MethodInfo("session_state_changed", PropertyInfo(Variant::INT, "state")));
+	ADD_SIGNAL(MethodInfo("tracking_reason_changed", PropertyInfo(Variant::INT, "reason")));
+	ADD_SIGNAL(MethodInfo("session_generation_changed", PropertyInfo(Variant::INT, "generation")));
+	ADD_SIGNAL(MethodInfo("planes_changed"));
 	ClassDB::bind_method(D_METHOD("set_intrinsics", "fx", "fy", "cx", "cy", "image_size"), &SyntheticARInterface::set_intrinsics);
 	ClassDB::bind_method(D_METHOD("set_pose", "pose"), &SyntheticARInterface::set_pose);
 	ClassDB::bind_method(D_METHOD("set_camera_rate", "fps"), &SyntheticARInterface::set_camera_rate);
@@ -39,7 +48,18 @@ bool SyntheticARInterface::_initialize() {
 	sequence = 0;
 	set_primary(true);
 	make_packet(Time::get_singleton()->get_ticks_usec());
+	call_deferred("emit_signal", "session_generation_changed", generation);
+	call_deferred("emit_signal", "session_state_changed", PocketAR::TRACKING);
 	return true;
+}
+
+void SyntheticARInterface::reset() {
+	ERR_FAIL_COND(!initialized);
+	generation = next_ar_id();
+	sequence = 0;
+	presented_packet.unref();
+	make_packet(Time::get_singleton()->get_ticks_usec());
+	call_deferred("emit_signal", "session_generation_changed", generation);
 }
 
 void SyntheticARInterface::_uninitialize() {
@@ -52,6 +72,7 @@ void SyntheticARInterface::_uninitialize() {
 	current_packet.unref();
 	presented_packet.unref();
 	initialized = false;
+	call_deferred("emit_signal", "session_state_changed", PocketAR::PAUSED);
 }
 
 void SyntheticARInterface::set_intrinsics(double p_fx, double p_fy, double p_cx, double p_cy, const Vector2i &p_image_size) {
@@ -104,36 +125,8 @@ void SyntheticARInterface::make_packet(uint64_t p_tick) {
 	sequence++;
 	const int width = int(intrinsics.image_size.x);
 	const int height = int(intrinsics.image_size.y);
-	PackedByteArray y_data;
-	PackedByteArray cbcr_data;
-	y_data.resize(width * height);
-	cbcr_data.resize(width * height * 2);
-	uint8_t *y_bytes = y_data.ptrw();
-	uint8_t *chroma = cbcr_data.ptrw();
-	const Color bars[] = { Color(1, 0, 0), Color(0, 0, 1), Color(0, 1, 0), Color(1, 1, 0), Color(0, 1, 1), Color(1, 0, 1), Color(1, 1, 1), Color(0, 0, 0) };
-	auto quantize = [](double p_value) { return uint8_t(std::clamp(std::lround(p_value), 0L, 255L)); };
-	for (int y = 0; y < height; y++) {
-		for (int x = 0; x < width; x++) {
-			Color rgb = bars[std::min(7, x * 8 / width)];
-			if (y < 24) {
-				const bool bit = (sequence >> std::min(15, x * 16 / width)) & 1;
-				rgb = bit ? Color(1, 1, 1) : Color(0, 0, 0);
-			} else if (x % 32 == 0 || y % 32 == 0) {
-				rgb = Color(0.25, 0.25, 0.25);
-			}
-			const int i = y * width + x;
-			y_bytes[i] = quantize(255 * (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b));
-			chroma[2 * i] = quantize(128 + 255 * (-0.168736 * rgb.r - 0.331264 * rgb.g + 0.5 * rgb.b));
-			chroma[2 * i + 1] = quantize(128 + 255 * (0.5 * rgb.r - 0.418688 * rgb.g - 0.081312 * rgb.b));
-		}
-	}
 	const int slot = sequence % 3;
-	if (y_images[slot].is_null()) {
-		y_images[slot].instantiate();
-		cbcr_images[slot].instantiate();
-	}
-	y_images[slot]->set_data(width, height, false, Image::FORMAT_R8, y_data);
-	cbcr_images[slot]->set_data(width, height, false, Image::FORMAT_RG8, cbcr_data);
+	fill_synthetic_camera_image(width, height, sequence, y_images[slot], cbcr_images[slot]);
 	Ref<ARFramePacket> packet;
 	packet.instantiate();
 	packet->session_generation = generation;

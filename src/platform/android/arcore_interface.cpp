@@ -53,6 +53,10 @@ void ARCoreInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("cancel_image_capacity_probe"), &ARCoreInterface::cancel_image_capacity_probe);
 	ClassDB::bind_method(D_METHOD("begin_old_frame_probe"), &ARCoreInterface::begin_old_frame_probe);
 	ClassDB::bind_method(D_METHOD("set_frame_probes_enabled", "enabled"), &ARCoreInterface::set_frame_probes_enabled);
+	ADD_SIGNAL(MethodInfo("session_state_changed", PropertyInfo(Variant::INT, "state")));
+	ADD_SIGNAL(MethodInfo("tracking_reason_changed", PropertyInfo(Variant::INT, "reason")));
+	ADD_SIGNAL(MethodInfo("session_generation_changed", PropertyInfo(Variant::INT, "generation")));
+	ADD_SIGNAL(MethodInfo("planes_changed"));
 	BIND_ENUM_CONSTANT(UNSUPPORTED); BIND_ENUM_CONSTANT(CHECKING); BIND_ENUM_CONSTANT(NEEDS_INSTALL);
 	BIND_ENUM_CONSTANT(INSTALLING); BIND_ENUM_CONSTANT(PERMISSION_DENIED); BIND_ENUM_CONSTANT(READY);
 	BIND_ENUM_CONSTANT(INITIALIZING); BIND_ENUM_CONSTANT(TRACKING); BIND_ENUM_CONSTANT(PAUSED); BIND_ENUM_CONSTANT(FAILED);
@@ -63,10 +67,17 @@ void ARCoreInterface::_bind_methods() {
 bool ARCoreInterface::on_owner_thread() const { return std::this_thread::get_id() == owner_thread; }
 void ARCoreInterface::increment(const char *p_key, int64_t p_amount) { diagnostics[p_key] = int64_t(diagnostics.get(p_key, 0)) + p_amount; }
 void ARCoreInterface::set_state(SessionState p_state) {
-	if (state == p_state && !state_history.is_empty()) return;
+	const bool changed = state != p_state;
+	if (!changed && !state_history.is_empty()) return;
 	state = p_state;
 	state_history.append(int(state));
 	UtilityFunctions::print("ARCORE state=", int(state), " generation=", generation, " reason=", int(reason));
+	if (changed) call_deferred("emit_signal", "session_state_changed", int(state));
+}
+void ARCoreInterface::set_reason(TrackingReason p_reason) {
+	if (reason == p_reason) return;
+	reason = p_reason;
+	call_deferred("emit_signal", "tracking_reason_changed", int(reason));
 }
 void ARCoreInterface::fail(ArStatus p_status, const String &p_operation) {
 	diagnostics["last_error"] = p_operation + String(" status=") + String::num_int64(p_status);
@@ -116,6 +127,8 @@ bool ARCoreInterface::_initialize() {
 	reset_tick = tick_usec();
 	set_primary(true);
 	arcore_bridge_set_owner(this);
+	call_deferred("emit_signal", "session_state_changed", int(state));
+	call_deferred("emit_signal", "session_generation_changed", generation);
 	bridge_changed();
 	return true;
 }
@@ -125,9 +138,10 @@ void ARCoreInterface::_uninitialize() {
 	if (!initialized) return;
 	ERR_FAIL_COND(!on_owner_thread());
 	arcore_bridge_set_owner(nullptr);
-	release_session();
 	current_packet.unref();
 	presented_packet.unref();
+	release_session();
+	set_state(PAUSED);
 	applied_packet.unref();
 	texture_slots.clear();
 	gpu_texture.unref();
@@ -146,14 +160,13 @@ void ARCoreInterface::bridge_changed() {
 	diagnostics["availability_detail"] = String(bridge.detail.c_str());
 	const bool new_status = bridge_history_size < bridge.state_history.size();
 	for (; bridge_history_size < bridge.state_history.size(); ++bridge_history_size) state_history.append(bridge.state_history[bridge_history_size]);
-	if (new_status && bridge.state == READY && state != TRACKING && state != INITIALIZING) set_state(READY);
+	if (new_status && bridge.state == READY && state != TRACKING && state != INITIALIZING) set_state(application_suspended ? PAUSED : READY);
 	if (!bridge.resumed || application_suspended || bridge.state != READY) {
 		pause_session();
 		if (bridge.state != READY) set_state(SessionState(bridge.state));
 		return;
 	}
-	if (!session && state == READY) {
-		set_state(READY);
+	if (!session && (state == READY || state == PAUSED)) {
 		create_session();
 	} else if (session && !running && state != FAILED && state != UNSUPPORTED && state != PERMISSION_DENIED && tick_usec() >= retry_at) {
 		resume_session();
@@ -253,11 +266,19 @@ void ARCoreInterface::refresh_camera_config() {
 }
 
 bool ARCoreInterface::create_session() {
+	const auto bridge = arcore_bridge_snapshot();
+	if (bridge.state != READY) {
+		set_state(SessionState(bridge.state));
+		return false;
+	}
+	if (!bridge.resumed || application_suspended) {
+		set_state(PAUSED);
+		return false;
+	}
+	set_state(READY);
 	if (int(diagnostics.get("texture_upload_region_size_px", 64)) < 512) {
 		UtilityFunctions::push_warning("ARCore camera upload region size is below 512 px; use 1024 px with staging_buffer/block_size_kb=4096 for lower upload cost.");
 	}
-	const auto bridge = arcore_bridge_snapshot();
-	if (bridge.state != READY || !bridge.resumed || application_suspended) return false;
 	ARCoreJNIEnv jni(bridge.vm);
 	if (!jni.env || !bridge.context) { fail(AR_ERROR_FATAL, "JNI context"); return false; }
 	uint64_t start = tick_usec();
@@ -325,7 +346,7 @@ void ARCoreInterface::resume_session() {
 		increment("resume_count");
 		set_state(INITIALIZING);
 	} else if (status == AR_ERROR_CAMERA_NOT_AVAILABLE) {
-		reason = CAMERA_UNAVAILABLE;
+		set_reason(CAMERA_UNAVAILABLE);
 		retry_at = tick_usec() + retry_delay;
 		retry_delay = std::min<uint64_t>(retry_delay * 2, 2000000);
 		increment("resume_camera_unavailable");
@@ -348,12 +369,14 @@ void ARCoreInterface::pause_session() {
 }
 
 void ARCoreInterface::clear_planes() {
+	const bool changed = !planes.empty();
 	for (auto &item : planes) {
 		XRServer::get_singleton()->remove_tracker(item.second.tracker);
 		api.ArTrackable_release(reinterpret_cast<ArTrackable *>(item.first));
 		increment("retired_tracker_count");
 	}
 	planes.clear();
+	if (changed) call_deferred("emit_signal", "planes_changed");
 }
 
 void ARCoreInterface::release_session() {
@@ -404,9 +427,9 @@ void ARCoreInterface::reset() {
 	plane_sequence = 0;
 	last_good_pose = Transform3D();
 	head->invalidate_pose("default");
-	reason = NONE;
+	set_reason(NONE);
 	tracking_status = XR_UNKNOWN_TRACKING;
-	set_state(READY);
+	call_deferred("emit_signal", "session_generation_changed", generation);
 	create_session();
 }
 void ARCoreInterface::application_pause() {

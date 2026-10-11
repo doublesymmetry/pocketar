@@ -16,6 +16,7 @@ class ARRaycastHit : public RefCounted {
 	int64_t session_generation = 0;
 	int64_t frame_id = 0;
 	int64_t plane_id = 0;
+	int alignment = 0;
 	double distance = 0;
 	Transform3D pose;
 
@@ -26,6 +27,7 @@ public:
 	int64_t get_session_generation() const { return session_generation; }
 	int64_t get_frame_id() const { return frame_id; }
 	int64_t get_plane_id() const { return plane_id; }
+	int get_alignment() const { return alignment; }
 	double get_distance() const { return distance; }
 	Transform3D get_pose() const { return pose; }
 };

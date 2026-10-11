@@ -1,13 +1,60 @@
 #include "pocketar.h"
+#include "ar_plane_tracker.h"
+#include <godot_cpp/classes/xr_interface.hpp>
+#include <godot_cpp/classes/xr_server.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
 namespace godot {
 
 void PocketAR::_bind_methods() {
+	ClassDB::bind_static_method("PocketAR", D_METHOD("alignment_mask", "alignments"), &PocketAR::alignment_mask);
 	ClassDB::bind_method(D_METHOD("get_version"), &PocketAR::get_version);
 	ClassDB::bind_method(D_METHOD("get_backend"), &PocketAR::get_backend);
 	ClassDB::bind_method(D_METHOD("screen_to_ray", "packet", "viewport_size", "screen_point"), &PocketAR::screen_to_ray);
 	ClassDB::bind_method(D_METHOD("raycast_planes", "packet", "ray"), &PocketAR::raycast_planes);
+	BIND_ENUM_CONSTANT(UNSUPPORTED);
+	BIND_ENUM_CONSTANT(CHECKING);
+	BIND_ENUM_CONSTANT(NEEDS_INSTALL);
+	BIND_ENUM_CONSTANT(INSTALLING);
+	BIND_ENUM_CONSTANT(PERMISSION_DENIED);
+	BIND_ENUM_CONSTANT(READY);
+	BIND_ENUM_CONSTANT(INITIALIZING);
+	BIND_ENUM_CONSTANT(TRACKING);
+	BIND_ENUM_CONSTANT(PAUSED);
+	BIND_ENUM_CONSTANT(FAILED);
+	BIND_ENUM_CONSTANT(NONE);
+	BIND_ENUM_CONSTANT(BAD_STATE);
+	BIND_ENUM_CONSTANT(INSUFFICIENT_LIGHT);
+	BIND_ENUM_CONSTANT(EXCESSIVE_MOTION);
+	BIND_ENUM_CONSTANT(INSUFFICIENT_FEATURES);
+	BIND_ENUM_CONSTANT(CAMERA_UNAVAILABLE);
+	BIND_ENUM_CONSTANT(ALIGNMENT_MASK_HORIZONTAL_UPWARD);
+	BIND_ENUM_CONSTANT(ALIGNMENT_MASK_HORIZONTAL_DOWNWARD);
+	BIND_ENUM_CONSTANT(ALIGNMENT_MASK_VERTICAL);
+	BIND_ENUM_CONSTANT(ALIGNMENT_MASK_ALL);
+}
+
+int PocketAR::alignment_mask(const TypedArray<int> &p_alignments) {
+	int mask = 0;
+	for (int i = 0; i < p_alignments.size(); ++i) {
+		const int alignment = p_alignments[i];
+		ERR_FAIL_COND_V(alignment < ARPlaneTracker::HORIZONTAL_UPWARD_FACING || alignment > ARPlaneTracker::VERTICAL, 0);
+		mask |= 1 << alignment;
+	}
+	return mask;
+}
+
+String PocketAR::get_backend() const {
+	const Ref<XRInterface> interface = XRServer::get_singleton()->get_primary_interface();
+	if (interface.is_null()) {
+		return "none";
+	}
+	const StringName name = interface->get_name();
+	if (name == StringName("PocketARSynthetic")) return "synthetic";
+	if (name == StringName("PocketARScripted")) return "scripted";
+	if (name == StringName("PocketARCore")) return "arcore";
+	if (name == StringName("PocketARKit")) return "arkit";
+	return "unknown";
 }
 
 Dictionary PocketAR::screen_to_ray(const Ref<ARFramePacket> &p_packet, const Vector2 &p_viewport_size, const Vector2 &p_screen_point) const {

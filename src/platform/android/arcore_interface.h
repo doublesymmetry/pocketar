@@ -6,6 +6,7 @@
 #include "gpu_camera_validation.h"
 #include "core/ar_frame_packet.h"
 #include "core/ar_plane_tracker.h"
+#include "core/pocketar.h"
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/xr_interface_extension.hpp>
 #include <atomic>
@@ -20,8 +21,24 @@ namespace godot {
 class ARCoreInterface : public XRInterfaceExtension {
 	GDCLASS(ARCoreInterface, XRInterfaceExtension)
 public:
-	enum SessionState { UNSUPPORTED, CHECKING, NEEDS_INSTALL, INSTALLING, PERMISSION_DENIED, READY, INITIALIZING, TRACKING, PAUSED, FAILED };
-	enum TrackingReason { NONE, BAD_STATE, INSUFFICIENT_LIGHT, EXCESSIVE_MOTION, INSUFFICIENT_FEATURES, CAMERA_UNAVAILABLE };
+	using SessionState = PocketAR::SessionState;
+	using TrackingReason = PocketAR::TrackingReason;
+	static constexpr SessionState UNSUPPORTED = PocketAR::UNSUPPORTED;
+	static constexpr SessionState CHECKING = PocketAR::CHECKING;
+	static constexpr SessionState NEEDS_INSTALL = PocketAR::NEEDS_INSTALL;
+	static constexpr SessionState INSTALLING = PocketAR::INSTALLING;
+	static constexpr SessionState PERMISSION_DENIED = PocketAR::PERMISSION_DENIED;
+	static constexpr SessionState READY = PocketAR::READY;
+	static constexpr SessionState INITIALIZING = PocketAR::INITIALIZING;
+	static constexpr SessionState TRACKING = PocketAR::TRACKING;
+	static constexpr SessionState PAUSED = PocketAR::PAUSED;
+	static constexpr SessionState FAILED = PocketAR::FAILED;
+	static constexpr TrackingReason NONE = PocketAR::NONE;
+	static constexpr TrackingReason BAD_STATE = PocketAR::BAD_STATE;
+	static constexpr TrackingReason INSUFFICIENT_LIGHT = PocketAR::INSUFFICIENT_LIGHT;
+	static constexpr TrackingReason EXCESSIVE_MOTION = PocketAR::EXCESSIVE_MOTION;
+	static constexpr TrackingReason INSUFFICIENT_FEATURES = PocketAR::INSUFFICIENT_FEATURES;
+	static constexpr TrackingReason CAMERA_UNAVAILABLE = PocketAR::CAMERA_UNAVAILABLE;
 
 private:
 	struct TextureSlot {
@@ -108,6 +125,7 @@ private:
 
 	bool on_owner_thread() const;
 	void set_state(SessionState p_state);
+	void set_reason(TrackingReason p_reason);
 	void increment(const char *p_key, int64_t p_amount = 1);
 	void fail(ArStatus p_status, const String &p_operation);
 	bool create_session();
@@ -117,7 +135,7 @@ private:
 	void pause_session();
 	void release_session();
 	void clear_planes();
-	void copy_planes(ARFramePacket &r_packet);
+	bool copy_planes(ARFramePacket &r_packet);
 	int64_t ensure_plane(ArPlane *p_plane, bool p_acquired);
 	Transform3D read_pose() const;
 	void build_packet(int64_t p_timestamp);
@@ -194,5 +212,3 @@ public:
 	bool _pre_draw_viewport(const RID &p_target) override { return current_packet.is_valid() && current_packet->get_session_generation() == generation; }
 };
 }
-VARIANT_ENUM_CAST(godot::ARCoreInterface::SessionState)
-VARIANT_ENUM_CAST(godot::ARCoreInterface::TrackingReason)

@@ -52,7 +52,14 @@ avoid the shell builtin with the same name.
 | Selected rendering checks | `harness desktop -harness-steps projection,transparency` |
 | Installed iPhone demo | `IOS_DEVICE=<id> harness ios` |
 | Pixel demo installation and harness | `ADB=<host-binary> ANDROID_SERIAL=<serial> harness android` |
-| Native projection/ray tests | `tools/test-native.sh` |
+| Native math, retirement, YUV/GPU and fixture parser tests; Python fixture tests | `TMPDIR=/tmp tools/test-native.sh` |
+| Headless packet, facade, scripted, arguments, exporter and thread tests | `tools/test-headless.sh` |
+| ARCore native lifecycle/status fixture | `TMPDIR=/tmp tools/test-arcore-session.sh` |
+| ARCore native query/recording fixture | `TMPDIR=/tmp tools/test-arcore-extras.sh` |
+| All Python tool tests | `python3 -m unittest discover -s tests/tools` |
+| Kotlin launch argument tests | `cd android && ./gradlew :plugin:testDebugUnitTest` |
+| Generate landscape fixture | `python3 tools/fixtures.py --output demo/harness/fixtures/table.jsonl --loss-at 1 --reset-at 1.5 --pause-at 1.75 --tap-at 0.6 --drag-to 0.1 -0.7 -2 --plane-examples` |
+| Generate portrait fixture | Use the preceding command with `--output demo/harness/fixtures/table-portrait.jsonl --view-size 1080 1920` |
 
 `JOBS` controls build concurrency, default 8. `ARCH` defaults to arm64; macOS can
 also build x86_64. `build all` stops on the first failed target. Build both mobile
@@ -76,19 +83,20 @@ settings/cache or reading system certificates are separate from script errors.
 
 ## Layout
 
-- `src/core/`: read-only frame packets, synthetic XR provider, singleton, projection and ray math.
+- `src/core/`: read-only frame packets, synthetic and scripted XR providers, shared singleton, projection and ray math. `scripted_session.{h,cpp}` parses fixtures; `scripted_ar_interface.{h,cpp}` replays them; `synthetic_camera_image.{h,cpp}` supplies shared camera bars.
 - `src/platform/android/`: ARCore session owner, JNI bridge, CPU upload, GPU camera submission and live queries.
 - `src/platform/ios/`: Objective-C++ ARKit session, Metal imports and swap-based retirement.
 - `demo/ar/`: runtime-selected AR demo and device diagnostics.
 - `thirdparty/arcore/`: C API header and its provenance.
-- `demo/addons/pocketar/`: ARView, shaders, extension descriptor and editor export plugin.
+- `demo/addons/pocketar/`: ARView, shaders, extension descriptor and editor export plugin; `ar_plane_visualizer.gd` draws active planes and `pocketar_args.gd` reads application arguments. Keep their `.uid` sidecars tracked.
 - `demo/addons/pocketar/bin/`: generated libraries, XCFrameworks and AARs; ignored by Git.
-- `demo/harness/`: the runnable demo and all rendered-image assertions.
-- `android/`: Godot v2 Kotlin plugin and AAR Gradle project.
-- `tests/native/`: standalone C++ numerical tests; no Godot process or GPU needed.
-- `tests/headless/`: packet lifetime, presentation and XR-binding smoke test.
+- `demo/harness/`: the runnable demo and rendered-image assertions; `scripted_suite.gd` and its `.uid` run shared replay checks using `fixtures/table.jsonl` and `fixtures/table-portrait.jsonl`.
+- `android/`: Godot v2 Kotlin plugin and AAR Gradle project. `PocketARLaunchArgs.kt` validates launch extras; `PocketARLaunchArgsTest.kt` covers their transport rules in the plugin test source set.
+- `tests/native/`: standalone C++ numerical and resource tests; `test_scripted_session.cpp` validates fixture parsing and both generated fixtures. No Godot process or GPU needed.
+- `tests/headless/`: packet lifetime, presentation, XR binding and thread guards; `scripted_clock.gd`, `scripted_suite.gd`, `session_facade.gd`, `session_reentrancy.gd` and `pocketar_args.gd` cover Phase 0 behavior. GDScript tests have tracked `.uid` sidecars. `arcore_session_fixture.cpp` and `arcore_session_smoke.gd` exercise native status/lifecycle callbacks; the extras fixture covers queries and datasets. iOS argument and exporter tests run here too.
+- `tests/tools/`: Python fixture generator (`test_fixtures.py`), iOS device transport and harness monitor tests.
 - `docs/milestone-1-validation.md`: completed checks and remaining device/GPU work.
-- `tools/`: build, package, export and harness entry points.
+- `tools/`: build, package, export and harness entry points; `fixtures.py` generates JSONL fixtures, `test-native.sh` runs native and generator tests, `test-headless.sh` runs standalone GDScript suites, and `test-arcore-session.sh` / `test-arcore-extras.sh` build and run mocked ARCore extensions.
 
 C++ follows godot-cpp conventions, using tabs and `p_` parameter names. GDScript
 is typed. Comments explain a non-obvious constraint; no comment banners or
@@ -96,12 +104,15 @@ narration. Commit messages, if requested, are one lowercase `type: subject` line
 
 ## Settled architecture
 
-One ARView owns one monoscopic `XRInterfaceExtension`, named
-`PocketARSynthetic`, and makes it primary. It publishes `head` / `default` for
+One ARView owns one monoscopic `XRInterfaceExtension` and makes it primary.
+The synthetic interface is named `PocketARSynthetic`; scripted fixtures use
+`PocketARScripted`. Both publish `head` / `default` for
 `XRCamera3D`. The transparent XR SubViewport contains `XROrigin3D`, `XRCamera3D`
 and `SceneRoot`. The camera is a separate SDR canvas underneath its texture; a
 CanvasLayer holds ordinary HUD Controls above both. Controls receive input first.
-Unconsumed presses emit a ray through `ARView.screen_to_ray()`.
+ARView ignores input by default. With `handle_presses=true`, unconsumed presses
+emit a ray through `ARView.screen_to_ray()` and mark the event handled. The demo
+and rendering harness opt in. Touch-emulated mouse presses are ignored.
 
 `ARFramePacket` contains copied calibration, pose, UV mapping, IDs, timestamps,
 tracking state and planes. These values remain valid for the packet's lifetime.
@@ -686,3 +697,144 @@ Both device suites run `tracking` before `lifecycle`. Their `packet-retention`
 step observes frame IDs/timestamps for two seconds, then keeps the last eight
 `packet_applied` packets for two seconds. Any dropped/refused frame or a stopped
 pose stream that had been advancing fails the step; physical motion is not required.
+
+## Scripted sessions and the game facade
+
+`ARView.backend` values are Synthetic=0, ARCore=1, ARKit=2, Scripted=3. Set
+`fixture_path` to a JSONL resource for Scripted, or supply a loaded
+`ScriptedARInterface` before adding the view to the tree. `PocketAR.get_backend()`
+reports the primary interface: `synthetic`, `scripted`, `arcore`, `arkit`, `none`
+when there is no primary, or `unknown` for another provider.
+
+All four backends expose `reset()`, `get_session_state()`,
+`get_tracking_reason()` and `get_session_generation()`. Games use `ARView.reset()`
+and the read-only `session_state`, `tracking_reason` and `session_generation`
+properties. Properties query the backend immediately. ARView forwards `session_state_changed(state)`,
+`tracking_reason_changed(reason)`, `session_generation_changed(generation)` and
+`planes_changed()`. Backend notifications are deferred in order until the current
+native operation finishes, so a signal handler can safely reset the session.
+State and reason signals fire on value changes. Generation
+IDs remain process-wide unique, so replay comparisons normalize generations
+relative to each run rather than expecting the same absolute ID. Plane changes
+refer to the current snapshot/tracker set; placement uses the presented packet.
+
+`PocketAR.SessionState` is the shared enum: UNSUPPORTED=0, CHECKING=1,
+NEEDS_INSTALL=2, INSTALLING=3, PERMISSION_DENIED=4, READY=5, INITIALIZING=6,
+TRACKING=7, PAUSED=8, FAILED=9. `PocketAR.TrackingReason` is NONE=0, BAD_STATE=1,
+INSUFFICIENT_LIGHT=2, EXCESSIVE_MOTION=3, INSUFFICIENT_FEATURES=4,
+CAMERA_UNAVAILABLE=5. Native interface constants remain aliases for compatibility.
+
+- Synthetic reports TRACKING/NONE while initialized and PAUSED when stopped.
+  Reset immediately changes generation and invalidates presentation.
+- Scripted reads state/reason names from the fixture, with reset and resume
+  entering INITIALIZING/NONE and pause entering PAUSED.
+- ARCore preserves the existing availability, install, permission and tracking
+  mappings. A reset while the bridge is pending reports that pending state;
+  a ready but suspended bridge reports PAUSED until resume can create a session.
+- ARKit reports normal tracking as TRACKING, limited/not-available tracking as
+  INITIALIZING, interruption/suspension as PAUSED, authorization denial as
+  PERMISSION_DENIED, unsupported hardware as UNSUPPORTED and session failure as
+  FAILED. Its reason mapping remains in the table above. Limited ARKit poses may
+  be valid while plane trackers are paused; ARCore poses require native TRACKING.
+
+Fixture version 1 is UTF-8 JSON lines with one object per line. Its first line
+contains `format: "pocketar-session"`, `version: 1`, `semantics: "arkit"` or
+`"arcore"`, `image_size: [width,height]`, and
+`intrinsics: {"fx":520,"fy":510,"cx":320,"cy":240}`. The generator also writes a
+`conventions` object documenting the following contract. Intrinsics are in
+physical camera-image pixels. World units are metres; camera axes are +X right,
++Y up, -Z forward. Transforms are rigid world-from-local matrices encoded as 16
+column-major numbers. Camera transforms describe the physical image-camera basis,
+prior to display rotation. Plane polygons are local XZ pairs with +Y normal;
+extents are full lengths. UV coordinates use the viewport's top-left origin.
+
+Integer fields use decimal integer tokens without fractions or exponents.
+Subsequent records have nonnegative integer `t_usec`, ordered nondecreasingly;
+records at the same time execute in file order. Frame IDs increase across resets.
+
+- Frames contain `frame_id`, `camera_transform`, `tracking_valid`, `session_state`
+  and `tracking_reason`. Enum names are lowercase with underscores. Optional
+  `planes` replaces the full set; omitting it preserves the previous set.
+- Each plane contains `id`, `alignment`, `transform`, `polygon`, `extents`,
+  `tracking_state` and `subsumed_by`. Alignment names are
+  `horizontal_upward_facing`, `horizontal_downward_facing`, `vertical`; tracking
+  names are `tracking`, `paused`, `stopped`. A subsumption target must occur in the
+  same plane set; zero means no subsumption.
+- Events contain `reset: true` or `lifecycle: "pause"` / `"resume"`.
+- Inputs contain `kind: "down"` / `"move"` / `"up"` / `"cancel"`, a nonnegative
+  `finger`, normalized `uv: [x,y]` and `target_frame` naming a fixture frame.
+
+`load_fixture(path)` validates the entire file and returns an Error; malformed
+records report their line number and leave the existing fixture unchanged.
+`advance_to(t_usec)` switches to external time, applies all reached records and
+publishes the newest reached frame. Time cannot move backwards; reload to rewind.
+Call `advance_to(0)` before initialization for a fully deterministic clock. Without
+external advances the backend follows wall-clock elapsed time. Geometry changes
+rebuild projection and display transform from recorded intrinsics and physical
+pose even when the frame repeats. Camera pixels use the synthetic bars.
+
+`reset()` keeps the fixture cursor, changes generation and clears packets and
+trackers. Planes remain absent until a later frame supplies `planes` again.
+Trackers use `pocketar/plane/<generation>/<id>`. `get_pending_inputs()` drains the
+reached inputs, with `uv` returned as Vector2 and `session_generation` attached.
+The driver waits until `target_frame` is presented, multiplies UV by ARView size,
+and transforms that local point into viewport coordinates before constructing
+Godot touch/drag events. The library never injects inputs itself. Generated headers
+include `view_size: [width,height]` and `quarter_turns`; the driver checks these
+against the running view and presented packet before injecting inputs.
+`--view-size W H` defaults to 640×480. `--quarter-turns 0|1|2|3` defaults to the
+ARView choice: 1 for portrait, 0 otherwise. Generated UVs include the target
+view's centred aspect-fill crop and rotation; cropped-out targets are rejected.
+
+Generate the desktop suite fixture with:
+
+```sh
+python3 tools/fixtures.py --output demo/harness/fixtures/table.jsonl \
+  --loss-at 1 --reset-at 1.5 --pause-at 1.75 --tap-at 0.6 \
+  --drag-to 0.1 -0.7 -2 --plane-examples
+```
+
+`--table-height` sets metres below the camera; `--camera orbit` or `static` chooses
+its path. `--tap-world x y z` sets the world point projected for each `--tap-at`.
+The default camera is at the origin and the table centre is `(0,-0.7,-2)`.
+The `scripted` desktop harness step runs each landscape and 1080×1920 portrait
+fixture twice, with an explicit deferred flush after each time advance. The headless companion
+checks the same state, placement and input behavior without claiming GPU coverage.
+
+`ARView.raycast(point, alignments=PocketAR.ALIGNMENT_MASK_ALL)` filters hits by a bit
+mask: `ALIGNMENT_MASK_HORIZONTAL_UPWARD=1`,
+`ALIGNMENT_MASK_HORIZONTAL_DOWNWARD=2`, `ALIGNMENT_MASK_VERTICAL=4`,
+`ALIGNMENT_MASK_ALL=7`. `PocketAR.alignment_mask([ARPlaneTracker.VERTICAL])`
+builds a mask from tracker alignments; an empty list produces zero. Each `ARRaycastHit`
+exposes the plane's `alignment` (the existing ARPlaneTracker enum, values 0–2).
+`world_to_screen(world_point)` returns ARView-local pixels from the presented
+packet. `screen_to_point(point, depth)` uses metres along the presented camera's
+forward axis, not distance along the ray. These return Vector2.INF/Vector3.INF
+when the packet/input cannot be used; world points behind the camera are invalid.
+`view_point(event_position)` converts viewport event positions with the inverse
+of `get_global_transform_with_canvas()`, including canvas scaling and rotation.
+
+`ARPlaneVisualizer` is a Node3D with an `ar_view` export and an `enabled` toggle.
+Place it in `view.scene_root`; it draws applied-packet polygons and excludes old
+session generations, paused/stopped planes and subsumed aliases. The demo uses
+this addon node instead of maintaining its own meshes.
+
+## Application arguments
+
+`PocketARArgs.read()` is the addon argument helper. It returns a Dictionary with
+`args: PackedStringArray` and `error: String`. Desktop and Android use
+`OS.get_cmdline_user_args()`. Debug iOS builds read the `POCKETAR_ARGS` JSON array
+when present; malformed JSON/non-string elements return a transport error. Release
+iOS ignores that environment variable. Harness-specific validation and capture
+cleanup stay in the demo's `ar/harness_args.gd`.
+
+Android accepts two string-array intent extras in debuggable builds only, guarded
+by `ApplicationInfo.FLAG_DEBUGGABLE`: `pocketar_harness_args` retains the harness
+allowlist, and `pocketar_app_args` carries application-owned flags. Both use the
+existing comma/backslash escaping and are appended after one `--`; app-only
+launches work too. Every app entry must be nonblank, have no leading/trailing
+whitespace, and must not start with `--`; game flags use a single dash. A malformed
+app extra is logged and discarded in full while valid harness arguments survive.
+Applications validate the remaining flag names and values. Invalid harness extras
+still reject the launch arguments. Release builds ignore both extras. Existing
+host harness commands continue to send only the harness extra.

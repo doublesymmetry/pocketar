@@ -34,6 +34,7 @@ android {
 dependencies {
     compileOnly("org.godotengine:godot:4.7.2.stable")
     implementation("com.google.ar:core:$arcoreVersion")
+    testImplementation("junit:junit:4.13.2")
     add(arcoreNative.name, "com.google.ar:core:$arcoreVersion@aar")
 }
 

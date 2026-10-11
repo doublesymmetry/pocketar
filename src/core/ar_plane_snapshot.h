@@ -15,6 +15,12 @@ struct ARPlaneSnapshot {
 	int tracking_state = 1;
 	Transform3D transform;
 	int64_t session_generation = 0;
+	bool operator==(const ARPlaneSnapshot &p_other) const {
+		return plane_id == p_other.plane_id && alignment == p_other.alignment && extents == p_other.extents &&
+			polygon == p_other.polygon && subsumed_by == p_other.subsumed_by && tracking_state == p_other.tracking_state &&
+			transform == p_other.transform && session_generation == p_other.session_generation;
+	}
+	bool operator!=(const ARPlaneSnapshot &p_other) const { return !(*this == p_other); }
 };
 
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ar_frame_packet.h"
+#include "pocketar.h"
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/xr_interface_extension.hpp>
 #include <godot_cpp/classes/xr_positional_tracker.hpp>
@@ -34,6 +35,10 @@ protected:
 	static void _bind_methods();
 
 public:
+	void reset();
+	PocketAR::SessionState get_session_state() const { return initialized ? PocketAR::TRACKING : PocketAR::PAUSED; }
+	PocketAR::TrackingReason get_tracking_reason() const { return PocketAR::NONE; }
+	int64_t get_session_generation() const { return generation; }
 	void set_intrinsics(double p_fx, double p_fy, double p_cx, double p_cy, const Vector2i &p_image_size);
 	void set_pose(const Transform3D &p_pose);
 	void set_camera_rate(double p_fps);

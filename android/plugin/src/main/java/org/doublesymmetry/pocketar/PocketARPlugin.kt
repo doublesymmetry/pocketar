@@ -75,60 +75,17 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
     override fun getCommandLineParams(unmodifiableOriginalCommandLineParams: List<String>): List<String> {
         val host = activity ?: return emptyList()
         if (host.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return emptyList()
-        val arguments = host.intent.getStringArrayExtra("pocketar_harness_args")?.map(::unescapeHarnessArgument)
-            ?: return emptyList()
-        if (!validHarnessArguments(arguments)) {
+        val arguments = PocketARLaunchArgs.collect(
+            host.intent.getStringArrayExtra("pocketar_harness_args"),
+            host.intent.getStringArrayExtra("pocketar_app_args"),
+            unmodifiableOriginalCommandLineParams,
+            onAppArgumentsRejected = { Log.e(TAG, it) }
+        )
+        if (arguments == null) {
             Log.e(TAG, "Rejected malformed pocketar_harness_args")
             return emptyList()
         }
-        return listOf("--") + arguments
-    }
-
-    private fun unescapeHarnessArgument(argument: String): String = buildString {
-        var index = 0
-        while (index < argument.length) {
-            val character = argument[index++]
-            if (character == '\\' && argument.getOrNull(index) in listOf('\\', ',')) {
-                append(argument[index++])
-            } else {
-                append(character)
-            }
-        }
-    }
-
-    private fun validHarnessArguments(arguments: List<String>): Boolean {
-        if (arguments.firstOrNull() !in listOf("-harness", "-harness-ar", "-ar-demo")) return false
-        var index = 1
-        var datasetSelected = false
-        while (index < arguments.size) {
-            when (arguments[index++]) {
-                "-harness-lifecycle", "-harness-probes", "-harness-gpu-validate" -> Unit
-                "-harness-camera-path" -> {
-                    val value = arguments.getOrNull(index++) ?: return false
-                    if (value !in listOf("auto", "cpu")) return false
-                    if (value == "cpu" && "-harness-gpu-validate" in arguments) return false
-                }
-                "-harness-camera-config" -> {
-                    val value = arguments.getOrNull(index++)?.toIntOrNull() ?: return false
-                    if (value < 0) return false
-                }
-                "-harness-record", "-harness-playback" -> {
-                    val value = arguments.getOrNull(index++) ?: return false
-                    if (datasetSelected || !Regex("[A-Za-z0-9_-][A-Za-z0-9_.-]*\\.mp4").matches(value)) return false
-                    datasetSelected = true
-                }
-                "-harness-duration", "-harness-timeout" -> {
-                    val value = arguments.getOrNull(index++)?.toDoubleOrNull() ?: return false
-                    if (!value.isFinite() || value <= 0.0) return false
-                }
-                "-harness-out", "-harness-steps" -> {
-                    val value = arguments.getOrNull(index++) ?: return false
-                    if (value.isBlank() || value.startsWith("-")) return false
-                }
-                else -> return false
-            }
-        }
-        return true
+        return arguments
     }
 
     override fun onMainCreate(activity: Activity?): View? {

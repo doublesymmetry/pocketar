@@ -6,6 +6,8 @@
 namespace godot {
 
 void ARRaycastHit::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("get_alignment"), &ARRaycastHit::get_alignment);
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "alignment"), "", "get_alignment");
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &ARRaycastHit::get_session_generation);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "session_generation"), "", "get_session_generation");
 	ClassDB::bind_method(D_METHOD("get_frame_id"), &ARRaycastHit::get_frame_id);
@@ -36,6 +38,12 @@ TypedArray<ARRaycastHit> raycast_planes(const Ref<ARFramePacket> &p_packet, cons
 		hit->session_generation = p_packet->get_session_generation();
 		hit->frame_id = p_packet->get_frame_id();
 		hit->plane_id = intersection.plane_id;
+		for (const ARPlaneSnapshot &plane : p_packet->get_plane_snapshots()) {
+			if (plane.plane_id == intersection.plane_id) {
+				hit->alignment = plane.alignment;
+				break;
+			}
+		}
 		hit->distance = intersection.distance;
 		hit->pose = intersection.pose;
 		results.push_back(hit);

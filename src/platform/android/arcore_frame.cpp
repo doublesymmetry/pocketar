@@ -160,7 +160,7 @@ void ARCoreInterface::_process() {
 		UtilityFunctions::print("ARCORE update status=", int(status));
 		if (status == AR_ERROR_SESSION_PAUSED) { running = false; set_state(PAUSED); }
 		else if (status == AR_ERROR_CAMERA_NOT_AVAILABLE || status == AR_ERROR_FATAL) {
-			reason = CAMERA_UNAVAILABLE;
+			set_reason(CAMERA_UNAVAILABLE);
 			reset();
 		} else { fail(status, "update"); pause_session(); }
 		return;
@@ -265,7 +265,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	ArTrackingFailureReason failure;
 	api.ArCamera_getTrackingState(session, camera, &tracking);
 	api.ArCamera_getTrackingFailureReason(session, camera, &failure);
-	reason = TrackingReason(failure);
+	set_reason(TrackingReason(failure));
 	tracking_status = tracking == AR_TRACKING_STATE_TRACKING ? XR_NORMAL_TRACKING :
 		tracking == AR_TRACKING_STATE_PAUSED && failure == AR_TRACKING_FAILURE_REASON_NONE ? XR_UNKNOWN_TRACKING :
 		tracking == AR_TRACKING_STATE_PAUSED && failure == AR_TRACKING_FAILURE_REASON_EXCESSIVE_MOTION ? XR_EXCESSIVE_MOTION :
@@ -386,7 +386,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		diagnostics["mean_y"] = double(sum) / (((width + 3) / 4) * ((height + 3) / 4));
 		stats_usec = tick_usec() - stats_start;
 	}
-	copy_planes(**packet);
+	const bool changed_planes = copy_planes(**packet);
 	const Transform3D camera_from_world = packet->physical_camera_transform.affine_inverse();
 	const Transform3D display_from_world = packet->camera_transform.affine_inverse();
 	const Transform2D image_to_view = cpu_display_transform.affine_inverse();
@@ -454,6 +454,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		head->set_pose("default", last_good_pose, Vector3(), Vector3(), packet->tracking_valid ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_NONE);
 		increment("textures_updated");
 		increment("packets_published");
+		if (changed_planes) call_deferred("emit_signal", "planes_changed");
 		return;
 	}
 	TextureSlot *slot = find_texture_slot();
@@ -468,6 +469,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		current_packet = packet;
 		head->set_pose("default", last_good_pose, Vector3(), Vector3(), packet->tracking_valid ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_NONE);
 		increment("packets_published");
+		if (changed_planes) call_deferred("emit_signal", "planes_changed");
 		return;
 	}
 	const uint64_t upload_start = tick_usec();
@@ -496,6 +498,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	sample(stats_times, stats_cursor, double(stats_usec));
 	sample(upload_times, upload_cursor, double(upload_usec));
 	sample(repack_upload_times, repack_upload_cursor, double(repack_usec + stats_usec + upload_usec));
+	if (changed_planes) call_deferred("emit_signal", "planes_changed");
 }
 
 int64_t ARCoreInterface::ensure_plane(ArPlane *p_plane, bool p_acquired) {
@@ -519,7 +522,7 @@ int64_t ARCoreInterface::ensure_plane(ArPlane *p_plane, bool p_acquired) {
 	return entry.id;
 }
 
-void ARCoreInterface::copy_planes(ARFramePacket &r_packet) {
+bool ARCoreInterface::copy_planes(ARFramePacket &r_packet) {
 	if (planes.empty() && bool(extras.diagnostics().get("frame_probes_enabled", false))) {
 		api.ArTrackableList_destroy(trackable_list);
 		trackable_list = nullptr;
@@ -581,5 +584,6 @@ void ARCoreInterface::copy_planes(ARFramePacket &r_packet) {
 		r_packet.planes.push_back(snapshot);
 		++it;
 	}
+	return current_packet.is_valid() ? r_packet.planes != current_packet->planes : !r_packet.planes.empty();
 }
 }

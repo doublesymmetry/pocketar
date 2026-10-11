@@ -17,13 +17,14 @@ func _check(condition: bool, message: String) -> void:
 
 func _run() -> void:
 	_check(PocketAR.get_version() == "0.0.1-dev", "version")
-	_check(PocketAR.get_backend() == "synthetic", "backend")
+	_check(PocketAR.get_backend() == "none", "no backend before initialization")
 	interface = SyntheticARInterface.new()
 	interface.set_intrinsics(520, 510, 301, 227, Vector2i(640, 480))
 	interface.set_display_geometry(Vector2i(720, 960), 1, 0.17, 23.0)
 	interface.set_camera_rate(1.0)
 	XRServer.add_interface(interface)
 	_check(interface.initialize(), "initialization")
+	_check(PocketAR.get_backend() == "synthetic", "active backend")
 	var first: ARFramePacket = interface.get_current_packet()
 	_check(first != null and first.tracking_valid, "first packet")
 	_check(interface.get_presented_packet() == null, "nothing presented before draw")

@@ -3,9 +3,15 @@ extends Control
 
 signal screen_pressed(screen_point: Vector2, ray: Dictionary)
 signal packet_applied(packet: ARFramePacket)
+signal session_state_changed(state: PocketAR.SessionState)
+signal tracking_reason_changed(reason: PocketAR.TrackingReason)
+signal session_generation_changed(generation: int)
+signal planes_changed()
 
 @export_range(-1, 3) var orientation_quarter_turns: int = -1
-@export_enum("Synthetic", "ARCore", "ARKit") var backend: int = 0
+@export_enum("Synthetic", "ARCore", "ARKit", "Scripted") var backend: int = 0
+@export_file("*.jsonl") var fixture_path: String = ""
+@export var handle_presses: bool = false
 @export var environment: Environment:
 	set(value):
 		environment = value
@@ -23,6 +29,18 @@ signal packet_applied(packet: ARFramePacket)
 var interface: XRInterfaceExtension
 var applied_packet: ARFramePacket
 var waiting_for_packet: bool = true
+var session_state: PocketAR.SessionState:
+	get:
+		return int(interface.call("get_session_state")) if interface != null else PocketAR.PAUSED
+var tracking_reason: PocketAR.TrackingReason:
+	get:
+		return int(interface.call("get_tracking_reason")) if interface != null else PocketAR.NONE
+var session_generation: int:
+	get:
+		return int(interface.call("get_session_generation")) if interface != null else 0
+var _session_state: PocketAR.SessionState = PocketAR.PAUSED
+var _tracking_reason: PocketAR.TrackingReason = PocketAR.NONE
+var _session_generation: int = 0
 var world_3d: World3D:
 	get:
 		return virtual_scene.find_world_3d()
@@ -44,8 +62,18 @@ func _ready() -> void:
 				push_error("%s is unavailable on this platform" % native_class)
 				return
 			interface = ClassDB.instantiate(native_class) as XRInterfaceExtension
+		elif backend == 3:
+			var scripted := ScriptedARInterface.new()
+			if scripted.load_fixture(fixture_path) != OK:
+				push_error("Cannot load PocketAR fixture: " + fixture_path)
+				return
+			interface = scripted
 		else:
 			interface = SyntheticARInterface.new()
+	interface.connect("session_state_changed", _on_session_state_changed)
+	interface.connect("tracking_reason_changed", _on_tracking_reason_changed)
+	interface.connect("session_generation_changed", _on_session_generation_changed)
+	interface.connect("planes_changed", _on_planes_changed)
 	XRServer.add_interface(interface)
 	_update_geometry()
 	if not interface.initialize():
@@ -79,6 +107,34 @@ func _exit_tree() -> void:
 
 func _process(_delta: float) -> void:
 	_update_geometry()
+
+
+func reset() -> void:
+	if interface != null and interface.is_initialized():
+		interface.call("reset")
+		_apply_packet()
+
+
+func _on_session_state_changed(state: PocketAR.SessionState) -> void:
+	if _session_state != state:
+		_session_state = state
+		session_state_changed.emit(state)
+
+
+func _on_tracking_reason_changed(reason: PocketAR.TrackingReason) -> void:
+	if _tracking_reason != reason:
+		_tracking_reason = reason
+		tracking_reason_changed.emit(reason)
+
+
+func _on_session_generation_changed(generation: int) -> void:
+	if _session_generation != generation:
+		_session_generation = generation
+		session_generation_changed.emit(generation)
+
+
+func _on_planes_changed() -> void:
+	planes_changed.emit()
 
 
 func _notification(what: int) -> void:
@@ -167,29 +223,68 @@ func _mark_presented() -> void:
 
 
 func screen_to_ray(screen_point: Vector2) -> Dictionary:
-	if interface == null:
-		return {}
-	var packet: ARFramePacket = interface.call("get_presented_packet") as ARFramePacket
-	if packet == null or not packet.tracking_valid:
+	var packet: ARFramePacket = _presented_packet()
+	if packet == null:
 		return {}
 	return PocketAR.screen_to_ray(packet, size, screen_point)
 
 
-func raycast(screen_point: Vector2) -> Array:
-	if interface == null:
+func raycast(screen_point: Vector2, alignments: int = PocketAR.ALIGNMENT_MASK_ALL) -> Array[ARRaycastHit]:
+	var packet: ARFramePacket = _presented_packet()
+	if packet == null:
 		return []
+	var hits: Array[ARRaycastHit] = PocketAR.raycast_planes(packet, PocketAR.screen_to_ray(packet, size, screen_point))
+	var filtered: Array[ARRaycastHit] = []
+	for hit: ARRaycastHit in hits:
+		if alignments & (1 << hit.alignment):
+			filtered.append(hit)
+	return filtered
+
+
+func _presented_packet() -> ARFramePacket:
+	if interface == null or size.x <= 0 or size.y <= 0:
+		return null
 	var packet: ARFramePacket = interface.call("get_presented_packet") as ARFramePacket
-	if packet == null or not packet.tracking_valid:
-		return []
-	return PocketAR.raycast_planes(packet, PocketAR.screen_to_ray(packet, size, screen_point))
+	if packet == null or not packet.tracking_valid or packet.session_generation != session_generation:
+		return null
+	return packet
+
+
+func world_to_screen(world_point: Vector3) -> Vector2:
+	var packet: ARFramePacket = _presented_packet()
+	if packet == null or not world_point.is_finite():
+		return Vector2.INF
+	var local: Vector3 = packet.camera_transform.affine_inverse() * world_point
+	var clip: Vector4 = packet.projection * Vector4(local.x, local.y, local.z, 1.0)
+	if clip.w <= 0.0:
+		return Vector2.INF
+	return Vector2(clip.x / clip.w + 1.0, 1.0 - clip.y / clip.w) * size * 0.5
+
+
+func screen_to_point(screen_point: Vector2, depth: float) -> Vector3:
+	var packet: ARFramePacket = _presented_packet()
+	if packet == null or not screen_point.is_finite() or not is_finite(depth) or depth < 0.0:
+		return Vector3.INF
+	var ray: Dictionary = PocketAR.screen_to_ray(packet, size, screen_point)
+	var direction: Vector3 = ray["direction"]
+	var local_direction: Vector3 = packet.camera_transform.basis.inverse() * direction
+	if local_direction.z >= 0.0:
+		return Vector3.INF
+	return packet.camera_transform.origin + direction * (depth / -local_direction.z)
+
+
+func view_point(event_position: Vector2) -> Vector2:
+	return get_global_transform_with_canvas().affine_inverse() * event_position
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not handle_presses:
+		return
 	var point := Vector2.ZERO
 	if event is InputEventScreenTouch and event.pressed:
-		point = event.position - global_position
-	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		point = event.position - global_position
+		point = view_point(event.position)
+	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and event.device != InputEvent.DEVICE_ID_EMULATION:
+		point = view_point(event.position)
 	else:
 		return
 	if Rect2(Vector2.ZERO, size).has_point(point):
