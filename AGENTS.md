@@ -516,7 +516,8 @@ ID and the packet frame ID when that native frame has been published (otherwise 
 It is a live query; copied packet polygons remain the placement API.
 
 `get_diagnostics()` reports device/session, projection and texture-retirement
-details; the ARKit step thresholds live in `demo/ar/ios_ar_harness.gd`.
+details, plus `thermal_state` (`NSProcessInfo.thermalState`, 0 nominal to 3 critical); the ARKit
+step thresholds live in `demo/ar/ios_ar_harness.gd`.
 
 Use the iOS 17+ lane from ci4's GUI session after building/signing the exported app:
 

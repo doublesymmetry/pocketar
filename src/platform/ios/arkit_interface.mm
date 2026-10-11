@@ -632,6 +632,7 @@ Dictionary ARKitInterface::get_diagnostics() const {
 	result["session_generation"] = generation;
 	result["state"] = int(state);
 	result["reason"] = int(reason);
+	result["thermal_state"] = int64_t([NSProcessInfo processInfo].thermalState);
 	return result;
 }
 
