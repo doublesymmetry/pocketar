@@ -785,6 +785,10 @@ against the running view and presented packet before injecting inputs.
 `--view-size W H` defaults to 640×480. `--quarter-turns 0|1|2|3` defaults to the
 ARView choice: 1 for portrait, 0 otherwise. Generated UVs include the target
 view's centred aspect-fill crop and rotation; cropped-out targets are rejected.
+Generated physical camera poses compose the path's yaw with a local-Z roll of
+`-quarter_turns * 90°`. The backend's positive display rotation cancels that roll,
+so world up stays screen up in every orientation, including on the orbit path.
+The recorded transform remains in the physical image-camera basis.
 
 Generate the desktop suite fixture with:
 

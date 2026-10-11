@@ -30,26 +30,37 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(records[0]["view_size"], [1080, 1920])
         self.assertEqual(records[0]["quarter_turns"], 1)
         for event in (r for r in records if "kind" in r):
-            # Portrait rotates the image clockwise, then crops 180 pixels per side.
-            rotated_x = (event["uv"][0] * 1080 + 180) / 3
-            rotated_y = event["uv"][1] * 1920 / 3
-            image_x, image_y = rotated_y, 480 - rotated_x
-            depth = 0.7 * 510 / (image_y - 240)
-            hit = ((image_x - 320) * depth / 520, -0.7, -depth)
-            self.assertLess(sum((a - b) ** 2 for a, b in zip(hit, (0, -0.7, -2))) ** 0.5, 0.001)
+            self.assertAlmostEqual(event["uv"][0], 0.5)
+            self.assertAlmostEqual(event["uv"][1], 0.784375)
+
+    def test_table_is_below_center_and_gravity_is_screen_down(self):
+        for view in ((640, 480), (432, 768)):
+            for turns in (None, 0, 1, 2, 3):
+                for camera in ("static", "orbit"):
+                    with self.subTest(view=view, turns=turns, camera=camera):
+                        rotation = [] if turns is None else ["--quarter-turns", str(turns)]
+                        records = self.generate("--view-size", *map(str, view), "--camera", camera,
+                                                "--table-height", "0.4", "--tap-at", "0.6", *rotation)
+                        frames = {r["frame_id"]: r for r in records if "frame_id" in r}
+                        for event in (r for r in records if "kind" in r):
+                            self.assertAlmostEqual(event["uv"][0], 0.5)
+                            self.assertGreater(event["uv"][1], 0.5)
+                            matrix = frames[event["target_frame"]]["camera_transform"]
+                            gx, gy = -matrix[1], matrix[5]
+                            for _ in range(records[0]["quarter_turns"]):
+                                gx, gy = -gy, gx
+                            self.assertAlmostEqual(gx, 0)
+                            self.assertAlmostEqual(gy, 1)
 
     def test_explicit_rotations_project_into_a_cropped_view(self):
         for turns in range(4):
             records = self.generate("--view-size", "1080", "1920", "--quarter-turns", str(turns),
                                     "--tap-at", "0.6", "--tap-world", "0.1", "-0.2", "-2")
             self.assertEqual(records[0]["quarter_turns"], turns)
-            x, y = 346, 291
-            width, height = 640, 480
-            for _ in range(turns):
-                x, y, width, height = height - y, x, height, width
+            width, height = (480, 640) if turns % 2 else (640, 480)
+            fx, fy = (510, 520) if turns % 2 else (520, 510)
             scale = max(1080 / width, 1920 / height)
-            expected = [(x * scale - (width * scale - 1080) / 2) / 1080,
-                        (y * scale - (height * scale - 1920) / 2) / 1920]
+            expected = [0.5 + 0.05 * fx * scale / 1080, 0.5 + 0.1 * fy * scale / 1920]
             for event in (r for r in records if "kind" in r):
                 for actual, wanted in zip(event["uv"], expected):
                     self.assertAlmostEqual(actual, wanted)
@@ -81,19 +92,36 @@ class FixtureTests(unittest.TestCase):
                 states = [p["tracking_state"] for p in frames[time]["planes"]]
                 self.assertEqual(states, ["tracking", "tracking", "paused", "tracking"])
 
-    def test_orbit_touch_unprojects_to_requested_world_point(self):
-        records = self.generate("--camera", "orbit", "--tap-at", "0.6")
+    def test_oriented_touch_unprojects_to_requested_world_point(self):
+        for view in ((640, 480), (432, 768), (1080, 1920)):
+            for turns in range(4):
+                for camera in ("static", "orbit"):
+                    for semantics in ("arkit", "arcore"):
+                        with self.subTest(view=view, turns=turns, camera=camera, semantics=semantics):
+                            records = self.generate("--view-size", *map(str, view), "--quarter-turns", str(turns),
+                                                    "--camera", camera, "--semantics", semantics, "--tap-at", "0.6",
+                                                    "--table-height", "0.4", "--tap-world", "0.1", "-0.4", "-2")
+                            self.assert_inputs_hit(records, (0.1, -0.4, -2))
+
+    def assert_inputs_hit(self, records, target):
         header = records[0]
+        turns = header["quarter_turns"]
+        view_width, view_height = header["view_size"]
+        width, height = (480, 640) if turns % 2 else (640, 480)
+        scale = max(view_width / width, view_height / height)
         frames = {r["frame_id"]: r for r in records[1:] if "frame_id" in r}
         for event in (r for r in records[1:] if "kind" in r):
             matrix = frames[event["target_frame"]]["camera_transform"]
             fx, fy = header["intrinsics"]["fx"], header["intrinsics"]["fy"]
-            ray_local = [(event["uv"][0] * 640 - 320) / fx, -(event["uv"][1] * 480 - 240) / fy, -1]
+            x = (event["uv"][0] - 0.5) * view_width / scale
+            y = (event["uv"][1] - 0.5) * view_height / scale
+            for _ in range(turns):
+                x, y = y, -x
+            ray_local = [x / fx, -y / fy, -1]
             direction = [sum(matrix[column * 4 + row] * ray_local[column] for column in range(3)) for row in range(3)]
-            distance = (-0.7 - matrix[13]) / direction[1]
+            distance = (target[1] - matrix[13]) / direction[1]
             hit = [matrix[12 + row] + distance * direction[row] for row in range(3)]
-            for actual, expected in zip(hit, (0, -0.7, -2)):
-                self.assertAlmostEqual(actual, expected, places=8)
+            self.assertLess(sum((a - b) ** 2 for a, b in zip(hit, target)) ** 0.5, 0.001)
 
     def test_generation_is_deterministic_and_events_ordered(self):
         args = ("--loss-at", "1", "--reset-at", "1.5", "--pause-at", "1.75", "--tap-at", "0.6", "--drag-to", "0.1", "-0.7", "-2", "--plane-examples")

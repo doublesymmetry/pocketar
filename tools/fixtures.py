@@ -30,9 +30,14 @@ def parser():
     return result
 
 
-def transform(origin, yaw=0.0):
+def transform(origin, yaw=0.0, roll=0.0):
     cosine, sine = math.cos(yaw), math.sin(yaw)
-    return [cosine, 0, -sine, 0, 0, 1, 0, 0, sine, 0, cosine, 0, *origin, 1]
+    result = [cosine, 0, -sine, 0, 0, 1, 0, 0, sine, 0, cosine, 0, *origin, 1]
+    if roll:
+        roll_cosine, roll_sine = math.cos(roll), math.sin(roll)
+        result[:3] = [cosine * roll_cosine, roll_sine, -sine * roll_cosine]
+        result[4:7] = [-cosine * roll_sine, roll_cosine, sine * roll_sine]
+    return result
 
 
 def project(point, camera, intrinsics, image_size):
@@ -117,7 +122,7 @@ def generate(options):
         tracking = time >= options.tracking_at and not lost and not paused and index != reset_frame
         state = "paused" if paused else "tracking" if tracking else "initializing"
         yaw = 0.35 * math.sin(2 * math.pi * time / options.duration) if options.camera == "orbit" else 0.0
-        camera = transform([2 * math.sin(yaw), 0, -2 + 2 * math.cos(yaw)], yaw)
+        camera = transform([2 * math.sin(yaw), 0, -2 + 2 * math.cos(yaw)], yaw, roll=-turns * math.pi / 2)
         frame = {"t_usec": round(time * 1_000_000), "frame_id": index + 1,
                  "camera_transform": camera, "tracking_valid": tracking or (lost and options.semantics == "arkit"),
                  "session_state": state, "tracking_reason": "insufficient_features" if lost else "none"}
