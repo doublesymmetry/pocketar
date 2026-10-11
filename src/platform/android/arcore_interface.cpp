@@ -99,9 +99,6 @@ bool ARCoreInterface::_initialize() {
 	diagnostics["display_transform_valid"] = true;
 	diagnostics["last_error"] = "";
 	diagnostics["mean_y"] = 0.0;
-	for (const char *key : {"gpu_submissions", "gpu_buffer_missing", "gpu_submit_errors", "gpu_validation_samples", "gpu_validation_failures", "gpu_validation_image_missing", "gpu_validation_wait_frames"}) diagnostics[key] = int64_t(0);
-	gpu_validation_worst = {}; gpu_validation_sum = {};
-	gpu_validation_pending = false;
 	detect_gpu_camera();
 	std::string error;
 	if (!api.load(error)) {
@@ -394,6 +391,12 @@ void ARCoreInterface::reset() {
 	increment("reset_count");
 	reset_tick = tick_usec();
 	first_tracking_tick = 0;
+	gpu_buffer_misses = 0;
+	gpu_active = false;
+	if (gpu_texture.is_valid()) {
+		diagnostics["camera_path"] = "cpu";
+		diagnostics["camera_path_reason"] = "awaiting first hardware buffer completion";
+	}
 	current_packet.unref(); presented_packet.unref();
 	release_session();
 	last_timestamp = 0;
@@ -527,6 +530,9 @@ Dictionary ARCoreInterface::get_diagnostics() const {
 	result["gpu_submit_p50_us"] = percentile(gpu_submit_times, 0.50);
 	result["gpu_submit_p95_us"] = percentile(gpu_submit_times, 0.95);
 	result["gpu_submit_sample_count"] = int64_t(gpu_submit_times.size());
+	result["frame_setup_p50_us"] = percentile(frame_setup_times, 0.50);
+	result["frame_setup_p95_us"] = percentile(frame_setup_times, 0.95);
+	result["frame_setup_sample_count"] = int64_t(frame_setup_times.size());
 	result["gpu_validation_enabled"] = gpu_validate;
 	result["gpu_color_model"] = gpu_color_model;
 	result["gpu_color_range"] = gpu_color_range;

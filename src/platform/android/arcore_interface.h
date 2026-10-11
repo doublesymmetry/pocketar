@@ -3,6 +3,7 @@
 #include "arcore_api.h"
 #include "arcore_extras.h"
 #include "arcore_bridge.h"
+#include "gpu_camera_validation.h"
 #include "core/ar_frame_packet.h"
 #include "core/ar_plane_tracker.h"
 #include <godot_cpp/classes/image_texture.hpp>
@@ -60,12 +61,14 @@ private:
 	bool gpu_active = false;
 	bool gpu_validate = false;
 	bool gpu_validation_pending = false;
-	int gpu_color_model = 2;
-	int gpu_color_range = 1;
+	int gpu_color_model = 0;
+	int gpu_color_range = 0;
+	int gpu_buffer_misses = 0;
 	uint64_t gpu_validation_swap = 0;
 	int64_t gpu_validation_timestamp = 0;
 	Vector2i gpu_validation_size;
-	std::array<std::array<std::array<double, 3>, 9>, 4> gpu_cpu_means{};
+	handheld_ar::CameraBlockMeans gpu_cpu_means{};
+	double gpu_validation_luma_range = 0, gpu_validation_chroma_magnitude = 0;
 	std::array<double, 4> gpu_validation_worst{}, gpu_validation_sum{};
 	int64_t generation = 0;
 	int64_t sequence = 0;
@@ -99,6 +102,9 @@ private:
 	size_t bridge_history_size = 0;
 	std::vector<double> gpu_submit_times;
 	size_t gpu_submit_cursor = 0;
+	std::vector<double> frame_setup_times;
+	size_t frame_setup_cursor = 0;
+	uint64_t frame_setup_swap = 0;
 
 	bool on_owner_thread() const;
 	void set_state(SessionState p_state);
@@ -121,6 +127,8 @@ private:
 	void inspect_intrinsics(const ArCamera *p_camera, ARFramePacket &r_packet);
 	void inspect_hardware_buffer();
 	void detect_gpu_camera();
+	void fallback_gpu_camera(const String &p_reason);
+	void gpu_camera_completed(int p_status, int64_t p_generation);
 	bool submit_gpu_camera();
 	void capture_gpu_validation(int64_t p_timestamp);
 	void finish_gpu_validation();

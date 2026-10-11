@@ -1,26 +1,72 @@
 #include "arcore_interface.h"
 #include "gpu_camera_validation.h"
 #include <godot_cpp/classes/image.hpp>
+#include <godot_cpp/classes/rendering_device.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/time.hpp>
+#include <godot_cpp/variant/callable_method_pointer.hpp>
+#include <godot_cpp/variant/rect2i.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <android/hardware_buffer.h>
 #include <limits>
 
 namespace godot {
 
+static uint64_t tick_usec() { return Time::get_singleton()->get_ticks_usec(); }
+
 void ARCoreInterface::detect_gpu_camera() {
 	gpu_texture.unref();
 	gpu_active = false;
+	gpu_buffer_misses = 0;
+	gpu_validation_pending = false;
+	gpu_validation_worst = {}; gpu_validation_sum = {};
+	gpu_submit_times.clear(); gpu_submit_cursor = 0;
+	frame_setup_times.clear(); frame_setup_cursor = 0;
+	frame_setup_swap = rd_swaps;
+	for (const char *key : {"gpu_submissions", "gpu_buffer_missing", "gpu_submit_errors", "gpu_completions", "gpu_completion_failures", "gpu_completion_drops", "gpu_buffer_size_mismatches", "gpu_validation_samples", "gpu_validation_failures", "gpu_validation_image_missing", "gpu_validation_skipped_submissions"}) diagnostics[key] = int64_t(0);
+	for (const char *key : {"gpu_validation_candidates", "gpu_validation_luma_range_255", "gpu_validation_chroma_magnitude_255", "gpu_validation_cpu_timestamp_ns", "gpu_validation_timestamp_delta_ns", "gpu_validation_frame_timestamp_ns", "gpu_validation_readback_swaps", "gpu_crop"}) diagnostics.erase(key);
 	diagnostics["camera_path"] = "cpu";
-	diagnostics["gpu_color_override_reason"] = "default BT.601 full (camera JFIF); device validation pending";
+	RenderingDevice *rd = RenderingServer::get_singleton()->get_rendering_device();
 	if (camera_path == "cpu") {
 		diagnostics["camera_path_reason"] = "forced CPU";
 	} else if (!ClassDB::class_has_method("ExternalTexture", "submit_hardware_buffer")) {
 		diagnostics["camera_path_reason"] = "ExternalTexture.submit_hardware_buffer unavailable";
+	} else if (!ClassDB::class_has_integer_constant("RenderingDevice", "SUPPORTS_ANDROID_HARDWARE_BUFFER") || !rd ||
+		!rd->has_feature(RenderingDevice::Features(ClassDB::class_get_integer_constant("RenderingDevice", "SUPPORTS_ANDROID_HARDWARE_BUFFER")))) {
+		diagnostics["camera_path_reason"] = "RenderingDevice lacks SUPPORTS_ANDROID_HARDWARE_BUFFER";
 	} else {
+		gpu_color_model = ClassDB::class_get_integer_constant("ExternalTexture", "COLOR_MODEL_BT601");
+		gpu_color_range = ClassDB::class_get_integer_constant("ExternalTexture", "COLOR_RANGE_FULL");
 		gpu_texture = ClassDB::instantiate("ExternalTexture");
-		diagnostics["camera_path_reason"] = gpu_texture.is_valid() ? "awaiting first hardware buffer submission" : "ExternalTexture instantiation failed";
+		diagnostics["camera_path_reason"] = gpu_texture.is_valid() ? "awaiting first hardware buffer completion" : "ExternalTexture instantiation failed";
 	}
+}
+
+void ARCoreInterface::fallback_gpu_camera(const String &p_reason) {
+	diagnostics["camera_path"] = "cpu";
+	diagnostics["camera_path_reason"] = p_reason;
+	UtilityFunctions::print("ARCORE camera_path=cpu reason=", p_reason);
+	gpu_active = false;
+	gpu_texture.unref();
+	reset();
+}
+
+void ARCoreInterface::gpu_camera_completed(int p_status, int64_t p_generation) {
+	if (!initialized || p_generation != generation || gpu_texture.is_null()) return;
+	ERR_FAIL_COND(!on_owner_thread());
+	if (p_status == ClassDB::class_get_integer_constant("ExternalTexture", "COMPLETION_FAILED")) {
+		increment("gpu_completion_failures");
+		if (!gpu_active) fallback_gpu_camera("submit_hardware_buffer completion FAILED before GPU activation");
+	} else if (p_status == ClassDB::class_get_integer_constant("ExternalTexture", "COMPLETION_COMPLETED")) {
+		increment("gpu_completions");
+		if (!gpu_active) {
+			gpu_active = true;
+			if (!gpu_validate) extras.cancel_image_capacity_probe();
+			diagnostics["camera_path"] = "gpu";
+			diagnostics["camera_path_reason"] = "ExternalTexture hardware buffer conversion completed";
+			UtilityFunctions::print("ARCORE camera_path=gpu color_model=", gpu_color_model, " color_range=", gpu_color_range);
+		}
+	} else if (p_status == ClassDB::class_get_integer_constant("ExternalTexture", "COMPLETION_DROPPED")) increment("gpu_completion_drops");
 }
 
 void ARCoreInterface::set_camera_path(const String &p_path) {
@@ -37,14 +83,20 @@ void ARCoreInterface::set_camera_path(const String &p_path) {
 void ARCoreInterface::set_gpu_validation_enabled(bool p_enabled) {
 	ERR_FAIL_COND(initialized && !on_owner_thread());
 	gpu_validate = p_enabled;
-	if (!p_enabled) gpu_validation_pending = false;
+	if (!p_enabled) {
+		gpu_validation_pending = false;
+		if (gpu_active) extras.cancel_image_capacity_probe();
+	}
 }
 
 Dictionary ARCoreInterface::begin_image_capacity_probe() {
 	if (!gpu_active || gpu_validate) return extras.begin_image_capacity_probe();
 	Dictionary result;
 	result["ok"] = false;
-	result["status"] = "CPU image probes on the GPU path require GPU validation";
+	result["status"] = "GPU_PATH";
+	result["ar_status"] = int(AR_ERROR_ILLEGAL_STATE);
+	result["session_generation"] = generation;
+	result["frame_id"] = sequence;
 	return result;
 }
 
@@ -53,38 +105,45 @@ bool ARCoreInterface::submit_gpu_camera() {
 	const ArStatus status = api.ArFrame_getHardwareBuffer(session, frame, &buffer);
 	if (status != AR_SUCCESS || !buffer) {
 		increment("gpu_buffer_missing");
-		if (status != AR_ERROR_NOT_YET_AVAILABLE) fail(status == AR_SUCCESS ? AR_ERROR_FATAL : status, "getHardwareBuffer");
+		++gpu_buffer_misses;
+		if (!gpu_active && (status != AR_ERROR_NOT_YET_AVAILABLE || gpu_buffer_misses >= 30)) {
+			fallback_gpu_camera(String("getHardwareBuffer status=") + String::num_int64(status) + " consecutive_misses=" + String::num_int64(gpu_buffer_misses));
+		}
 		return false;
 	}
-	const uint64_t start = Time::get_singleton()->get_ticks_usec();
-	// The dynamic call takes the engine's buffer reference before the next ArSession_update.
-	const Variant result = gpu_texture->call("submit_hardware_buffer", int64_t(reinterpret_cast<uintptr_t>(buffer)), gpu_color_model, gpu_color_range);
-	sample(gpu_submit_times, gpu_submit_cursor, double(Time::get_singleton()->get_ticks_usec() - start));
+	gpu_buffer_misses = 0;
+	AHardwareBuffer_Desc desc{};
+	AHardwareBuffer_describe(static_cast<AHardwareBuffer *>(buffer), &desc);
+	const bool rgb = desc.format == AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM || desc.format == AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM ||
+		desc.format == AHARDWAREBUFFER_FORMAT_R8G8B8_UNORM || desc.format == AHARDWAREBUFFER_FORMAT_R5G6B5_UNORM ||
+		desc.format == AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT || desc.format == AHARDWAREBUFFER_FORMAT_R10G10B10A2_UNORM ||
+		desc.format == AHARDWAREBUFFER_FORMAT_R10G10B10A10_UNORM;
+	gpu_color_model = ClassDB::class_get_integer_constant("ExternalTexture", rgb ? "COLOR_MODEL_RGB" : "COLOR_MODEL_BT601");
+	Rect2i crop;
+	if (desc.width != uint32_t(gpu_size.x) || desc.height != uint32_t(gpu_size.y)) {
+		increment("gpu_buffer_size_mismatches");
+		if (gpu_size.x <= 0 || gpu_size.y <= 0 || desc.width < uint32_t(gpu_size.x) || desc.height < uint32_t(gpu_size.y)) {
+			fallback_gpu_camera("hardware buffer smaller than ARCore texture dimensions");
+			return false;
+		}
+		crop = Rect2i(Vector2i(), gpu_size);
+	}
+	diagnostics["gpu_crop"] = crop;
+	const uint64_t start = tick_usec();
+	const Variant result = gpu_texture->call("submit_hardware_buffer", int64_t(reinterpret_cast<uintptr_t>(buffer)), gpu_color_model, gpu_color_range, crop, callable_mp(this, &ARCoreInterface::gpu_camera_completed).bind(generation));
+	sample(gpu_submit_times, gpu_submit_cursor, double(tick_usec() - start));
 	const int error = result.get_type() == Variant::INT ? int(result) : int(ERR_INVALID_DATA);
 	if (error != OK) {
 		increment("gpu_submit_errors");
-		diagnostics["camera_path"] = "cpu";
-		diagnostics["camera_path_reason"] = error == ERR_UNAVAILABLE ? String("submit_hardware_buffer returned ERR_UNAVAILABLE") : String("submit_hardware_buffer error=") + String::num_int64(error);
-		UtilityFunctions::print("ARCORE camera_path=cpu reason=", diagnostics["camera_path_reason"]);
-		gpu_active = false;
-		gpu_texture.unref();
-		reset();
+		fallback_gpu_camera(error == ERR_UNAVAILABLE ? String("submit_hardware_buffer returned ERR_UNAVAILABLE") : String("submit_hardware_buffer error=") + String::num_int64(error));
 		return false;
 	}
-	if (!gpu_active) {
-		gpu_active = true;
-		diagnostics["camera_path"] = "gpu";
-		diagnostics["camera_path_reason"] = "ExternalTexture hardware buffer submission accepted";
-		UtilityFunctions::print("ARCORE camera_path=gpu color_model=", gpu_color_model, " color_range=", gpu_color_range);
-	}
 	increment("gpu_submissions");
-	if (gpu_validate && int64_t(diagnostics["gpu_validation_samples"]) < 3 && int64_t(diagnostics["gpu_submissions"]) % 60 == 1) {
-		AHardwareBuffer_Desc desc{};
-		AHardwareBuffer_describe(static_cast<AHardwareBuffer *>(buffer), &desc);
-		gpu_validation_size = Vector2i(desc.width, desc.height);
+	if (gpu_active && gpu_validate && int64_t(diagnostics["gpu_validation_samples"]) < 3 && int64_t(diagnostics["gpu_submissions"]) % 60 == 1) {
+		gpu_validation_size = gpu_size;
 		capture_gpu_validation(last_timestamp);
 	}
-	return true;
+	return gpu_active;
 }
 
 void ARCoreInterface::capture_gpu_validation(int64_t p_timestamp) {
@@ -118,7 +177,7 @@ void ARCoreInterface::capture_gpu_validation(int64_t p_timestamp) {
 		valid = handheld_ar::gpu_validation_coordinates(gpu_validation_size.x, gpu_validation_size.y, texture_uv);
 		if (valid) {
 			api.ArFrame_transformCoordinates2d(session, frame, AR_COORDINATES_2D_TEXTURE_NORMALIZED, handheld_ar::GPU_VALIDATION_PIXELS, texture_uv, AR_COORDINATES_2D_IMAGE_NORMALIZED, image_uv);
-			valid = handheld_ar::cpu_camera_block_means(width, height, planes, image_uv, gpu_cpu_means);
+			valid = handheld_ar::cpu_camera_block_means(width, height, planes, image_uv, gpu_cpu_means, gpu_validation_luma_range, gpu_validation_chroma_magnitude);
 		}
 	}
 	api.ArImage_release(image);
@@ -153,7 +212,6 @@ void ARCoreInterface::finish_gpu_validation() {
 	const int64_t samples = diagnostics["gpu_validation_samples"];
 	const char *names[] = {"bt601_full", "bt601_narrow", "bt709_full", "bt709_narrow"};
 	Dictionary candidates;
-	int best = 0;
 	for (int candidate = 0; candidate < 4; ++candidate) {
 		Array block_errors;
 		for (int block = 0; block < 9; ++block) {
@@ -171,20 +229,13 @@ void ARCoreInterface::finish_gpu_validation() {
 		result["mean_error_255"] = gpu_validation_sum[candidate] / (samples * 27);
 		result["last_block_errors_255"] = block_errors;
 		candidates[names[candidate]] = result;
-		if (gpu_validation_worst[candidate] < gpu_validation_worst[best]) best = candidate;
-		UtilityFunctions::print("ARCORE gpu_validation candidate=", names[candidate], " samples=", samples, " worst_255=", result["worst_block_error_255"], " mean_255=", result["mean_error_255"]);
+		UtilityFunctions::print("ARCORE gpu_validation INFO candidate=", names[candidate], " samples=", samples, " worst_255=", result["worst_block_error_255"], " mean_255=", result["mean_error_255"]);
 	}
 	diagnostics["gpu_validation_candidates"] = candidates;
-	diagnostics["gpu_validation_best"] = names[best];
-	diagnostics["gpu_validation_worst_block_error_255"] = gpu_validation_worst[best];
+	diagnostics["gpu_validation_luma_range_255"] = std::min(double(diagnostics.get("gpu_validation_luma_range_255", gpu_validation_luma_range)), gpu_validation_luma_range);
+	diagnostics["gpu_validation_chroma_magnitude_255"] = std::min(double(diagnostics.get("gpu_validation_chroma_magnitude_255", gpu_validation_chroma_magnitude)), gpu_validation_chroma_magnitude);
 	diagnostics["gpu_validation_frame_timestamp_ns"] = gpu_validation_timestamp;
 	diagnostics["gpu_validation_readback_swaps"] = int64_t(rd_swaps - gpu_validation_swap);
-	if (samples >= 3 && gpu_validation_worst[best] <= 6 && int64_t(diagnostics["gpu_validation_failures"]) == 0) {
-		gpu_color_model = best < 2 ? 2 : 3;
-		gpu_color_range = best % 2 ? 2 : 1;
-		diagnostics["gpu_color_override_reason"] = String("validated ") + names[best];
-		UtilityFunctions::print("ARCORE gpu_validation best=", names[best], " color_model=", gpu_color_model, " color_range=", gpu_color_range);
-	}
 }
 
 }

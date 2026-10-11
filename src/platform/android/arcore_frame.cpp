@@ -1,6 +1,7 @@
 #include "arcore_interface.h"
 #include "yuv_repack.h"
 #include <godot_cpp/classes/image.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/classes/xr_server.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
@@ -132,14 +133,11 @@ void ARCoreInterface::_process() {
 	if (!session || !running || application_suspended || state == FAILED || state == UNSUPPORTED || state == PERMISSION_DENIED) return;
 	const auto bridge = arcore_bridge_snapshot();
 	if (!bridge.resumed || bridge.state != READY) return;
-	if (gpu_validation_pending) {
-		// Freeze submissions and the packet until synchronous readback observes this frame's resolve.
-		if (rd_swaps - gpu_validation_swap < frame_delay + 2) {
-			increment("gpu_validation_wait_frames");
-			return;
-		}
-		finish_gpu_validation();
+	if (frame_setup_swap != rd_swaps) {
+		sample(frame_setup_times, frame_setup_cursor, RenderingServer::get_singleton()->get_frame_setup_time_cpu() * 1000.0);
+		frame_setup_swap = rd_swaps;
 	}
+	if (gpu_validation_pending && rd_swaps > gpu_validation_swap) finish_gpu_validation();
 	if (geometry_dirty || geometry_revision != bridge.geometry_revision) {
 		rotation = bridge.rotation;
 		api.ArSession_setDisplayGeometry(session, rotation, viewport_size.x, viewport_size.y);
@@ -169,8 +167,7 @@ void ARCoreInterface::_process() {
 	}
 	increment("successful_updates");
 	extras.on_tick(frame, !gpu_active || gpu_validate);
-	if (gpu_active && !gpu_validate) extras.cancel_image_capacity_probe();
-	else if (extras.probe_images(frame)) return;
+	if ((!gpu_active || gpu_validate) && extras.probe_images(frame)) return;
 	int64_t timestamp = 0;
 	api.ArFrame_getTimestamp(session, frame, &timestamp);
 	if (timestamp == 0 || timestamp == last_timestamp) {
@@ -259,7 +256,8 @@ void ARCoreInterface::inspect_hardware_buffer() {
 }
 
 void ARCoreInterface::build_packet(int64_t p_timestamp) {
-	if (gpu_texture.is_valid() && !submit_gpu_camera()) return;
+	if (gpu_validation_pending) increment("gpu_validation_skipped_submissions");
+	else if (gpu_texture.is_valid() && !submit_gpu_camera()) return;
 	ArCamera *camera = nullptr;
 	api.ArFrame_acquireCamera(session, frame, &camera);
 	if (!camera) { fail(AR_ERROR_FATAL, "acquire camera"); return; }

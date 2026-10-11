@@ -252,11 +252,12 @@ func _camera_image() -> void:
 	summary += " timestamp_mismatches=%s far=%s regressions=%s delta_ns_min/mean/max=%.0f/%.1f/%.0f" % [observed["image_timestamp_mismatches"], observed["image_timestamp_far_count"], observed["timestamp_regressions"], observed["image_timestamp_delta_min_ns"], observed["image_timestamp_delta_mean_ns"], observed["image_timestamp_delta_max_ns"]]
 	summary += " staging_kb=%s region_px=%s refusals=%s" % [observed.get("staging_block_size_kb", "missing"), observed.get("texture_upload_region_size_px", "missing"), observed.get("texture_refusals", "missing")]
 	summary = "path=cpu " + summary
+	summary += " frame_setup_us_p50/p95=%.1f/%.1f" % [observed.get("frame_setup_p50_us", 0.0), observed.get("frame_setup_p95_us", 0.0)]
 	_step("camera-image", "OK" if ok else "FAIL", summary)
 
 
 func _gpu_camera_image() -> void:
-	if not _require("camera-image", observed, ["config", "new_frame_count", "gpu_submissions", "gpu_buffer_missing", "gpu_submit_errors", "gpu_submit_p50_us", "gpu_submit_p95_us", "timestamp_regressions", "texture_refusals"]):
+	if not _require("camera-image", observed, ["config", "new_frame_count", "gpu_submissions", "gpu_buffer_missing", "gpu_submit_errors", "gpu_submit_p50_us", "gpu_submit_p95_us", "gpu_completions", "gpu_completion_failures", "frame_setup_p50_us", "frame_setup_p95_us", "timestamp_regressions", "texture_refusals"]):
 		return
 	var config: Dictionary = observed["config"]
 	if not _require("camera-image", config, ["fps_min", "texture_width", "texture_height"]):
@@ -269,10 +270,10 @@ func _gpu_camera_image() -> void:
 	var minimum_hz: float = float(config["fps_min"]) * 0.8
 	var ok: bool = frames > 0 and images > 0 and fraction <= 0.05 and minimum_hz > 0 and hz >= minimum_hz
 	ok = ok and int(observed["gpu_submit_errors"]) == 0 and int(observed["timestamp_regressions"]) == 0 and int(observed["texture_refusals"]) == 0
-	var summary: String = "path=gpu frames=%d submissions=%d hz=%.2f minimum_hz=%.2f missing_per_1000=%.2f gpu=%sx%s submit_us_p50/p95=%.1f/%.1f" % [frames, images, hz, minimum_hz, fraction * 1000, config["texture_width"], config["texture_height"], observed["gpu_submit_p50_us"], observed["gpu_submit_p95_us"]]
-	for stage: String in ["repack", "upload"]:
-		summary += " %s_us_p50/p95=%.1f/%.1f" % [stage, observed.get(stage + "_p50_us", 0.0), observed.get(stage + "_p95_us", 0.0)]
-	summary += " cpu_images=%s validation_wait_frames=%s reason=%s" % [observed.get("camera_image_count", 0), observed.get("gpu_validation_wait_frames", 0), observed.get("camera_path_reason", "")]
+	ok = ok and _delta("gpu_completions") > 0 and int(observed["gpu_completion_failures"]) == 0
+	var summary: String = "path=gpu frames=%d submissions=%d hz=%.2f minimum_hz=%.2f missing_per_1000=%.2f gpu=%sx%s queue_us_p50/p95=%.1f/%.1f" % [frames, images, hz, minimum_hz, fraction * 1000, config["texture_width"], config["texture_height"], observed["gpu_submit_p50_us"], observed["gpu_submit_p95_us"]]
+	summary += " frame_setup_us_p50/p95=%.1f/%.1f completed=%s failed=%s" % [observed["frame_setup_p50_us"], observed["frame_setup_p95_us"], observed["gpu_completions"], observed["gpu_completion_failures"]]
+	summary += " cpu_images=%s validation_skipped_submissions=%s reason=%s" % [observed.get("camera_image_count", 0), observed.get("gpu_validation_skipped_submissions", 0), observed.get("camera_path_reason", "")]
 	_step("camera-image", "OK" if ok else "FAIL", summary)
 
 
@@ -283,11 +284,25 @@ func _gpu_vs_cpu() -> void:
 	if String(observed.get("camera_path", "cpu")) != "gpu":
 		_step("gpu-vs-cpu", "FAIL", "GPU path unavailable: " + String(observed.get("camera_path_reason", "unknown")))
 		return
-	if not _require("gpu-vs-cpu", observed, ["gpu_validation_samples", "gpu_validation_failures", "gpu_validation_best", "gpu_validation_worst_block_error_255", "gpu_validation_candidates"]):
+	if not _require("gpu-vs-cpu", observed, ["gpu_validation_samples", "gpu_validation_failures", "gpu_validation_candidates", "gpu_validation_luma_range_255", "gpu_validation_chroma_magnitude_255"]):
 		return
-	var error: float = float(observed["gpu_validation_worst_block_error_255"])
+	var candidates: Dictionary = observed["gpu_validation_candidates"]
+	if not _require("gpu-vs-cpu", candidates, ["bt601_full", "bt601_narrow", "bt709_full", "bt709_narrow"]):
+		return
+	for name: String in candidates:
+		if not _require("gpu-vs-cpu", candidates[name], ["worst_block_error_255"]):
+			return
+		if name != "bt601_full":
+			_step("gpu-color-candidate", "INFO", "%s worst_block_error_255=%s" % [name, candidates[name]["worst_block_error_255"]])
+	var error: float = float(candidates["bt601_full"]["worst_block_error_255"])
 	var ok: bool = int(observed["gpu_validation_samples"]) >= 3 and int(observed["gpu_validation_failures"]) == 0 and is_finite(error) and error >= 0 and error <= 6.0
-	_step("gpu-vs-cpu", "OK" if ok else "FAIL", "samples=%s best=%s worst_block_error_255=%.3f threshold=6 failures=%s candidates=diagnostics.json" % [observed["gpu_validation_samples"], observed["gpu_validation_best"], error, observed["gpu_validation_failures"]])
+	ok = ok and int(observed.get("gpu_completion_failures", 0)) == 0
+	var luma_range: float = float(observed["gpu_validation_luma_range_255"])
+	var chroma_magnitude: float = float(observed["gpu_validation_chroma_magnitude_255"])
+	ok = ok and is_finite(luma_range) and is_finite(chroma_magnitude) and luma_range >= 0 and chroma_magnitude >= 0
+	var informative: bool = luma_range >= 24.0 and chroma_magnitude >= 8.0
+	var level: String = "FAIL" if not ok else ("OK" if informative else "INFO")
+	_step("gpu-vs-cpu", level, "samples=%s reference=bt601_full worst_block_error_255=%.3f threshold=6 failures=%s luma_range_255=%.3f chroma_magnitude_255=%.3f sufficient_variation=%s candidates=diagnostics.json" % [observed["gpu_validation_samples"], error, observed["gpu_validation_failures"], luma_range, chroma_magnitude, informative])
 
 
 func _diagnostic_check(name: String, valid_key: String, samples_key: String) -> void:
@@ -299,7 +314,7 @@ func _diagnostic_check(name: String, valid_key: String, samples_key: String) -> 
 
 func _composite() -> void:
 	var diagnostics: Dictionary = _diagnostics()
-	if not _require("composite", diagnostics, ["mean_y", "packets_presented", "textures_updated", "last_error"]):
+	if not _require("composite", diagnostics, ["packets_presented", "textures_updated", "last_error"]):
 		return
 	await RenderingServer.frame_post_draw
 	var screen: Image = get_viewport().get_texture().get_image()
@@ -323,7 +338,12 @@ func _composite() -> void:
 	var ok: bool = screen_saved and camera_saved and int(diagnostics["packets_presented"]) > 0 and int(diagnostics["textures_updated"]) > 0 and String(diagnostics["last_error"]).is_empty()
 	ok = ok and packet != null and (packet.rgb_texture != null or (packet.y_texture != null and packet.cbcr_texture != null)) and bool(visibility["valid"])
 	var level: String = "FAIL" if not ok else ("INFO" if bool(visibility["dark"]) else "OK")
-	_step("composite", level, "mean_y=%.3f mapped_mean_y=%.3f rendered_mean_y=%.3f presented=%s textures_updated=%s error=%s captures=%s" % [diagnostics["mean_y"], visibility["expected_y"], visibility["rendered_y"], diagnostics["packets_presented"], diagnostics["textures_updated"], diagnostics["last_error"], output_dir])
+	var summary: String = "mapped_mean_y=%.3f rendered_mean_y=%.3f presented=%s textures_updated=%s error=%s captures=%s" % [visibility["expected_y"], visibility["rendered_y"], diagnostics["packets_presented"], diagnostics["textures_updated"], diagnostics["last_error"], output_dir]
+	if String(diagnostics.get("camera_path", "cpu")) != "gpu":
+		if not _require("composite", diagnostics, ["mean_y"]):
+			return
+		summary = "mean_y=%.3f " % diagnostics["mean_y"] + summary
+	_step("composite", level, summary)
 
 
 func _camera_layer_check(rendered: Image, source_y: Image, mapping: Transform2D, camera_rect: Rect2, rgb_input: bool = false) -> Dictionary:

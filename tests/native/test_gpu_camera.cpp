@@ -34,7 +34,10 @@ int main() {
 			image_uv[2 * i + 1] = 0.2f + 0.6f * v;
 		}
 		CameraBlockMeans means{};
-		assert(cpu_camera_block_means(width, height, planes, image_uv, means));
+		double luma_range = 0, chroma_magnitude = 0;
+		assert(cpu_camera_block_means(width, height, planes, image_uv, means, luma_range, chroma_magnitude));
+		assert(luma_range > 90 && luma_range < 100);
+		assert(chroma_magnitude == 0);
 		for (int block = 0; block < 9; ++block) {
 			double expected = 0;
 			for (int pixel = 0; pixel < 256; ++pixel) {
@@ -45,13 +48,19 @@ int main() {
 		}
 	}
 	CameraBlockMeans means{};
+	double luma_range = 0, chroma_magnitude = 0;
+	std::fill(y.begin(), y.end(), 5);
+	std::fill(uv.begin(), uv.end(), 148);
+	assert(cpu_camera_block_means(width, height, planes, image_uv, means, luma_range, chroma_magnitude));
+	assert(luma_range == 0);
+	assert(std::abs(chroma_magnitude - std::sqrt(800.0)) < 1e-9);
 	image_uv[0] = -0.1f;
-	assert(!cpu_camera_block_means(width, height, planes, image_uv, means));
+	assert(!cpu_camera_block_means(width, height, planes, image_uv, means, luma_range, chroma_magnitude));
 	image_uv[0] = std::numeric_limits<float>::quiet_NaN();
-	assert(!cpu_camera_block_means(width, height, planes, image_uv, means));
+	assert(!cpu_camera_block_means(width, height, planes, image_uv, means, luma_range, chroma_magnitude));
 	image_uv[0] = 0.5f;
 	planes[2].length = 1;
-	assert(!cpu_camera_block_means(width, height, planes, image_uv, means));
+	assert(!cpu_camera_block_means(width, height, planes, image_uv, means, luma_range, chroma_magnitude));
 	assert(!gpu_validation_coordinates(16, 16, texture_uv));
 	puts("GPU camera color models, strided samples, crop/rotation and unequal resolutions PASS");
 }

@@ -1,5 +1,12 @@
 extends SceneTree
 
+class Harness extends "res://ar/ar_harness.gd":
+	var results: Array[Dictionary] = []
+
+	func _step(name: String, level: String, message: String) -> void:
+		results.append({"name": name, "level": level, "message": message})
+		super._step(name, level, message)
+
 var failures: int = 0
 
 
@@ -10,8 +17,7 @@ func _check(condition: bool, message: String) -> void:
 
 
 func _initialize() -> void:
-	var script: Script = load("res://ar/ar_harness.gd") as Script
-	var harness: Node = script.new() as Node
+	var harness := Harness.new()
 	var observed: Dictionary = {
 		"config": {"fps_min": 30, "fps_max": 30, "cpu_width": 1920, "cpu_height": 1080},
 		"config_list": [{"index": 0}],
@@ -49,30 +55,48 @@ func _initialize() -> void:
 		harness.set("failed", false)
 		harness.call("_camera_image")
 		_check(bool(harness.get("failed")), "invalid diagnostics must fail: " + str(invalid))
-	var gpu: Dictionary = {"camera_path": "gpu", "camera_path_reason": "submission accepted", "config": {"fps_min": 30, "texture_width": 1920, "texture_height": 1080}, "new_frame_count": 1800, "gpu_submissions": 1800, "gpu_buffer_missing": 0, "gpu_submit_errors": 0, "gpu_submit_p50_us": 20.0, "gpu_submit_p95_us": 40.0, "timestamp_regressions": 0, "texture_refusals": 0}
+	var gpu: Dictionary = {"camera_path": "gpu", "camera_path_reason": "conversion completed", "config": {"fps_min": 30, "texture_width": 1920, "texture_height": 1080}, "new_frame_count": 1800, "gpu_submissions": 1800, "gpu_buffer_missing": 0, "gpu_submit_errors": 0, "gpu_submit_p50_us": 20.0, "gpu_submit_p95_us": 40.0, "gpu_completions": 1800, "gpu_completion_failures": 0, "frame_setup_p50_us": 200.0, "frame_setup_p95_us": 400.0, "timestamp_regressions": 0, "texture_refusals": 0}
 	harness.set("observed", gpu)
 	harness.set("failed", false)
 	harness.call("_camera_image")
 	_check(not bool(harness.get("failed")), "GPU camera needs no CPU image diagnostics")
-	for invalid: Dictionary in [{"gpu_submissions": 1000}, {"gpu_buffer_missing": 100}, {"gpu_submit_errors": 1}, {"timestamp_regressions": 1}]:
+	for invalid: Dictionary in [{"gpu_submissions": 1000}, {"gpu_buffer_missing": 100}, {"gpu_submit_errors": 1}, {"gpu_completions": 0}, {"gpu_completion_failures": 1}, {"timestamp_regressions": 1}]:
 		var data: Dictionary = gpu.duplicate(true)
 		data.merge(invalid, true)
 		harness.set("observed", data)
 		harness.set("failed", false)
 		harness.call("_camera_image")
 		_check(bool(harness.get("failed")), "invalid GPU diagnostics must fail: " + str(invalid))
-	var validation: Dictionary = {"camera_path": "gpu", "gpu_validation_enabled": true, "gpu_validation_samples": 3, "gpu_validation_failures": 0, "gpu_validation_best": "bt601_full", "gpu_validation_worst_block_error_255": 6.0, "gpu_validation_candidates": {}}
-	harness.set("observed", validation)
-	harness.set("failed", false)
-	harness.call("_gpu_vs_cpu")
-	_check(not bool(harness.get("failed")), "6/255 validation boundary passes")
-	for invalid: Dictionary in [{"camera_path": "cpu"}, {"gpu_validation_samples": 0}, {"gpu_validation_samples": 2}, {"gpu_validation_failures": 1}, {"gpu_validation_worst_block_error_255": 6.01}, {"gpu_validation_worst_block_error_255": NAN}]:
+	harness.observed = {
+		"camera_path": "gpu", "gpu_validation_enabled": true,
+		"gpu_validation_samples": 3, "gpu_validation_failures": 0,
+		"gpu_validation_luma_range_255": 80.0, "gpu_validation_chroma_magnitude_255": 30.0,
+		"gpu_validation_candidates": {
+			"bt601_full": {"worst_block_error_255": 12.0},
+			"bt601_narrow": {"worst_block_error_255": 15.0},
+			"bt709_full": {"worst_block_error_255": 1.0},
+			"bt709_narrow": {"worst_block_error_255": 14.0},
+		},
+	}
+	check_level(harness, "FAIL", "another candidate cannot pass CPU parity")
+	harness.observed["gpu_validation_candidates"]["bt601_full"]["worst_block_error_255"] = 6.0
+	check_level(harness, "OK", "inclusive parity threshold")
+	harness.observed["gpu_validation_luma_range_255"] = 5.0
+	check_level(harness, "INFO", "flat luma cannot certify parity")
+	harness.observed["gpu_validation_luma_range_255"] = 80.0
+	harness.observed["gpu_validation_chroma_magnitude_255"] = 1.0
+	check_level(harness, "INFO", "neutral chroma cannot certify parity")
+	harness.observed["gpu_validation_candidates"]["bt601_full"]["worst_block_error_255"] = 6.1
+	check_level(harness, "FAIL", "low variation cannot hide parity errors")
+	harness.observed["gpu_validation_candidates"]["bt601_full"]["worst_block_error_255"] = NAN
+	check_level(harness, "FAIL", "nonfinite parity error")
+	var validation: Dictionary = harness.observed.duplicate(true)
+	validation["gpu_validation_candidates"]["bt601_full"]["worst_block_error_255"] = 6.0
+	for invalid: Dictionary in [{"camera_path": "cpu"}, {"gpu_validation_samples": 0}, {"gpu_validation_samples": 2}, {"gpu_validation_failures": 1}, {"gpu_completion_failures": 1}]:
 		var data: Dictionary = validation.duplicate(true)
 		data.merge(invalid, true)
-		harness.set("observed", data)
-		harness.set("failed", false)
-		harness.call("_gpu_vs_cpu")
-		_check(bool(harness.get("failed")), "invalid GPU comparison must fail: " + str(invalid))
+		harness.observed = data
+		check_level(harness, "FAIL", "invalid GPU comparison: " + str(invalid))
 	harness.free()
 	for prefix: String in ["HARNESS STEP camera-image OK ", "ARCORE DIAGNOSTICS "]:
 		for payload: String in ["a".repeat(900), "🙂".repeat(500), "a\nb\rc", "short"]:
@@ -82,3 +106,10 @@ func _initialize() -> void:
 			_check(not line.contains("\n") and not line.contains("\r"), "one log line")
 	print("CAMERA DIAGNOSTICS RESULT " + ("PASS" if failures == 0 else "FAIL"))
 	quit(0 if failures == 0 else 1)
+
+
+func check_level(harness: Harness, expected: String, message: String) -> void:
+	harness.results.clear()
+	harness._gpu_vs_cpu()
+	var result: Dictionary = harness.results.back()
+	_check(result["name"] == "gpu-vs-cpu" and result["level"] == expected, message + ": " + str(result))

@@ -77,7 +77,7 @@ settings/cache or reading system certificates are separate from script errors.
 ## Layout
 
 - `src/core/`: read-only frame packets, synthetic XR provider, singleton, projection and ray math.
-- `src/platform/android/`: ARCore session owner, JNI bridge, CPU upload and live queries.
+- `src/platform/android/`: ARCore session owner, JNI bridge, CPU upload, GPU camera submission and live queries.
 - `src/platform/ios/`: Objective-C++ ARKit session, Metal imports and swap-based retirement.
 - `demo/ar/`: runtime-selected AR demo and device diagnostics.
 - `thirdparty/arcore/`: C API header and its provenance.
@@ -105,11 +105,14 @@ Unconsumed presses emit a ray through `ARView.screen_to_ray()`.
 
 `ARFramePacket` contains copied calibration, pose, UV mapping, IDs, timestamps,
 tracking state and planes. These values remain valid for the packet's lifetime.
-On both native backends, camera textures are valid only while the packet is
+On ARKit and the ARCore CPU path, camera textures are valid only while the packet is
 current or presented; ARView also protects the last packet applied to its material
 until it replaces or clears that material. Script-held packet or texture Refs do
 not extend camera-image lifetime. An old ARKit Texture2DRD is cleared and samples
-the engine default; an old ARCore texture can show newer slot content. Keep the
+the engine default; an old ARCore CPU texture can show newer slot content. The GPU
+path shares one ExternalTexture across packets: submitting the next frame lets
+the engine replace its pixels during conversion, before that frame's packet is
+presented. Even a current or presented GPU packet does not preserve its image. Keep the
 packet for touch/raycast values, not as an image archive. If texture acquisition
 is refused, pose, tracking and planes still advance using the previous textures,
 and `texture_refusals` increases. Setters affect the next acquisition. Below the
@@ -121,7 +124,11 @@ fixed camera image. Automatic synthetic orientation chooses 0 for landscape and
 a substitute for native display-rotation sampling in milestone 2.
 
 `display_transform` maps top-left-origin viewport UV into top-left-origin camera
-image UV, including centred aspect-fill crop and rotation. Synthetic projection
+image UV, including centred aspect-fill crop and rotation. On the ARCore GPU path,
+it maps into `TEXTURE_NORMALIZED`, and `image_size` is the ARCore texture size.
+`intrinsics`, including `intrinsics.image_size`, remain in CPU image space on both
+ARCore paths; use `cpu_intrinsics` and `gpu_intrinsics` diagnostics when comparing
+the two streams. Their crops and fields of view can differ. Synthetic projection
 uses upright intrinsics rotated into display space, with positive diagonal focal
 terms for Godot's LOD and shadow calculations. The quarter turn belongs to the
 display-oriented camera pose; `set_pose()` and `physical_camera_transform` remain
@@ -451,30 +458,47 @@ See `docs/milestone-3-validation.md` for offline evidence and the device handoff
 
 The zero-copy Vulkan path needs the patched `doublesymmetry/godot` 4.8-dev build
 and matching templates until `ExternalTexture.submit_hardware_buffer` ships upstream.
-The extension still builds against godot-cpp 4.7: ClassDB detects and instantiates
-ExternalTexture, then a dynamic call supplies only buffer, color model and range.
-The first `OK` enables GPU presentation. Stock 4.7.2 uses CPU; a rejected submission,
-including `ERR_UNAVAILABLE`, restores CPU config selection through a session reset.
-`camera_path` and `camera_path_reason` report the choice. `OK` means queued;
-device checks must verify conversion succeeded.
+The extension still builds against godot-cpp 4.7: ClassDB detects ExternalTexture
+and resolves `SUPPORTS_ANDROID_HARDWARE_BUFFER` by name before selecting a GPU
+config. The dynamic call supplies buffer, color model, range, crop and completion.
+`OK` means queued; each session generation waits for its first
+`COMPLETION_COMPLETED` before enabling GPU presentation.
+Stock 4.7.2 and devices without the feature use CPU immediately. A rejected
+submission or a failed completion before activation restores CPU config selection
+through a session reset. Hardware-buffer errors before activation also fall back;
+`NOT_YET_AVAILABLE` gets 30 consecutive attempts. After activation, missing buffers
+drop frames and failed completions are counted. `camera_path` and
+`camera_path_reason` report the choice. Callbacks from old generations are ignored.
 
 GPU selection prefers the largest GPU texture under the existing camera filter;
 an explicit config index still wins. Each new frame submits its borrowed hardware
 buffer before the next ARCore update; the engine retains it through GPU completion.
 One stable `rgb_texture` replaces Y/CbCr textures, with the display transform
-mapping into `TEXTURE_NORMALIZED`. Ordinary GPU operation never acquires a CPU
+mapping into `TEXTURE_NORMALIZED`. Buffers larger than ARCore's texture dimensions
+are cropped to that size at the origin, and size mismatches are counted. RGB
+hardware buffers use `COLOR_MODEL_RGB`. Ordinary GPU operation never acquires a CPU
 image; CPU-image probes also require GPU validation on this path.
 
-The explicit color default is BT.601 full (camera JFIF). `-harness-gpu-validate`
+The explicit YUV color model stays BT.601 full, matching Camera2's YUV_420_888
+(JFIF) definition and the CPU camera shader. `-harness-gpu-validate`
 samples three frames, 60 submissions apart. ARCore maps every texel centre in a
 3×3 grid of 16×16 GPU blocks into `IMAGE_NORMALIZED`; strided, bilinear CPU samples
 there account for resolution, crop and FOV differences. The CPU image is released
-that tick. Submissions and packet updates wait Q+2 completed swaps before
-synchronous `get_image()` readback to keep both samples paired. `gpu-vs-cpu` compares
-BT.601/709 full/narrow block means, requiring three samples, no failures and a best
-candidate's worst block/channel error at most 6/255. A passing candidate becomes
-the explicit model/range for that interface; it does not persist across launches.
-All four candidate errors and the override appear in `diagnostics.json`.
+that tick. The first process after the sampled frame draws performs synchronous
+`get_image()` readback. Further submissions wait for that readback; ARCore updates
+continue. `gpu-vs-cpu` checks parity against the CPU shader's BT.601 full conversion,
+requiring three samples, no failures and a worst block/channel error at most 6/255.
+The other three candidates are INFO only and never change the submitted model.
+A passing comparison reports INFO if any sample has a luma block-mean range below
+24/255 or a mean chroma magnitude below 8/255. Errors still fail in a flat scene.
+Candidate errors and scene variation appear in `diagnostics.json`.
+
+Both camera paths report RenderingServer frame setup CPU p50/p95 in microseconds.
+This includes the engine's external-texture work and other frame setup work;
+`queue_us` measures only submission queueing. Validation's synchronous readback
+adds a stall outside frame setup, so validation runs are separate from throughput
+measurements. The GPU camera summary omits CPU repack/upload timings and composite
+reports luma from its RGB readback instead of the CPU-only `mean_y` counter.
 
 After Claude builds the AAR/APK with patched templates and checks/unlocks the
 shared Pixel, use the host `ADB` and `ANDROID_SERIAL` described above:
@@ -485,10 +509,7 @@ tools/harness.sh android-ar -harness-duration 60
 tools/harness.sh android-ar -harness-duration 60 -harness-camera-path cpu
 ```
 
-First check GPU config dimensions, all four orientations, RGB captures and color
-errors in a well-lit scene with colored objects. Measure submit p50/p95 against
-CPU repack/upload without validation pauses, then run retention/lifecycle and the
-long soak. Check stock 4.7.2 fallback too. Requested validation fails on a CPU
+Requested validation fails on a CPU
 fallback; ordinary CPU runs report `gpu-vs-cpu INFO`.
 
 ## ARKit backend and iPhone diagnostics

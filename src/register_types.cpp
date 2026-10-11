@@ -15,7 +15,7 @@
 
 using namespace godot;
 
-static HandheldAR *handheld_ar = nullptr;
+static HandheldAR *handheld_ar_singleton = nullptr;
 
 static void initialize_handheld_ar(ModuleInitializationLevel p_level) {
 	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
@@ -32,9 +32,9 @@ static void initialize_handheld_ar(ModuleInitializationLevel p_level) {
 #elif defined(ANDROID_ENABLED)
 	GDREGISTER_CLASS(ARCoreInterface);
 #endif
-	handheld_ar = memnew(HandheldAR);
-	Engine::get_singleton()->register_singleton("HandheldAR", handheld_ar);
-	UtilityFunctions::print("HANDHELD_AR LOADED ", handheld_ar->get_version(), " ", OS::get_singleton()->get_name());
+	handheld_ar_singleton = memnew(HandheldAR);
+	Engine::get_singleton()->register_singleton("HandheldAR", handheld_ar_singleton);
+	UtilityFunctions::print("HANDHELD_AR LOADED ", handheld_ar_singleton->get_version(), " ", OS::get_singleton()->get_name());
 }
 
 static void uninitialize_handheld_ar(ModuleInitializationLevel p_level) {
@@ -44,8 +44,8 @@ static void uninitialize_handheld_ar(ModuleInitializationLevel p_level) {
 		shutdown_arkit_texture_pool();
 #endif
 		Engine::get_singleton()->unregister_singleton("HandheldAR");
-		memdelete(handheld_ar);
-		handheld_ar = nullptr;
+		memdelete(handheld_ar_singleton);
+		handheld_ar_singleton = nullptr;
 	}
 }
 

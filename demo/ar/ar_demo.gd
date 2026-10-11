@@ -40,6 +40,8 @@ func _ready() -> void:
 			else:
 				view.interface.call("set_camera_path", args[path_index + 1])
 		view.interface.call("set_gpu_validation_enabled", args.has("-harness-gpu-validate"))
+	elif path_index >= 0 or args.has("-harness-gpu-validate"):
+		dataset_error = "camera path and GPU validation require ARCore on Android"
 	var config_index: int = args.find("-harness-camera-config")
 	if config_index >= 0:
 		if config_index + 1 >= args.size() or not args[config_index + 1].is_valid_int() or args[config_index + 1].to_int() < 0:

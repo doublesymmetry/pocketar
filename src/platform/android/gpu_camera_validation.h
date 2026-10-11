@@ -49,21 +49,29 @@ inline double camera_plane_sample(const ImagePlane &p_plane, int p_width, int p_
 	return top * (1 - (y - y0)) + bottom * (y - y0);
 }
 
-inline bool cpu_camera_block_means(int p_width, int p_height, const ImagePlane (&p_planes)[3], const float *p_image_uv, CameraBlockMeans &r_means) {
+inline bool cpu_camera_block_means(int p_width, int p_height, const ImagePlane (&p_planes)[3], const float *p_image_uv, CameraBlockMeans &r_means, double &r_luma_range, double &r_chroma_magnitude) {
 	const int cw = (p_width + 1) / 2, ch = (p_height + 1) / 2;
 	if (!plane_fits(p_planes[0], p_width, p_height) || !plane_fits(p_planes[1], cw, ch) || !plane_fits(p_planes[2], cw, ch)) return false;
 	r_means = {};
+	std::array<double, 9> luma{}, cb_means{}, cr_means{};
 	for (int i = 0; i < GPU_VALIDATION_PIXELS; ++i) {
 		const float u = p_image_uv[2 * i], v = p_image_uv[2 * i + 1];
 		if (!std::isfinite(u) || !std::isfinite(v) || u < 0 || u > 1 || v < 0 || v > 1) return false;
 		const double y = camera_plane_sample(p_planes[0], p_width, p_height, u, v);
 		const double cb = camera_plane_sample(p_planes[1], cw, ch, u, v);
 		const double cr = camera_plane_sample(p_planes[2], cw, ch, u, v);
+		luma[i / 256] += y / 256;
+		cb_means[i / 256] += (cb - 128) / 256;
+		cr_means[i / 256] += (cr - 128) / 256;
 		for (int candidate = 0; candidate < 4; ++candidate) {
 			const CameraRGB rgb = camera_yuv_to_rgb(y, cb, cr, candidate);
 			for (int channel = 0; channel < 3; ++channel) r_means[candidate][i / 256][channel] += rgb[channel] / 256;
 		}
 	}
+	const auto range = std::minmax_element(luma.begin(), luma.end());
+	r_luma_range = *range.second - *range.first;
+	r_chroma_magnitude = 0;
+	for (int block = 0; block < 9; ++block) r_chroma_magnitude += std::hypot(cb_means[block], cr_means[block]) / 9;
 	return true;
 }
 
