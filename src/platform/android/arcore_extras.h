@@ -26,6 +26,7 @@ class ARCoreExtras {
 	int64_t generation = 0;
 	int64_t frame_id = 0;
 	int64_t last_track_timestamp = 0;
+	int64_t last_playback_input_timestamp = 0;
 	ArRecordingStatus recording_status = AR_RECORDING_NONE;
 	ArPlaybackStatus playback_status = AR_PLAYBACK_NONE;
 	bool point_cloud_enabled = false;

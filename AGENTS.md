@@ -424,7 +424,9 @@ percent-encoded `file://` URI in private external storage, then
 application to replay. The fixed track UUID is
 `61a97725-8be4-4e8f-a196-6af38ca10735`, version 1, with opaque application-owned
 payloads, bounded to 65536 bytes. ILLEGAL_STATE writes retry over at most eight
-new frames, with a 128-input queue. Recording auto-stops on pause. Playback end
+new frames, with a 128-input queue. Recording auto-stops on pause. ARCore 1.56 playback
+returns the same track data on later frames; PocketAR delivers each recorded frame's inputs
+once and counts the rest as `playback_inputs_repeated`. Playback end
 is exposed in extras diagnostics; restarting the same URI creates another fresh
 session. Dataset tests must use tolerances, not exact plane counts or poses.
 Datasets contain room video and device information; keep them in private storage,

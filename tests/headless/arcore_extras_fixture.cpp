@@ -16,12 +16,15 @@ struct ArPlane_ : ArTrackable_ { ArPose_ pose; ArPlane *parent = nullptr; };
 struct ArHitResult_ { ArPose_ pose; ArPlane *plane = nullptr; };
 struct ArHitResultList_ { ArPlane *plane = nullptr; };
 struct ArTrackDataList_ {};
+struct ArTrackData_ { int64_t timestamp = 0; std::vector<uint8_t> bytes; };
 struct ArRecordingConfig_ {};
 struct ArTrack_ {};
 
 static int pose_refs, list_refs, hit_refs, plane_refs, config_refs, track_refs;
 static int recording_calls, illegal_recordings;
 static bool recording;
+static bool playback;
+static std::vector<ArTrackData_> track_items;
 static bool auto_stop;
 static ArPlane *query_plane;
 static ArFrame *native_frame;
@@ -40,7 +43,16 @@ static void install_api() {
 	api.ArTrackDataList_destroy = [](ArTrackDataList *p_list) { delete p_list; list_refs--; };
 	api.ArFrame_getTimestamp = [](const ArSession *, const ArFrame *p_frame, int64_t *r_timestamp) { *r_timestamp = p_frame->timestamp; };
 	api.ArSession_getRecordingStatus = [](ArSession *, ArRecordingStatus *r_status) { *r_status = recording ? AR_RECORDING_OK : AR_RECORDING_NONE; };
-	api.ArSession_getPlaybackStatus = [](ArSession *, ArPlaybackStatus *r_status) { *r_status = AR_PLAYBACK_NONE; };
+	api.ArSession_getPlaybackStatus = [](ArSession *, ArPlaybackStatus *r_status) { *r_status = playback ? AR_PLAYBACK_OK : AR_PLAYBACK_NONE; };
+	api.ArFrame_getUpdatedTrackData = [](const ArSession *, const ArFrame *, const uint8_t *, ArTrackDataList *) {};
+	api.ArTrackDataList_getSize = [](const ArSession *, const ArTrackDataList *, int32_t *r_size) { *r_size = int32_t(track_items.size()); };
+	api.ArTrackDataList_acquireItem = [](const ArSession *, const ArTrackDataList *, int32_t p_index, ArTrackData **r_data) { *r_data = &track_items[p_index]; };
+	api.ArTrackData_getData = [](const ArSession *, const ArTrackData *p_data, const uint8_t **r_bytes, int32_t *r_size) {
+		*r_bytes = p_data->bytes.data();
+		*r_size = int32_t(p_data->bytes.size());
+	};
+	api.ArTrackData_getFrameTimestamp = [](const ArSession *, const ArTrackData *p_data, int64_t *r_timestamp) { *r_timestamp = p_data->timestamp; };
+	api.ArTrackData_release = [](ArTrackData *) {};
 	api.ArTrackable_getTrackingState = [](const ArSession *, const ArTrackable *p_trackable, ArTrackingState *r_state) { *r_state = p_trackable->state; };
 	api.ArTrackable_getType = [](const ArSession *, const ArTrackable *p_trackable, ArTrackableType *r_type) { *r_type = p_trackable->type; };
 	api.ArPlane_acquireSubsumedBy = [](const ArSession *, const ArPlane *p_plane, ArPlane **r_parent) { *r_parent = p_plane->parent; if (*r_parent) plane_refs++; };
@@ -187,6 +199,17 @@ public:
 		check(int64_t(fresh_query["query_id"]) != int64_t(live_hit["query_id"]) && int64_t(fresh_query["query_id"]) != int64_t(next_query["query_id"]), "query handles never alias a replacement interface");
 		replacement.close();
 		check(pose_refs == 0 && list_refs == 0 && hit_refs == 0 && plane_refs == 0, "replacement interface also releases native references");
+		ARCoreExtras player;
+		player.setup(&session, 12);
+		playback = true;
+		track_items = { { 150, { 7 } } };
+		for (int i = 0; i < 2; i++) { player.before_update(); frame.timestamp += 100; player.on_tick(&frame); }
+		check(player.get_playback_inputs().size() == 1 && int64_t(player.diagnostics()["playback_inputs_repeated"]) == 1, "playback delivers track data handed back on a later frame once");
+		track_items = { { 150, { 7 } }, { 250, { 8 } }, { 250, { 9 } } };
+		player.before_update(); frame.timestamp += 100; player.on_tick(&frame);
+		check(player.get_playback_inputs().size() == 2, "every input recorded on one frame is delivered");
+		playback = false;
+		player.close();
 		UtilityFunctions::print("EXTRAS RESULT ", failures == 0 ? "PASS" : "FAIL", " ", checks, " checks");
 		return failures;
 	}

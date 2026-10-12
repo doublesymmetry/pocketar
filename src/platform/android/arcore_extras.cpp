@@ -3,6 +3,7 @@
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
+#include <algorithm>
 #include <cstring>
 
 namespace godot {
@@ -48,6 +49,7 @@ void ARCoreExtras::setup(ArSession *p_session, int64_t p_generation) {
 	generation = p_generation;
 	frame_id = 0;
 	last_track_timestamp = 0;
+	last_playback_input_timestamp = 0;
 	recording_status = AR_RECORDING_NONE;
 	playback_status = AR_PLAYBACK_NONE;
 	if (session) {
@@ -292,6 +294,7 @@ Dictionary ARCoreExtras::set_playback_dataset(const String &p_file_uri) {
 	if (status == AR_SUCCESS) {
 		before_update();
 		last_track_timestamp = 0;
+		last_playback_input_timestamp = 0;
 		playback_inputs.clear();
 	}
 	return result(status == AR_SUCCESS ? "OK" : "NATIVE_ERROR", status);
@@ -354,6 +357,9 @@ void ARCoreExtras::read_playback_inputs(int64_t p_timestamp) {
 	api.ArFrame_getUpdatedTrackData(session, recording_frame, INPUT_TRACK_UUID, track_data_list);
 	int32_t count = 0;
 	api.ArTrackDataList_getSize(session, track_data_list, &count);
+	// ARCore 1.56 playback hands the same track data back on later frames, although its header
+	// says each item is attached to one frame; deliver each recorded frame's inputs once.
+	int64_t newest = last_playback_input_timestamp;
 	for (int32_t i = 0; i < count; i++) {
 		ArTrackData *data = nullptr;
 		api.ArTrackDataList_acquireItem(session, track_data_list, i, &data);
@@ -362,6 +368,12 @@ void ARCoreExtras::read_playback_inputs(int64_t p_timestamp) {
 		int64_t timestamp = 0;
 		api.ArTrackData_getData(session, data, &bytes, &size);
 		api.ArTrackData_getFrameTimestamp(session, data, &timestamp);
+		if (timestamp <= last_playback_input_timestamp) {
+			increment("playback_inputs_repeated");
+			api.ArTrackData_release(data);
+			continue;
+		}
+		newest = std::max(newest, timestamp);
 		if (size > 0 && size <= MAX_INPUT_BYTES && bytes && playback_inputs.size() < int64_t(MAX_PENDING_INPUTS)) {
 			PackedByteArray payload;
 			payload.resize(size);
@@ -378,6 +390,7 @@ void ARCoreExtras::read_playback_inputs(int64_t p_timestamp) {
 		}
 		api.ArTrackData_release(data);
 	}
+	last_playback_input_timestamp = newest;
 }
 
 Array ARCoreExtras::get_playback_inputs() {
