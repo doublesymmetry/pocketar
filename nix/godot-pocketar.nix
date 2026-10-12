@@ -4,19 +4,19 @@
   unzip,
 }:
 let
-  release = "https://github.com/doublesymmetry/godot/releases/download/pocketar-master-20261009";
+  release = "https://github.com/doublesymmetry/godot/releases/download/pocketar-master-20261009-r2";
 in
 stdenvNoCC.mkDerivation {
   pname = "godot-pocketar";
-  version = "4.8.dev-20261009";
+  version = "4.8.dev-20261009-r2";
 
   editor = fetchurl {
     url = "${release}/godot-pocketar-editor-macos-arm64.zip";
-    hash = "sha256-CkmrPTFFSKfWRGGOPqPD6WK8r1GY1H8UY5FKIyaxeXI=";
+    hash = "sha256-oWX6R8YgFp7V80Z8KRb0pTUWDZpVa77x79WaJ+yRtEw=";
   };
   templates = fetchurl {
     url = "${release}/godot-pocketar-templates.tpz";
-    hash = "sha256-DXVKgzehS1ZIJDoB1H96DZ74e8pPdOY4C1ak7vZCAQQ=";
+    hash = "sha256-jALFTrDam1mR8Vx3M5d91Bgr5weqFqSxv51spFhHCN8=";
   };
 
   nativeBuildInputs = [ unzip ];
