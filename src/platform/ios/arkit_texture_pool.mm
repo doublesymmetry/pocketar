@@ -110,7 +110,8 @@ bool ARKitTexturePool::setup() {
 	ERR_FAIL_COND_V(!RenderingServer::get_singleton()->is_on_render_thread(), false);
 	impl->rd = RenderingServer::get_singleton()->get_rendering_device();
 	ERR_FAIL_NULL_V(impl->rd, false);
-	impl->delay = impl->rd->get_frame_delay();
+	// Godot 4.8 drops its own retain on an imported texture one swap after the frame delay.
+	impl->delay = impl->rd->get_frame_delay() + 1;
 	id<MTLDevice> device = (__bridge id<MTLDevice>)(void *)impl->rd->get_driver_resource(RenderingDevice::DRIVER_RESOURCE_LOGICAL_DEVICE, RID(), 0);
 	ERR_FAIL_COND_V(!device, false);
 	MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm width:4 height:4 mipmapped:NO];
@@ -133,7 +134,7 @@ bool ARKitTexturePool::setup() {
 	impl->diagnostics["retain_workaround_active"] = !impl->engine_retains;
 	impl->diagnostics["engine_version"] = Engine::get_singleton()->get_version_info();
 	impl->diagnostics["camera_path"] = "cvmetaltexturecache_texture2drd";
-	impl->diagnostics["frame_delay"] = int(impl->delay);
+	impl->diagnostics["frame_delay"] = int(impl->rd->get_frame_delay());
 #ifdef DEBUG_ENABLED
 	impl->diagnostics["retirement_canary_enabled"] = true;
 #else

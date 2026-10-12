@@ -519,7 +519,8 @@ The texture pool owns every CVPixelBuffer and both CVMetalTextureRefs independen
 of packet lifetime. A pair retires once no current, presented or ARView-applied
 packet uses it, regardless of script-held Refs. On the render thread, clear/free the RS
 wrappers first, then free the imported RD RIDs at swap count s. Release CoreVideo
-owners at s+Q, where Q is `RenderingDevice.get_frame_delay()`. Only `_end_frame`
+owners at s+Q+1, where Q is `RenderingDevice.get_frame_delay()`: Godot 4.8 drops its
+own import retain one swap after Q. Only `_end_frame`
 increments the counter, as its first statement, after RD's actual swap. The pool
 survives reset, uninitialize and interface recreation. Process shutdown stops
 sessions before the pool releases owners; Godot's own import retains remain until
