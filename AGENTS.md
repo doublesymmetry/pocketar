@@ -13,10 +13,14 @@ the coding sandbox. Xcode supplies the Apple compiler. Keep `apple.sdk = null`
 and `stdenv = pkgs.stdenvNoCC`; do not add another C toolchain.
 
 The supported targets are macOS arm64 (desktop harness), iOS 16+ arm64 on Metal,
-and Android API 29+ arm64 on Mobile/Vulkan. Godot and export templates are pinned
-to 4.7.2; godot-cpp is pinned to `b051e69` with `api_version=4.7`. Android uses
-compile/target SDK 36, build tools 36.1.0, NDK 29.0.14206865, Kotlin 2.1.21 and Java
-17. `SConstruct` derives `IOS_TOOLCHAIN_PATH` from `xcode-select -p`, so Xcode need
+and Android API 29+ arm64 on Mobile/Vulkan. `godot` is PocketAR's engine: Godot
+master plus the patches in doublesymmetry/godot's `PATCHES.md`, pinned to a release of
+that fork in `nix/godot-pocketar.nix` (editor and export templates). It runs
+self-contained from `.devenv/state/godot-pocketar`. Stock Godot 4.7.2 is the oldest
+supported engine; `stock <command>` runs a command against it, for example
+`stock harness desktop`. godot-cpp is pinned to `b051e69` with `api_version=4.7`.
+Android uses compile/target SDK 36, build tools 35.0.0 (Godot 4.8's Gradle template)
+and 36.1.0, NDK 29.0.14206865, Kotlin 2.1.21 and Java 17. `SConstruct` derives `IOS_TOOLCHAIN_PATH` from `xcode-select -p`, so Xcode need
 not be named `Xcode.app`. iOS signing team: `L7G7TF62MC`. Both demo package IDs:
 `org.doublesymmetry.pocketar.demo`.
 
