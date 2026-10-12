@@ -19,6 +19,8 @@ void ARCoreInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &ARCoreInterface::get_session_generation);
 	ClassDB::bind_method(D_METHOD("get_diagnostics"), &ARCoreInterface::get_diagnostics);
 	ClassDB::bind_method(D_METHOD("reset"), &ARCoreInterface::reset);
+	ClassDB::bind_method(D_METHOD("set_plane_finding_mode", "mode"), &ARCoreInterface::set_plane_finding_mode);
+	ClassDB::bind_method(D_METHOD("get_plane_finding_mode"), &ARCoreInterface::get_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("set_camera_config_index", "index"), &ARCoreInterface::set_camera_config_index);
 	ClassDB::bind_method(D_METHOD("set_camera_path", "path"), &ARCoreInterface::set_camera_path);
 	ClassDB::bind_method(D_METHOD("set_gpu_validation_enabled", "enabled"), &ARCoreInterface::set_gpu_validation_enabled);
@@ -248,18 +250,17 @@ bool ARCoreInterface::create_session() {
 	timings["create"] = (tick_usec() - start) / 1000.0;
 	if (status != AR_SUCCESS) { fail(status, "create"); return false; }
 	if (!choose_camera_config()) { release_session(); return false; }
-	ArConfig *config = nullptr;
 	api.ArConfig_create(session, &config);
 	api.ArConfig_setTextureUpdateMode(session, config, AR_TEXTURE_UPDATE_MODE_EXPOSE_HARDWARE_BUFFER);
 	api.ArConfig_setUpdateMode(session, config, AR_UPDATE_MODE_LATEST_CAMERA_IMAGE);
-	api.ArConfig_setPlaneFindingMode(session, config, AR_PLANE_FINDING_MODE_HORIZONTAL_AND_VERTICAL);
+	api.ArConfig_setPlaneFindingMode(session, config, ArPlaneFindingMode(plane_finding_mode));
 	api.ArConfig_setLightEstimationMode(session, config, AR_LIGHT_ESTIMATION_MODE_DISABLED);
 	api.ArConfig_setFocusMode(session, config, AR_FOCUS_MODE_AUTO);
 	start = tick_usec();
 	status = api.ArSession_configure(session, config);
 	timings["configure"] = (tick_usec() - start) / 1000.0;
-	api.ArConfig_destroy(config);
 	if (status != AR_SUCCESS) { fail(status, "configure"); release_session(); return false; }
+	refresh_plane_finding_mode();
 	api.ArFrame_create(session, &frame);
 	api.ArPose_create(session, nullptr, &scratch_pose);
 	api.ArCameraIntrinsics_create(session, &camera_intrinsics);
@@ -290,6 +291,7 @@ void ARCoreInterface::resume_session() {
 	if (status == AR_SUCCESS) {
 		running = true;
 		refresh_camera_config();
+		refresh_plane_finding_mode();
 		retry_at = 0;
 		retry_delay = 100000;
 		increment("resume_count");
@@ -334,6 +336,9 @@ void ARCoreInterface::release_session() {
 	if (camera_intrinsics) api.ArCameraIntrinsics_destroy(camera_intrinsics);
 	if (scratch_pose) api.ArPose_destroy(scratch_pose);
 	if (frame) api.ArFrame_destroy(frame);
+	if (config) api.ArConfig_destroy(config);
+	config = nullptr;
+	diagnostics.erase("effective_plane_finding_mode");
 	trackable_list = nullptr; camera_intrinsics = nullptr; scratch_pose = nullptr; frame = nullptr;
 	ArSession *old_session = session;
 	session = nullptr;
@@ -401,6 +406,27 @@ void ARCoreInterface::set_camera_config_index(int p_index) {
 	camera_config_index = p_index;
 	if (session) reset();
 }
+static_assert(int(PocketAR::PLANE_FINDING_DISABLED) == AR_PLANE_FINDING_MODE_DISABLED && int(PocketAR::PLANE_FINDING_HORIZONTAL) == AR_PLANE_FINDING_MODE_HORIZONTAL &&
+		int(PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL) == AR_PLANE_FINDING_MODE_HORIZONTAL_AND_VERTICAL, "PlaneFindingMode is passed to ARCore unchanged");
+void ARCoreInterface::refresh_plane_finding_mode() {
+	api.ArSession_getConfig(session, config);
+	ArPlaneFindingMode effective;
+	api.ArConfig_getPlaneFindingMode(session, config, &effective);
+	diagnostics["effective_plane_finding_mode"] = int(effective);
+}
+void ARCoreInterface::set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode) {
+	ERR_FAIL_COND(p_mode != PocketAR::PLANE_FINDING_DISABLED && p_mode != PocketAR::PLANE_FINDING_HORIZONTAL && p_mode != PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL);
+	ERR_FAIL_COND(initialized && !on_owner_thread());
+	if (plane_finding_mode == p_mode) return;
+	if (session) {
+		api.ArSession_getConfig(session, config);
+		api.ArConfig_setPlaneFindingMode(session, config, ArPlaneFindingMode(p_mode));
+		const ArStatus status = api.ArSession_configure(session, config);
+		refresh_plane_finding_mode();
+		ERR_FAIL_COND_MSG(status != AR_SUCCESS, "ARCore plane finding configure status=" + String::num_int64(status));
+	}
+	plane_finding_mode = p_mode;
+}
 void ARCoreInterface::set_display_geometry(const Vector2i &p_size, int, double p_near, double p_far) {
 	ERR_FAIL_COND(p_size.x <= 0 || p_size.y <= 0 || !std::isfinite(p_near) || !std::isfinite(p_far) || p_near <= 0 || p_far <= p_near);
 	if (viewport_size != p_size) { viewport_size = p_size; geometry_dirty = true; }
@@ -450,6 +476,7 @@ ARCoreInterface::TextureSlot *ARCoreInterface::find_texture_slot() {
 }
 Dictionary ARCoreInterface::get_diagnostics() const {
 	Dictionary result = diagnostics.duplicate(true);
+	result["plane_finding_mode"] = int(plane_finding_mode);
 	result["extras"] = extras.diagnostics();
 	Dictionary measured = timings.duplicate(true);
 	measured["destroy"] = destroy_stats->last_usec.load() / 1000.0;

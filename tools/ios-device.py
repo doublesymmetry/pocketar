@@ -14,7 +14,7 @@ import uuid
 
 
 BUNDLE = "org.doublesymmetry.pocketar.demo"
-STEPS = {"arkit-session", "camera-image", "projection-form", "display-transform", "composite", "packet-retention", "lifecycle", "tracking"}
+STEPS = {"arkit-session", "camera-image", "projection-form", "display-transform", "composite", "packet-retention", "lifecycle", "tracking", "plane-finding"}
 
 
 class Device:

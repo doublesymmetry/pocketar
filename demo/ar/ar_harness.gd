@@ -1,6 +1,6 @@
 extends "res://ar/device_harness.gd"
 
-const STEPS: Array[String] = ["arcore-session", "no-gl", "camera-image", "gpu-vs-cpu", "projection-form", "display-transform", "composite", "packet-retention", "tracking", "lifecycle"]
+const STEPS: Array[String] = ["arcore-session", "no-gl", "camera-image", "gpu-vs-cpu", "projection-form", "display-transform", "composite", "packet-retention", "tracking", "plane-finding", "lifecycle"]
 
 var dataset_owner: Node
 var started_usec: int = 0
@@ -101,6 +101,7 @@ func _run() -> void:
 			"display-transform": _diagnostic_check(name, "display_transform_valid", "display_transform_samples")
 			"composite": await _composite()
 			"packet-retention": await _packet_retention()
+			"plane-finding": await _plane_finding()
 			"lifecycle": await _lifecycle()
 			"tracking": _tracking()
 	_finish()

@@ -1,6 +1,6 @@
 extends RefCounted
 
-const STEPS: PackedStringArray = ["arkit-session", "camera-image", "projection-form", "display-transform", "composite", "packet-retention", "tracking", "lifecycle"]
+const STEPS: PackedStringArray = ["arkit-session", "camera-image", "projection-form", "display-transform", "composite", "packet-retention", "tracking", "plane-finding", "lifecycle"]
 const RENDERING_STEPS: PackedStringArray = ["loaded", "xr-mono-2d", "projection", "camera-transform", "color-invariance", "transparency", "composition", "camera-precision", "frame-consistency", "resize"]
 
 

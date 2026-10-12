@@ -6,11 +6,11 @@
 #include <godot_cpp/variant/transform3d.hpp>
 
 #define ARCORE_FUNCTIONS(F) \
-	F(ArSession_create) F(ArSession_destroy) F(ArSession_configure) F(ArSession_resume) F(ArSession_pause) \
+	F(ArSession_create) F(ArSession_destroy) F(ArSession_configure) F(ArSession_getConfig) F(ArSession_resume) F(ArSession_pause) \
 	F(ArSession_update) F(ArSession_setDisplayGeometry) F(ArSession_getAllTrackables) \
 	F(ArSession_getSupportedCameraConfigsWithFilter) F(ArSession_setCameraConfig) F(ArSession_getCameraConfig) \
 	F(ArConfig_create) F(ArConfig_destroy) F(ArConfig_setTextureUpdateMode) F(ArConfig_setUpdateMode) \
-	F(ArConfig_setPlaneFindingMode) F(ArConfig_setLightEstimationMode) F(ArConfig_setFocusMode) \
+	F(ArConfig_setPlaneFindingMode) F(ArConfig_getPlaneFindingMode) F(ArConfig_setLightEstimationMode) F(ArConfig_setFocusMode) \
 	F(ArCameraConfigFilter_create) F(ArCameraConfigFilter_destroy) F(ArCameraConfigFilter_setFacingDirection) \
 	F(ArCameraConfigFilter_setTargetFps) F(ArCameraConfigFilter_setDepthSensorUsage) F(ArCameraConfigFilter_setStereoCameraUsage) \
 	F(ArCameraConfigList_create) F(ArCameraConfigList_destroy) F(ArCameraConfigList_getSize) F(ArCameraConfigList_getItem) \

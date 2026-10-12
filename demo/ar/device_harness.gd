@@ -18,6 +18,40 @@ func _packet_retention() -> void:
 	_step("packet-retention", "OK" if bool(result["ok"]) else "FAIL", JSON.stringify(result))
 
 
+func _plane_finding() -> void:
+	var original: PocketAR.PlaneFindingMode = view.plane_finding_mode
+	var generation: int = view.session_generation
+	var before: Dictionary = _diagnostics()
+	if not _require("plane-finding", before, ["effective_plane_finding_mode", "plane_count", "config"]):
+		return
+	var samples: Array[Dictionary] = [{"mode": int(before["effective_plane_finding_mode"]), "planes": int(before["plane_count"])}]
+	var packets: Array[Array] = []
+	var ok: bool = true
+	for mode: PocketAR.PlaneFindingMode in [PocketAR.PLANE_FINDING_HORIZONTAL, PocketAR.PLANE_FINDING_DISABLED, PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL]:
+		var previous: ARFramePacket = view.interface.call("get_current_packet") as ARFramePacket
+		view.plane_finding_mode = mode
+		await get_tree().create_timer(3.0).timeout
+		var after: Dictionary = _diagnostics()
+		var packet: ARFramePacket = view.interface.call("get_current_packet") as ARFramePacket
+		var effective: int = int(after.get("effective_plane_finding_mode", -1))
+		ok = ok and view.plane_finding_mode == mode and effective == mode and view.session_generation == generation
+		ok = ok and after.get("config", {}) == before["config"] and previous != null and packet != null
+		if previous != null and packet != null:
+			ok = ok and packet.frame_id > previous.frame_id
+		packets.append(packet.planes if packet != null else [])
+		samples.append({"mode": effective, "planes": int(after.get("plane_count", -1))})
+	view.plane_finding_mode = original
+	var restored: int = int(_diagnostics().get("effective_plane_finding_mode", -1))
+	ok = ok and view.plane_finding_mode == original and restored == original
+	var scene_changed: bool = packets[1] != packets[2]
+	var file: FileAccess = FileAccess.open(output_dir.path_join("plane-finding.json"), FileAccess.WRITE)
+	if file == null:
+		ok = false
+	else:
+		file.store_string(JSON.stringify({"samples": samples, "planes": packets, "restored_mode": restored}, "  "))
+	_step("plane-finding", ("OK" if scene_changed else "INFO") if ok else "FAIL", "config_verified=%s samples=%s restored=%d scene_changed=%s; move over textured surfaces to exercise discovery; details=plane-finding.json" % [ok, JSON.stringify(samples), restored, scene_changed])
+
+
 func _old_trackers_absent(generation: int) -> bool:
 	var trackers: Dictionary = XRServer.get_trackers(XRServer.TRACKER_ANCHOR)
 	for value: Variant in trackers.values():

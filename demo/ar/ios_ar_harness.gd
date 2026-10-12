@@ -76,6 +76,7 @@ func _run() -> void:
 			"display-transform": _display_transform()
 			"composite": await _composite()
 			"packet-retention": await _packet_retention()
+			"plane-finding": await _plane_finding()
 			"lifecycle": await _lifecycle()
 			"tracking": _tracking()
 	_finish()

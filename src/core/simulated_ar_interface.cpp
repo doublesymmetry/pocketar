@@ -43,6 +43,8 @@ static void fill_synthetic_camera_image(int p_width, int p_height, int64_t p_seq
 }
 
 void SimulatedARInterface::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_plane_finding_mode", "mode"), &SimulatedARInterface::set_plane_finding_mode);
+	ClassDB::bind_method(D_METHOD("get_plane_finding_mode"), &SimulatedARInterface::get_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &SimulatedARInterface::get_session_generation);
 	ClassDB::bind_method(D_METHOD("set_display_geometry", "viewport_size", "quarter_turns", "near", "far"), &SimulatedARInterface::set_display_geometry);
 	ClassDB::bind_method(D_METHOD("get_current_packet"), &SimulatedARInterface::get_current_packet);
@@ -52,6 +54,11 @@ void SimulatedARInterface::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("tracking_reason_changed", PropertyInfo(Variant::INT, "reason")));
 	ADD_SIGNAL(MethodInfo("session_generation_changed", PropertyInfo(Variant::INT, "generation")));
 	ADD_SIGNAL(MethodInfo("planes_changed"));
+}
+
+void SimulatedARInterface::set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode) {
+	ERR_FAIL_COND(p_mode != PocketAR::PLANE_FINDING_DISABLED && p_mode != PocketAR::PLANE_FINDING_HORIZONTAL && p_mode != PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL);
+	plane_finding_mode = p_mode;
 }
 
 bool SimulatedARInterface::start(const String &p_description) {

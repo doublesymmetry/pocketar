@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ar_frame_packet.h"
+#include "pocketar.h"
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/xr_interface_extension.hpp>
 #include <godot_cpp/classes/xr_positional_tracker.hpp>
@@ -14,6 +15,7 @@ protected:
 	bool initialized = false;
 	bool geometry_dirty = true;
 	int64_t generation = 0;
+	PocketAR::PlaneFindingMode plane_finding_mode = PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL;
 	ARIntrinsics intrinsics;
 	Vector2 viewport_size = Vector2(960, 720);
 	int quarter_turns = 0;
@@ -31,6 +33,8 @@ protected:
 	void fill_packet(const Ref<ARFramePacket> &p_packet, const Transform3D &p_pose);
 
 public:
+	void set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode);
+	PocketAR::PlaneFindingMode get_plane_finding_mode() const { return plane_finding_mode; }
 	int64_t get_session_generation() const { return generation; }
 	void set_display_geometry(const Vector2i &p_viewport_size, int p_quarter_turns, double p_near, double p_far);
 	Ref<ARFramePacket> get_current_packet() const { return current_packet; }

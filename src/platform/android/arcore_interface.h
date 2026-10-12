@@ -42,6 +42,8 @@ private:
 	ARCoreExtras extras;
 	String playback_dataset;
 	ArSession *session = nullptr;
+	ArConfig *config = nullptr;
+	PocketAR::PlaneFindingMode plane_finding_mode = PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL;
 	ArFrame *frame = nullptr;
 	ArPose *scratch_pose = nullptr;
 	ArCameraIntrinsics *camera_intrinsics = nullptr;
@@ -112,6 +114,7 @@ private:
 	bool create_session();
 	bool choose_camera_config();
 	void refresh_camera_config();
+	void refresh_plane_finding_mode();
 	void resume_session();
 	void pause_session();
 	void release_session();
@@ -141,6 +144,8 @@ public:
 	int64_t get_session_generation() const { return generation; }
 	Dictionary get_diagnostics() const;
 	void reset();
+	void set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode);
+	PocketAR::PlaneFindingMode get_plane_finding_mode() const { return plane_finding_mode; }
 	void set_camera_config_index(int p_index);
 	void set_camera_path(const String &p_path);
 	void set_gpu_validation_enabled(bool p_enabled);

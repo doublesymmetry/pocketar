@@ -31,6 +31,7 @@ class ARKitInterface : public XRInterfaceExtension {
 	Transform3D last_good_pose;
 	PocketAR::SessionState state = PocketAR::CHECKING;
 	PocketAR::TrackingReason reason = PocketAR::NONE;
+	PocketAR::PlaneFindingMode plane_finding_mode = PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL;
 	TrackingStatus tracking_status = XR_UNKNOWN_TRACKING;
 	Dictionary diagnostics, timings;
 	Array state_history;
@@ -55,6 +56,8 @@ public:
 	Dictionary get_diagnostics() const;
 	Dictionary get_native_plane_identifiers() const;
 	void reset();
+	void set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode);
+	PocketAR::PlaneFindingMode get_plane_finding_mode() const { return plane_finding_mode; }
 	void set_display_geometry(const Vector2i &p_size, int p_turns, double p_near, double p_far);
 	Ref<ARFramePacket> get_current_packet() const { return current_packet; }
 	Ref<ARFramePacket> get_presented_packet() const { return presented_packet; }

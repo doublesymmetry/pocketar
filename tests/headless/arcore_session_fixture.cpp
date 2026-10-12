@@ -9,6 +9,16 @@
 static ARCoreBridgeState bridge;
 static int create_calls = 0;
 static bool camera_acquired = false;
+struct ArConfig_ {
+	ArPlaneFindingMode planes = AR_PLANE_FINDING_MODE_HORIZONTAL;
+	ArTextureUpdateMode texture = AR_TEXTURE_UPDATE_MODE_BIND_TO_TEXTURE_EXTERNAL_OES;
+	ArUpdateMode update = AR_UPDATE_MODE_BLOCKING;
+	ArLightEstimationMode light = AR_LIGHT_ESTIMATION_MODE_AMBIENT_INTENSITY;
+	ArFocusMode focus = AR_FOCUS_MODE_FIXED;
+};
+static ArConfig config, effective_config;
+static ArStatus configure_status = AR_SUCCESS;
+static int configure_calls = 0, camera_config_calls = 0;
 
 template <typename R, typename... Args>
 static R no_op(Args...) { return R(); }
@@ -24,18 +34,26 @@ static void mock_session_creation() {
 	api.ArCameraConfig_create = no_op;
 	api.ArSession_getSupportedCameraConfigsWithFilter = no_op;
 	api.ArCameraConfigList_getItem = no_op;
-	api.ArSession_setCameraConfig = no_op;
+	api.ArSession_setCameraConfig = [](const ArSession *, const ArCameraConfig *) { ++camera_config_calls; return AR_SUCCESS; };
 	api.ArCameraConfig_destroy = no_op;
 	api.ArCameraConfigList_destroy = no_op;
 	api.ArCameraConfigFilter_destroy = no_op;
-	api.ArConfig_create = no_op;
-	api.ArConfig_setTextureUpdateMode = no_op;
-	api.ArConfig_setUpdateMode = no_op;
-	api.ArConfig_setPlaneFindingMode = no_op;
-	api.ArConfig_setLightEstimationMode = no_op;
-	api.ArConfig_setFocusMode = no_op;
-	api.ArSession_configure = no_op;
+	api.ArConfig_create = [](const ArSession *, ArConfig **r_config) { config = ArConfig(); *r_config = &config; };
+	api.ArConfig_setTextureUpdateMode = [](const ArSession *, ArConfig *p_config, ArTextureUpdateMode p_mode) { p_config->texture = p_mode; };
+	api.ArConfig_setUpdateMode = [](const ArSession *, ArConfig *p_config, ArUpdateMode p_mode) { p_config->update = p_mode; };
+	api.ArConfig_setPlaneFindingMode = [](const ArSession *, ArConfig *p_config, ArPlaneFindingMode p_mode) { p_config->planes = p_mode; };
+	api.ArConfig_setLightEstimationMode = [](const ArSession *, ArConfig *p_config, ArLightEstimationMode p_mode) { p_config->light = p_mode; };
+	api.ArConfig_setFocusMode = [](const ArSession *, ArConfig *p_config, ArFocusMode p_mode) { p_config->focus = p_mode; };
+	api.ArSession_configure = [](ArSession *, const ArConfig *p_config) {
+		++configure_calls;
+		if (configure_status == AR_SUCCESS) effective_config = *p_config;
+		return configure_status;
+	};
+	api.ArSession_getConfig = [](ArSession *, ArConfig *r_config) { *r_config = effective_config; };
+	api.ArConfig_getPlaneFindingMode = [](const ArSession *, const ArConfig *p_config, ArPlaneFindingMode *r_mode) { *r_mode = p_config->planes; };
 	api.ArConfig_destroy = no_op;
+	api.ArSession_pause = no_op;
+	api.ArSession_destroy = no_op;
 	api.ArFrame_create = no_op;
 	api.ArPose_create = no_op;
 	api.ArCameraIntrinsics_create = no_op;
@@ -143,8 +161,39 @@ public:
 		session->bridge_changed();
 		check(create_calls == 1 && session->get_session_state() == PocketAR::INITIALIZING, "cold-start resume creates and initializes the session");
 		expect_event("state", PocketAR::INITIALIZING);
+		check(effective_config.planes == AR_PLANE_FINDING_MODE_HORIZONTAL_AND_VERTICAL, "default config detects both alignments");
+		const int64_t mode_generation = session->get_session_generation();
+		ArSession *native_session = session->session;
+		ArConfig *native_config = session->config;
+		for (auto mode : { PocketAR::PLANE_FINDING_HORIZONTAL, PocketAR::PLANE_FINDING_DISABLED, PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL }) {
+			session->set_plane_finding_mode(mode);
+			check(session->get_plane_finding_mode() == mode && int(session->get_diagnostics()["effective_plane_finding_mode"]) == int(mode), "mode applies and reads back from native config");
+			check(session->session == native_session && session->config == native_config && session->get_session_generation() == mode_generation && session->running, "mode keeps session, config, generation and running state");
+			check(effective_config.texture == AR_TEXTURE_UPDATE_MODE_EXPOSE_HARDWARE_BUFFER && effective_config.update == AR_UPDATE_MODE_LATEST_CAMERA_IMAGE && effective_config.light == AR_LIGHT_ESTIMATION_MODE_DISABLED && effective_config.focus == AR_FOCUS_MODE_AUTO, "mode preserves other config fields");
+		}
+		check(create_calls == 1 && camera_config_calls == 1 && configure_calls == 4, "runtime modes configure without recreating or selecting a camera");
+		session->set_plane_finding_mode(PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL);
+		check(configure_calls == 4, "unchanged mode does not reconfigure");
+		configure_status = AR_ERROR_UNSUPPORTED_CONFIGURATION;
+		session->set_plane_finding_mode(PocketAR::PLANE_FINDING_DISABLED);
+		check(session->get_plane_finding_mode() == PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL && int(session->get_diagnostics()["effective_plane_finding_mode"]) == AR_PLANE_FINDING_MODE_HORIZONTAL_AND_VERTICAL && session->running, "failed configuration preserves applied mode and running session");
+		configure_status = AR_SUCCESS;
+		session->set_plane_finding_mode(PocketAR::PLANE_FINDING_DISABLED);
+		session->application_pause();
+		expect_event("state", PocketAR::PAUSED);
+		check(session->get_plane_finding_mode() == PocketAR::PLANE_FINDING_DISABLED, "pause preserves disabled mode");
+		session->application_resume();
+		expect_event("state", PocketAR::INITIALIZING);
+		check(effective_config.planes == AR_PLANE_FINDING_MODE_DISABLED, "resume preserves disabled mode");
+		session->reset();
+		expect_event("state", PocketAR::PAUSED);
+		expect_event("generation", session->get_session_generation());
+		expect_event("state", PocketAR::READY);
+		expect_event("state", PocketAR::INITIALIZING);
+		check(create_calls == 2 && effective_config.planes == AR_PLANE_FINDING_MODE_DISABLED && session->get_plane_finding_mode() == PocketAR::PLANE_FINDING_DISABLED, "reset recreates with disabled mode");
 		session->extras.close();
 		session->session = nullptr;
+		session->config = nullptr;
 		session->running = false;
 		create_calls = 0;
 		arcore_api().ArSession_create = [](void *, void *, ArSession **) { ++create_calls; return AR_ERROR_FATAL; };

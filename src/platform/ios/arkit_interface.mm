@@ -97,6 +97,8 @@ void ARKitInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_diagnostics"), &ARKitInterface::get_diagnostics);
 	ClassDB::bind_method(D_METHOD("get_native_plane_identifiers"), &ARKitInterface::get_native_plane_identifiers);
 	ClassDB::bind_method(D_METHOD("reset"), &ARKitInterface::reset);
+	ClassDB::bind_method(D_METHOD("set_plane_finding_mode", "mode"), &ARKitInterface::set_plane_finding_mode);
+	ClassDB::bind_method(D_METHOD("get_plane_finding_mode"), &ARKitInterface::get_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("set_display_geometry", "size", "turns", "near", "far"), &ARKitInterface::set_display_geometry);
 	ClassDB::bind_method(D_METHOD("get_current_packet"), &ARKitInterface::get_current_packet);
 	ClassDB::bind_method(D_METHOD("get_presented_packet"), &ARKitInterface::get_presented_packet);
@@ -241,11 +243,11 @@ void ARKitInterface::run_session(bool p_reset) {
 		impl->config.worldAlignment = ARWorldAlignmentGravity;
 		impl->config.frameSemantics = ARFrameSemanticNone;
 		impl->config.videoHDRAllowed = NO;
-		impl->config.planeDetection = ARPlaneDetectionHorizontal | ARPlaneDetectionVertical;
 		impl->config.lightEstimationEnabled = NO;
 		NSArray<ARVideoFormat *> *formats = ARWorldTrackingConfiguration.supportedVideoFormats;
 		if (formats.count) impl->config.videoFormat = formats[0];
 	}
+	impl->config.planeDetection = ARPlaneDetection(plane_finding_mode);
 	Dictionary config;
 	config["width"] = int(impl->config.videoFormat.imageResolution.width);
 	config["height"] = int(impl->config.videoFormat.imageResolution.height);
@@ -347,6 +349,20 @@ void ARKitInterface::reset() {
 	increment("reset_count");
 	call_deferred("emit_signal", "session_generation_changed", generation);
 	run_session(true);
+}
+
+static_assert(NSUInteger(PocketAR::PLANE_FINDING_DISABLED) == ARPlaneDetectionNone && NSUInteger(PocketAR::PLANE_FINDING_HORIZONTAL) == ARPlaneDetectionHorizontal &&
+		NSUInteger(PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL) == (ARPlaneDetectionHorizontal | ARPlaneDetectionVertical), "PlaneFindingMode is passed to ARKit unchanged");
+
+void ARKitInterface::set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode) {
+	ERR_FAIL_COND(p_mode != PocketAR::PLANE_FINDING_DISABLED && p_mode != PocketAR::PLANE_FINDING_HORIZONTAL && p_mode != PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL);
+	ERR_FAIL_COND(initialized && !on_owner_thread());
+	if (plane_finding_mode == p_mode) return;
+	plane_finding_mode = p_mode;
+	if (impl->config) {
+		impl->config.planeDetection = ARPlaneDetection(p_mode);
+		if (impl->running) [impl->session runWithConfiguration:impl->config options:0];
+	}
 }
 
 void ARKitInterface::set_display_geometry(const Vector2i &p_size, int, double p_near, double p_far) {
@@ -624,6 +640,9 @@ Dictionary ARKitInterface::get_native_plane_identifiers() const {
 
 Dictionary ARKitInterface::get_diagnostics() const {
 	Dictionary result = diagnostics.duplicate(true);
+	result["plane_finding_mode"] = int(plane_finding_mode);
+	ARWorldTrackingConfiguration *config = (ARWorldTrackingConfiguration *)impl->session.configuration;
+	if (config) result["effective_plane_finding_mode"] = int(config.planeDetection);
 	if (textures.is_valid()) result.merge(textures->get_diagnostics(), true);
 	result["timings"] = timings.duplicate(true);
 	result["state_history"] = state_history.duplicate();

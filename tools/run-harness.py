@@ -15,7 +15,7 @@ import uuid
 
 
 PACKAGE = "org.doublesymmetry.pocketar.demo"
-AR_STEPS = {"arcore-session", "no-gl", "camera-image", "gpu-vs-cpu", "projection-form", "display-transform", "composite", "packet-retention", "lifecycle", "tracking"}
+AR_STEPS = {"arcore-session", "no-gl", "camera-image", "gpu-vs-cpu", "projection-form", "display-transform", "composite", "packet-retention", "lifecycle", "tracking", "plane-finding"}
 IOS_SPEC = importlib.util.spec_from_file_location("ios_device", Path(__file__).with_name("ios-device.py"))
 IOS_DEVICE = importlib.util.module_from_spec(IOS_SPEC)
 IOS_SPEC.loader.exec_module(IOS_DEVICE)

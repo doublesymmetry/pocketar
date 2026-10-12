@@ -14,6 +14,7 @@ class ScriptedARInterface : public SimulatedARInterface {
 	int64_t playback_time = 0;
 	size_t cursor = 0;
 	int64_t latest_frame_index = -1;
+	int64_t latest_planes_index = -1;
 	PocketAR::SessionState state = PocketAR::INITIALIZING;
 	PocketAR::TrackingReason reason = PocketAR::NONE;
 	pocketar::ScriptedSession session;

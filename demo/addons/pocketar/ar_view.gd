@@ -20,6 +20,16 @@ enum Composition { IN_SCENE, ISOLATED_CAMERA }
 @export_enum("Synthetic", "ARCore", "ARKit", "Scripted") var backend: int = 0
 @export var handle_presses: bool = false
 @export var environment: Environment
+@export var plane_finding_mode: PocketAR.PlaneFindingMode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL:
+	set(value):
+		if value not in [PocketAR.PLANE_FINDING_DISABLED, PocketAR.PLANE_FINDING_HORIZONTAL, PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL]:
+			push_error("Invalid plane finding mode")
+			return
+		_plane_finding_mode = value
+		if interface != null:
+			interface.call("set_plane_finding_mode", value)
+	get:
+		return int(interface.call("get_plane_finding_mode")) if interface != null else _plane_finding_mode
 
 @onready var virtual_scene: SubViewport = $VirtualScene
 @onready var camera: XRCamera3D = $VirtualScene/XROrigin3D/XRCamera3D
@@ -35,6 +45,7 @@ var waiting_for_packet: bool = true
 var camera_material: ShaderMaterial
 var camera_quad: MeshInstance3D
 var _composition_locked: bool = false
+var _plane_finding_mode: PocketAR.PlaneFindingMode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 var session_state: PocketAR.SessionState:
 	get:
 		return int(interface.call("get_session_state")) if interface != null else PocketAR.PAUSED
@@ -87,6 +98,7 @@ func _ready() -> void:
 			return
 		else:
 			interface = SyntheticARInterface.new()
+	interface.call("set_plane_finding_mode", _plane_finding_mode)
 	interface.connect("session_state_changed", _on_session_state_changed)
 	interface.connect("tracking_reason_changed", _on_tracking_reason_changed)
 	interface.connect("session_generation_changed", _on_session_generation_changed)

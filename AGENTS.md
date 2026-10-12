@@ -330,7 +330,7 @@ is the exception: a JVM-attached worker owns the bare paused session after every
 other native reference has been released. Shutdown never waits for destroy.
 
 The config explicitly uses EXPOSE_HARDWARE_BUFFER, LATEST_CAMERA_IMAGE, horizontal
-and vertical planes, auto focus and disabled light estimation. Depth, instant
+and vertical planes by default, auto focus and disabled light estimation. Depth, instant
 placement, cloud/geospatial anchors, semantics, faces, stabilization and streetscape
 geometry keep the SDK's disabled defaults. CPU camera selection uses a
 non-null back-camera/30fps/no-depth/no-stereo filter, largest matching-aspect CPU
@@ -398,8 +398,8 @@ unlocking the shared Pixel, use the same host `$ADB` and `ANDROID_SERIAL`:
 selection happens in GDScript because official templates disable path overrides.
 
 The ARCore steps are `arcore-session`, `no-gl`, `camera-image`, `gpu-vs-cpu`,
-`projection-form`, `display-transform`, `composite`, `packet-retention`, `lifecycle`
-and `tracking`; thresholds live in `demo/ar/ar_harness.gd` and details in
+`projection-form`, `display-transform`, `composite`, `packet-retention`, `lifecycle`,
+`tracking` and `plane-finding`; thresholds live in `demo/ar/ar_harness.gd` and details in
 `diagnostics.json`.
 
 HARNESS and ARCORE lines stay below 1000 bytes. Step lines contain summaries;
@@ -494,8 +494,8 @@ never primary; it keeps swap callbacks alive after an ARView has been removed.
 
 The session polls `currentFrame` once per `_process` inside an autorelease pool.
 Packets copy values and plane boundaries; no ARFrame, ARCamera or ARAnchor enters
-a packet. Horizontal and vertical plane detection, autofocus and gravity alignment
-are fixed. Light estimation and HDR video are off.
+a packet. Plane detection defaults to horizontal and vertical; autofocus and gravity
+alignment are fixed. Light estimation and HDR video are off.
 
 Interface orientation comes from the Godot view's window scene `effectiveGeometry`.
 LandscapeRight is identity; portrait, LandscapeLeft and upside-down rotate the
@@ -634,6 +634,49 @@ Both device suites run `tracking` before `lifecycle`; the shared packet-retentio
 check and its thresholds live in `demo/ar/packet_retention.gd`.
 
 ## Scripted sessions and the game facade
+
+`ARView.plane_finding_mode` can be set before startup or while running. Its
+`PocketAR.PlaneFindingMode` values are `PLANE_FINDING_DISABLED=0`,
+`PLANE_FINDING_HORIZONTAL=1` (upward and downward), and
+`PLANE_FINDING_HORIZONTAL_AND_VERTICAL=3` (default). The property reads the
+backend immediately; all four backends expose `set_plane_finding_mode()` and
+`get_plane_finding_mode()`. The selected mode survives pause/resume and reset.
+Reset still clears planes and changes generation, even when detection is disabled.
+
+ARCore changes only plane finding on the existing session config and calls
+`ArSession_configure`, without pausing, recreating the session or selecting a
+camera config. It reads the config back with `ArSession_getConfig` and
+`ArConfig_getPlaneFindingMode`. A rejected change leaves the previous mode active.
+The vendored 1.56.0 C header says only that disabled turns off plane detection;
+it does not specify whether existing planes stop updating or change tracking state.
+PocketAR keeps existing native plane handles and copies their reported state;
+native STOPPED planes are still removed. Disabling does not clear the tracker set.
+
+ARKit changes `planeDetection` on its current `ARWorldTrackingConfiguration`
+and re-runs with zero options. Tracking and existing anchors continue; disabling
+plane finding does not request anchor removal or tracking reset. Plane discovery
+and geometry refinement are disabled, while PocketAR continues to copy native
+anchors and derive their tracking state from camera tracking. Both native backends
+report the selected `plane_finding_mode` and read-back `effective_plane_finding_mode`
+in diagnostics. The effective field is absent before a native config exists;
+on paused ARKit it describes the last run until resume applies a pending change.
+
+Scripted replay freezes existing plane snapshots while disabled, including their
+tracking state, and adds no new planes. Horizontal mode keeps existing vertical
+planes frozen and excludes new ones. Re-enabling applies the latest recorded plane
+set on the next fixture frame, including when that frame omits `planes`. Reset
+discards that remembered set. Fixture version 1 already expresses additions and
+geometry changes, so no format extension is needed. Synthetic produces no planes
+and remembers the mode across reset and stop/start.
+
+This setting does not change how placed content is held. PocketAR exposes plane
+snapshots and raycasts, but has no game-facing anchors for placed content.
+
+Both native harnesses include `plane-finding`. It cycles horizontal, disabled and
+both alignments, verifies effective modes, continued frames and unchanged generation
+and camera config, then restores the original mode. It reports before/after plane
+counts and saves snapshots to `plane-finding.json`. With no observed plane changes
+after re-enabling it reports INFO; exercise discovery by moving over textured surfaces.
 
 `ARView.backend` values are Synthetic=0, ARCore=1, ARKit=2, Scripted=3. Supply
 a loaded `ScriptedARInterface` through `ARView.interface` before adding a Scripted
