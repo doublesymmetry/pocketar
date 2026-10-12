@@ -210,6 +210,8 @@ func _layout(requested: Vector2i, turns: int = 0) -> void:
 	var available: Vector2 = get_viewport().get_visible_rect().size
 	var scale_factor: float = minf(1.0, minf(available.x / requested.x, available.y / requested.y))
 	view.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	view.grow_horizontal = Control.GROW_DIRECTION_END
+	view.grow_vertical = Control.GROW_DIRECTION_END
 	view.position = Vector2.ZERO
 	view.size = Vector2(Vector2i(Vector2(requested) * scale_factor))
 	view.orientation_quarter_turns = turns
