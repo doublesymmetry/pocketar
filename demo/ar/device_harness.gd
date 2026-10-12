@@ -18,6 +18,30 @@ func _packet_retention() -> void:
 	_step("packet-retention", "OK" if bool(result["ok"]) else "FAIL", JSON.stringify(result))
 
 
+func _centre_hit_agreement() -> Dictionary:
+	var point: Vector2 = view.size * 0.5
+	var errors: Array[float] = []
+	var different_planes: int = 0
+	for sample: int in range(20):
+		await get_tree().create_timer(0.1).timeout
+		var ours: Array = view.raycast(point)
+		var native_hit: Dictionary = {}
+		for entry: Variant in view.interface.call("live_hit_test", point):
+			if entry is Dictionary and int(entry.get("plane_id", 0)) != 0 and entry.has("pose"):
+				native_hit = entry
+				break
+		if ours.is_empty() or native_hit.is_empty():
+			continue
+		var hit: ARRaycastHit = ours[0] as ARRaycastHit
+		errors.append(hit.pose.origin.distance_to((native_hit["pose"] as Transform3D).origin))
+		if hit.plane_id != int(native_hit["plane_id"]):
+			different_planes += 1
+	errors.sort()
+	if errors.is_empty():
+		return {"samples": 0}
+	return {"samples": errors.size(), "different_planes": different_planes, "median_m": errors[int(errors.size() / 2.0)], "max_m": errors[-1]}
+
+
 func _plane_finding() -> void:
 	var original: PocketAR.PlaneFindingMode = view.plane_finding_mode
 	var generation: int = view.session_generation

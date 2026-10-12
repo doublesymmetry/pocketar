@@ -633,7 +633,11 @@ reports the effective values but never changes a game's settings. It warns once
 per session start if the region is below 512 pixels.
 
 Both device suites run `tracking` before `lifecycle`; the shared packet-retention
-check and its thresholds live in `demo/ar/packet_retention.gd`.
+check and its thresholds live in `demo/ar/packet_retention.gd`. `tracking` also samples
+the screen centre 20 times, 0.1 s apart, and reports `native_agreement`: the distance
+between `ARView.raycast` and the platform's own `live_hit_test` on the same plane
+(median, max, sample count, plane mismatches). It is INFO; the two hit tests can read
+frames one apart while the camera moves.
 
 ## Scripted sessions and the game facade
 

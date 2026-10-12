@@ -78,7 +78,7 @@ func _run() -> void:
 			"packet-retention": await _packet_retention()
 			"plane-finding": await _plane_finding()
 			"lifecycle": await _lifecycle()
-			"tracking": _tracking()
+			"tracking": await _tracking()
 	_finish()
 
 
@@ -305,8 +305,8 @@ func _tracking() -> void:
 	if not hits.is_empty():
 		var hit: ARRaycastHit = hits[0] as ARRaycastHit
 		hit_info = {"plane_id": hit.plane_id, "distance": hit.distance, "frame_id": hit.frame_id, "session_generation": hit.session_generation}
-	var live: Variant = view.interface.call("live_hit_test", view.size * 0.5)
-	_step("tracking", "INFO", "state=%s reason=%s planes=%s centre_hit=%s live_hit=%s timings=%s" % [view.interface.call("get_session_state"), view.interface.call("get_tracking_reason"), diagnostics.get("plane_count"), JSON.stringify(hit_info), str(live), JSON.stringify(diagnostics.get("timings", {}))])
+	var agreement: Dictionary = await _centre_hit_agreement()
+	_step("tracking", "INFO", "state=%s reason=%s planes=%s centre_hit=%s native_agreement=%s timings=%s" % [view.interface.call("get_session_state"), view.interface.call("get_tracking_reason"), diagnostics.get("plane_count"), JSON.stringify(hit_info), JSON.stringify(agreement), JSON.stringify(diagnostics.get("timings", {}))])
 
 
 func _finish() -> void:
