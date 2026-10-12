@@ -36,12 +36,15 @@ def harness_timeout(args, ar):
 def validate_harness_options(args):
     dataset_selected = False
     for index, option in enumerate(args):
-        if option not in {"-harness-record", "-harness-playback", "-harness-camera-config", "-harness-camera-path"}:
+        if option not in {"-harness-record", "-harness-playback", "-harness-camera-config", "-harness-camera-path", "-harness-composition"}:
             continue
         if index + 1 == len(args):
             raise ValueError(option + " needs a value")
         value = args[index + 1]
-        if option == "-harness-camera-path":
+        if option == "-harness-composition":
+            if value not in {"in-scene", "isolated-camera"}:
+                raise ValueError("composition must be in-scene or isolated-camera")
+        elif option == "-harness-camera-path":
             if value not in {"auto", "cpu"}:
                 raise ValueError("camera path must be auto or cpu")
             if value == "cpu" and "-harness-gpu-validate" in args:

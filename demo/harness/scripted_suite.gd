@@ -25,16 +25,16 @@ class InputObserver extends Node:
 		events.append({"kind": kind, "finger": event.index, "point": point, "frame": packet.frame_id if packet != null else 0, "hit": hits[0].pose.origin if not hits.is_empty() else Vector3.INF})
 
 
-func run(host: Node) -> Dictionary:
+func run(host: Node, composition: ARView.Composition = ARView.Composition.IN_SCENE) -> Dictionary:
 	failures.clear()
 	for fixture: String in FIXTURES:
-		var first: Dictionary = await _run_once(host, fixture)
-		var second: Dictionary = await _run_once(host, fixture)
+		var first: Dictionary = await _run_once(host, fixture, composition)
+		var second: Dictionary = await _run_once(host, fixture, composition)
 		_check(first == second, "fresh scripted sessions produce identical packets, inputs and transitions: " + fixture)
 	return {"ok": failures.is_empty(), "detail": "deterministic landscape and portrait scripted sessions" if failures.is_empty() else "; ".join(failures)}
 
 
-func _run_once(host: Node, fixture: String) -> Dictionary:
+func _run_once(host: Node, fixture: String, composition: ARView.Composition) -> Dictionary:
 	var header: Dictionary = JSON.parse_string(FileAccess.open(fixture, FileAccess.READ).get_line())
 	var target_size := Vector2(header.view_size[0], header.view_size[1])
 	var scripted := ScriptedARInterface.new()
@@ -45,6 +45,7 @@ func _run_once(host: Node, fixture: String) -> Dictionary:
 	scripted.advance_to(0)
 	await _flush_notifications(host)
 	var view: ARView = AR_VIEW.instantiate() as ARView
+	view.composition = composition
 	view.backend = 3
 	view.interface = scripted
 	view.handle_presses = true

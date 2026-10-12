@@ -27,6 +27,12 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 	view = AR_VIEW.instantiate() as ARView
+	var composition_index: int = args.find("-harness-composition")
+	if composition_index >= 0:
+		if composition_index + 1 >= args.size() or args[composition_index + 1] not in ["in-scene", "isolated-camera"]:
+			dataset_error = "composition must be in-scene or isolated-camera"
+		else:
+			view.composition = ARView.Composition.ISOLATED_CAMERA if args[composition_index + 1] == "isolated-camera" else ARView.Composition.IN_SCENE
 	view.handle_presses = true
 	view.backend = 2 if OS.get_name() == "iOS" else (1 if OS.get_name() == "Android" else 0)
 	var path_index: int = args.find("-harness-camera-path")

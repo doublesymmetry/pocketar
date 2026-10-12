@@ -31,6 +31,10 @@ internal object PocketARLaunchArgs {
         while (index < arguments.size) {
             when (arguments[index++]) {
                 "-harness-gpu-validate" -> Unit
+                "-harness-composition" -> {
+                    val value = arguments.getOrNull(index++) ?: return false
+                    if (value !in listOf("in-scene", "isolated-camera")) return false
+                }
                 "-harness-camera-path" -> {
                     val value = arguments.getOrNull(index++) ?: return false
                     if (value !in listOf("auto", "cpu")) return false

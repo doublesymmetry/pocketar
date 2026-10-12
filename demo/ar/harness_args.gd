@@ -1,7 +1,7 @@
 extends RefCounted
 
 const STEPS: PackedStringArray = ["arkit-session", "camera-image", "projection-form", "display-transform", "composite", "packet-retention", "tracking", "lifecycle"]
-const RENDERING_STEPS: PackedStringArray = ["loaded", "xr-mono-2d", "projection", "camera-transform", "color-invariance", "transparency", "frame-consistency", "resize"]
+const RENDERING_STEPS: PackedStringArray = ["loaded", "xr-mono-2d", "projection", "camera-transform", "color-invariance", "transparency", "composition", "camera-precision", "frame-consistency", "resize"]
 
 
 static func validate(args: PackedStringArray) -> Dictionary:
@@ -17,7 +17,7 @@ static func validate(args: PackedStringArray) -> Dictionary:
 		if flag in ["-harness-ar", "-ar-demo", "-harness", "--harness"]:
 			index += 1
 			continue
-		if flag not in ["--log-file", "-harness-duration", "-harness-timeout", "-harness-out", "-harness-steps", "-harness-run-id", "-harness-cleanup"]:
+		if flag not in ["--log-file", "-harness-duration", "-harness-timeout", "-harness-out", "-harness-steps", "-harness-run-id", "-harness-cleanup", "-harness-composition"]:
 			error = "unsupported iOS harness argument: " + flag
 			break
 		if index + 1 >= args.size():
@@ -25,6 +25,9 @@ static func validate(args: PackedStringArray) -> Dictionary:
 			break
 		var value: String = args[index + 1]
 		match flag:
+			"-harness-composition":
+				if value not in ["in-scene", "isolated-camera"]:
+					error = "composition must be in-scene or isolated-camera"
 			"-harness-run-id", "-harness-cleanup":
 				if RegEx.create_from_string("^[A-Za-z0-9_-]+$").search(value) == null:
 					error = flag + " requires a run identifier"

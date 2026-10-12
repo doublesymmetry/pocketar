@@ -15,6 +15,7 @@ run() {
 for name in packet_smoke ios_harness_args pocketar_args scripted_clock scripted_suite session_facade session_reentrancy; do
     run "$name" --script "$PWD/tests/headless/$name.gd"
 done
+run ar_view_smoke --script "$PWD/tests/tools/ar_view_smoke.gd"
 run pocketar_args_values --script "$PWD/tests/headless/pocketar_args.gd" -- -game-level 'snow field' -game-seed 42
 run ios_export_plugin --editor --script "$PWD/tests/headless/ios_export_plugin.gd"
 run thread_guard --script "$PWD/tests/headless/thread_guard.gd"

@@ -10,7 +10,12 @@ func _init() -> void:
 	check(String(valid["error"]).is_empty() and valid["args"].size() == 9, "valid launch preserves argv")
 	check(String(ARGS.validate(PackedStringArray(["--harness", "-harness-run-id", "round3", "-harness-ar", "-harness-steps", "packet-retention,tracking,lifecycle"]))["error"]).is_empty(), "run marker and retention step accepted")
 	check(String(ARGS.validate(PackedStringArray(["-harness-cleanup", "round3", "-harness-out", "user://captures-round3"]))["error"]).is_empty(), "run-owned cleanup accepted")
+	for mode: String in ["in-scene", "isolated-camera"]:
+		check(String(ARGS.validate(PackedStringArray(["-harness-ar", "-harness-composition", mode]))["error"]).is_empty(), "native composition accepted: " + mode)
+	check(String(ARGS.validate(PackedStringArray(["--harness", "-harness-steps", "composition,camera-precision"]))["error"]).is_empty(), "composition rendering checks accepted")
 	var invalid: Array[String] = [
+		'["-harness-composition"]',
+		'["-harness-composition","unknown"]',
 		'["-harness-duration"]',
 		'["-harness-duration","NaN"]',
 		'["-harness-duration","0"]',

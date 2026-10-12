@@ -33,6 +33,13 @@ def kotlin_unescape(argument):
 
 
 class AndroidHarnessTest(unittest.TestCase):
+    def test_composition_options(self):
+        for value in ["in-scene", "isolated-camera"]:
+            RUNNER.validate_harness_options(["-harness-composition", value])
+        for args in [["-harness-composition"], ["-harness-composition", "unknown"]]:
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                RUNNER.validate_harness_options(args)
+
     def test_camera_path_options(self):
         for value in ["cpu", "auto"]:
             RUNNER.validate_harness_options(["-harness-camera-path", value])

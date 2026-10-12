@@ -83,6 +83,14 @@ class DeviceTests(unittest.TestCase):
         self.assertIn("--no-recurse", call.call_args.args[0])
         self.assertEqual([c.args[0] for c in pull.call_args_list], ["Documents/harness/camera.png", "Documents/harness/diagnostics.json"])
 
+    def test_composition_options(self):
+        for value in ["in-scene", "isolated-camera"]:
+            args, _, _, _, _ = ios.harness_options(["-harness-composition", value], "unique")
+            self.assertEqual(args[args.index("-harness-composition") + 1], value)
+        for args in [["-harness-composition"], ["-harness-composition", "unknown"]]:
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                ios.harness_options(args, "unique")
+
     def test_harness_rejects_invalid_options(self):
         for arguments in [["-harness-duration", "nan"], ["-harness-duration", "0"], ["-harness-steps", "arcore-session"], ["-harness-out", "user://../escape"], ["--log-file", "old.log"], ["-harness-duration"]]:
             with self.subTest(arguments=arguments), self.assertRaises(ValueError):

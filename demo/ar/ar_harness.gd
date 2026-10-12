@@ -248,15 +248,15 @@ func _composite() -> void:
 	await RenderingServer.frame_post_draw
 	var screen: Image = get_viewport().get_texture().get_image()
 	var screen_saved: bool = _save_image(screen, "screen.png")
-	var scene_visible: bool = view.composite.visible
+	var scene_visible: bool = view.scene_root.visible
 	var hud_visible: bool = view.hud.visible
-	view.composite.visible = false
+	view.scene_root.visible = false
 	view.hud.visible = false
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	var camera_image: Image = get_viewport().get_texture().get_image()
 	var camera_saved: bool = _save_image(camera_image, "camera-layer.png")
-	view.composite.visible = scene_visible
+	view.scene_root.visible = scene_visible
 	view.hud.visible = hud_visible
 	var packet: ARFramePacket = view.interface.call("get_presented_packet") as ARFramePacket
 	var visibility: Dictionary = {"valid": false, "dark": false, "expected_y": -1.0, "rendered_y": -1.0}

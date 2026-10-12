@@ -8,6 +8,14 @@ signal tracking_reason_changed(reason: PocketAR.TrackingReason)
 signal session_generation_changed(generation: int)
 signal planes_changed()
 
+enum Composition { IN_SCENE, ISOLATED_CAMERA }
+
+@export var composition: Composition = Composition.IN_SCENE:
+	set(value):
+		if _composition_locked and value != composition:
+			push_error("ARView.composition cannot change after _ready")
+			return
+		composition = value
 @export_range(-1, 3) var orientation_quarter_turns: int = -1
 @export_enum("Synthetic", "ARCore", "ARKit", "Scripted") var backend: int = 0
 @export var handle_presses: bool = false
@@ -24,6 +32,9 @@ signal planes_changed()
 var interface: XRInterfaceExtension
 var applied_packet: ARFramePacket
 var waiting_for_packet: bool = true
+var camera_material: ShaderMaterial
+var camera_quad: MeshInstance3D
+var _composition_locked: bool = false
 var session_state: PocketAR.SessionState:
 	get:
 		return int(interface.call("get_session_state")) if interface != null else PocketAR.PAUSED
@@ -42,7 +53,23 @@ var world_3d: World3D:
 
 
 func _ready() -> void:
+	_composition_locked = true
 	virtual_scene.own_world_3d = true
+	camera_material = background.material as ShaderMaterial
+	if composition == Composition.IN_SCENE:
+		virtual_scene.use_hdr_2d = false
+		composite.material = null
+		camera_material = ShaderMaterial.new()
+		camera_material.shader = preload("res://addons/pocketar/camera_3d.gdshader")
+		# Mobile sorts priority before shader/material/depth; reserve 127 for the background.
+		camera_material.render_priority = Material.RENDER_PRIORITY_MAX
+		camera_quad = MeshInstance3D.new()
+		camera_quad.mesh = QuadMesh.new()
+		camera_quad.material_override = camera_material
+		camera_quad.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		camera_quad.ignore_occlusion_culling = true
+		camera_quad.hide()
+		camera.add_child(camera_quad)
 	world_environment.environment = Environment.new()
 	_sync_environment()
 	composite.texture = virtual_scene.get_texture()
@@ -80,7 +107,7 @@ func _exit_tree() -> void:
 	if RenderingServer.frame_post_draw.is_connected(_mark_presented):
 		RenderingServer.frame_post_draw.disconnect(_mark_presented)
 	if interface != null:
-		var shader: ShaderMaterial = background.material as ShaderMaterial
+		var shader: ShaderMaterial = camera_material
 		shader.set_shader_parameter("y_texture", null)
 		shader.set_shader_parameter("cbcr_texture", null)
 		shader.set_shader_parameter("rgb_texture", null)
@@ -139,7 +166,7 @@ func _update_geometry() -> void:
 func _apply_packet() -> void:
 	_sync_environment()
 	var packet: ARFramePacket = interface.call("get_current_packet") as ARFramePacket
-	var shader: ShaderMaterial = background.material as ShaderMaterial
+	var shader: ShaderMaterial = camera_material
 	if packet == null:
 		if applied_packet != null:
 			shader.set_shader_parameter("y_texture", null)
@@ -148,6 +175,8 @@ func _apply_packet() -> void:
 			applied_packet = null
 			waiting_for_packet = true
 			background.hide()
+			if camera_quad != null:
+				camera_quad.hide()
 			composite.hide()
 		if interface.is_initialized() and interface.has_method("mark_applied"):
 			interface.call("mark_applied", null)
@@ -157,6 +186,15 @@ func _apply_packet() -> void:
 		_check_camera_material(shader)
 		return
 	virtual_scene.size = Vector2i(packet.viewport_size)
+	if camera_quad != null:
+		# POSITION bypasses projection, but frustum culling still tests the mesh's AABB.
+		var centre: Vector4 = packet.projection.inverse() * Vector4(0, 0, -0.99, 1)
+		var point := Vector3(centre.x, centre.y, centre.z) / centre.w
+		var width: float = camera.near * 0.001
+		for plane: int in range(6):
+			width = minf(width, absf(packet.projection.get_projection_plane(plane).distance_to(point)) * 0.5)
+		var extent := Vector3.ONE * width
+		camera_quad.custom_aabb = AABB(point - extent * 0.5, extent)
 	shader.set_shader_parameter("y_texture", packet.y_texture)
 	shader.set_shader_parameter("cbcr_texture", packet.cbcr_texture)
 	shader.set_shader_parameter("rgb_texture", packet.rgb_texture)
@@ -172,7 +210,11 @@ func _apply_packet() -> void:
 	if waiting_for_packet:
 		waiting_for_packet = false
 		composite.show()
-	background.visible = packet.rgb_texture != null or (packet.y_texture != null and packet.cbcr_texture != null)
+	var has_image: bool = packet.rgb_texture != null or (packet.y_texture != null and packet.cbcr_texture != null)
+	if camera_quad != null:
+		camera_quad.visible = has_image
+	else:
+		background.visible = has_image
 	packet_applied.emit(packet)
 
 

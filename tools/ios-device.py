@@ -148,7 +148,7 @@ class Device:
 
 
 def harness_options(arguments, token):
-    values = {"-harness-duration", "-harness-out", "-harness-steps"}
+    values = {"-harness-duration", "-harness-out", "-harness-steps", "-harness-composition"}
     options = {}
     index = 0
     while index < len(arguments):
@@ -160,6 +160,8 @@ def harness_options(arguments, token):
             raise ValueError(key + " needs a value")
         options[key] = arguments[index]
         index += 1
+    if options.get("-harness-composition", "in-scene") not in {"in-scene", "isolated-camera"}:
+        raise ValueError("composition must be in-scene or isolated-camera")
     duration = float(options.get("-harness-duration", "60"))
     if not math.isfinite(duration) or duration <= 0:
         raise ValueError("Duration must be finite and positive")

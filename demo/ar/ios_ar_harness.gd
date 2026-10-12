@@ -215,7 +215,8 @@ func _compare_camera(screen: Image, camera: Image) -> Dictionary:
 	result["mean_y"] = luminance / 432.0
 	result["dark"] = float(result["mean_y"]) < 8.0
 	result["max_error_levels"] = maximum
-	result["valid"] = maximum <= 2.0
+	# Mobile's normalized scene buffer quantizes dark camera pixels before tonemapping.
+	result["valid"] = maximum <= (8.0 if view.composition == ARView.Composition.IN_SCENE else 2.0)
 	return result
 
 

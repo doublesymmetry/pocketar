@@ -5,6 +5,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PocketARLaunchArgsTest {
+    @Test fun compositionIsValidatedBeforeLaunch() {
+        for (value in listOf("in-scene", "isolated-camera")) {
+            val arguments = arrayOf("-harness-ar", "-harness-composition", value)
+            assertEquals(listOf("--") + arguments, PocketARLaunchArgs.collect(arguments, null))
+        }
+        assertNull(PocketARLaunchArgs.collect(arrayOf("-harness-ar", "-harness-composition"), null))
+        assertNull(PocketARLaunchArgs.collect(arrayOf("-harness-ar", "-harness-composition", "unknown"), null))
+    }
+
     @Test fun existingUserSeparatorIsPreserved() {
         for (separator in listOf("--", "++")) {
             assertEquals(

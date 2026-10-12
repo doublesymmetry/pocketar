@@ -104,8 +104,11 @@ One ARView owns one monoscopic `XRInterfaceExtension` and makes it primary.
 The synthetic interface is named `PocketARSynthetic`; scripted fixtures use
 `PocketARScripted`. Both publish `head` / `default` for
 `XRCamera3D`. The transparent XR SubViewport contains `XROrigin3D`, `XRCamera3D`
-and `SceneRoot`. The camera is a separate SDR canvas underneath its texture; a
-CanvasLayer holds ordinary HUD Controls above both. Controls receive input first.
+and `SceneRoot`. `ARView.composition` is a startup-only `Composition` enum:
+`IN_SCENE` (default) or `ISOLATED_CAMERA`. Assign it before adding the view to the
+tree; changing it after `_ready` reports an error and preserves the selected mode.
+In-scene draws the camera inside the XR viewport; isolated draws an SDR camera
+canvas beneath the virtual scene. A CanvasLayer holds ordinary HUD Controls above both. Controls receive input first.
 ARView ignores input by default. With `handle_presses=true`, unconsumed presses
 emit a ray through `ARView.screen_to_ray()` and mark the event handled. The demo
 and rendering harness opt in. Touch-emulated mouse presses are ignored.
@@ -161,7 +164,7 @@ handles RID retirement behind fences.
 
 ## Engine evidence
 
-Paths below are relative to `/Users/ci/hub/scratch/godot-ar/src/godot` (4.7.2).
+Paths below are relative to `/Users/ci/hub/wt/godot-pocketar-4.7.2` (4.7.2).
 
 | Decision | Source |
 | --- | --- |
@@ -177,6 +180,10 @@ Paths below are relative to `/Users/ci/hub/scratch/godot-ar/src/godot` (4.7.2).
 | HDR viewport skips the final sRGB conversion | `servers/rendering/renderer_rd/renderer_scene_render_rd.cpp:752` and `:961` |
 | Tonemapping changes RGB and preserves alpha | `servers/rendering/renderer_rd/shaders/effects/tonemap.glsl:860`, `:893`, `:954` |
 | Canvas uses the same blend factors, including premultiplied alpha | `servers/rendering/renderer_rd/renderer_canvas_render_rd.cpp:1517`; `servers/rendering/renderer_rd/storage_rd/material_storage.cpp:700` |
+| Mobile sorts opaque priority before shader/material and depth; stencil uses a separate grouping | `servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.h:339`, `:355`, `:484` |
+| Transparent background suppresses Mobile's automatic fog sky | `servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.cpp:1088` |
+| Mobile decal pairing uses layer masks; decals run even for unshaded materials | `servers/rendering/renderer_scene_cull.cpp:244`; `servers/rendering/renderer_rd/shaders/forward_mobile/scene_forward_mobile.glsl:1474` |
+| Mobile material dithering precedes normalized scene storage | `servers/rendering/renderer_rd/shaders/forward_mobile/scene_forward_mobile.glsl:2363` |
 | Main-thread pre-draw precedes draw; post-draw follows it | `servers/rendering/rendering_server_default.cpp:446` and `:229` |
 
 `display_transform` is this library's explicit convention, derived in
@@ -198,28 +205,79 @@ applying the imported swizzle to it destroys chroma. Pure red and blue bars are
 explicit harness checks. The synthetic full-range YCbCr contract uses byte 128
 as neutral chroma.
 
-The camera is composited separately because 3D background draws pass through the
-tonemapper, fog and glow. Changing a game's Environment must not recolour camera
-pixels. Keep the outer viewport in SDR. The HDR virtual viewport stores
+`IN_SCENE` is the lower-bandwidth composition for games that process the camera
+and virtual objects together. An opaque, unshaded camera quad draws at exact
+reverse-Z depth zero, with depth writes and the normal greater-or-equal test.
+The XR viewport keeps `transparent_bg=true` to suppress Mobile's automatic fog
+sky and uses `use_hdr_2d=false`; its texture is drawn without a canvas material.
+The camera fills every sample with alpha one, so ordinary transparency and MSAA
+blend in linear scene colour and keep the final alpha at one. Screen-reading
+materials can sample the camera. Fog is disabled on the quad, but tonemapping,
+exposure, colour adjustments and glow affect its pixels. Mobile's normalized
+scene buffer also clips radiance above approximately two, including bright
+virtual emission before glow or tonemapping.
+
+The quad's culling AABB is a small box just beyond the calibrated near-plane
+centre, updated with each packet; it remains inside asymmetric frusta and short
+far planes. Occlusion culling and shadow casting are disabled. Material priority
+127 is reserved for the camera: ordinary opaque scene materials must use lower
+priorities to draw before it. Mobile compares `sort_key2` first, with priority in
+its high bits; depth in `sort_key1` cannot guarantee late drawing. Equal-priority
+materials are ordered by shader/material, and stencil opaques form a later group.
+These exceptions affect early-depth savings; exact zero still preserves scene depth.
+
+Godot 4.7.2 Mobile has no per-instance receive-decal switch or spatial render mode
+that disables decals. It pairs decals by AABB overlap and shared visibility layer
+masks, and processes them even in unshaded shaders. Keep decal boxes away from the
+camera's near-plane proxy: an overlapping box that contains the camera can paint
+the camera image. ARView reserves no additional visibility layer. Other cameras
+and reflection probes sharing its private world can also see the quad when their
+masks and frusta include it.
+
+Enable `rendering/anti_aliasing/quality/use_debanding` for `IN_SCENE`. This dithers
+materials before Mobile's ten-bit scene write. In the measured desktop
+Mobile/Metal gradient, 39 of 255 adjacent source levels merged, with visible loss
+in dark values below 32; material dithering kept column means within 0.44 of an
+eight-bit level, at the cost of a few levels of per-pixel noise. Viewport-stage
+debanding alone does not recover this precision. Camera equality within one
+level is not the in-scene contract.
+
+Use `ISOLATED_CAMERA` when a game's tonemapping, grading or glow must leave camera
+pixels unchanged, or its virtual scene needs the float colour range. The camera
+is an SDR canvas below an HDR virtual viewport. That viewport stores
 premultiplied linear RGB; the final shader divides by coverage alpha, applies the
 sRGB transfer function, then multiplies by alpha for `blend_premul_alpha` in the
-SDR canvas. Plain `blend_mix` would multiply alpha twice. Ordinary screen-space
-refraction sees the virtual scene, not the camera. Alpha-zero glow is discarded.
+SDR canvas. Plain `blend_mix` would multiply alpha twice. Screen-space refraction
+sees only the virtual scene, and alpha-zero glow is discarded. The camera is
+unaffected by the game's Environment, including fog. Keep the outer viewport SDR
+in both modes. Both camera shaders share the same YCbCr/RGB sampling include.
 
 `ARView.environment` is the game's source resource. Background mode and colour
-are ignored: ARView copies the other settings into a private Environment before
-each draw and forces a transparent-black clear. Every other environment setting
-applies to the virtual scene within the renderer's support. Live edits apply even
-when the camera packet repeats, and the source resource is left unchanged.
-The transparency harness uses a bright `BG_COLOR` source to check translucent
-surfaces and MSAA edges for background contamination.
+are ignored in both modes: ARView copies the other settings into a private
+Environment before each draw and forces a transparent-black clear. Live edits
+apply even when the camera packet repeats, and leave the source resource unchanged.
+Both modes keep the transparent-viewport depth-of-field restriction. Custom
+blending and nonlinear translucent rendering need their own rendering review.
 
-The transparency assertions use linear tonemapping and exposure 1. Nonlinear
-tonemapping happens to accumulated premultiplied colour before composition, so
-translucent material appearance under filmic/ACES/AgX needs separate artistic and
-rendering review. The colour-invariance check covers all these operators and
-exposures, fog and glow in camera-only regions. Passing it alone does not prove
-nonlinear translucent rendering or glow halos.
+The rendering harness runs both compositions, prefixing captures and step details
+with the mode. Projection and `xr-mono-2d` measure geometry against a camera-only
+reference, independently of viewport alpha. `transparency` checks linear tonemapping
+at exposure one, opaque/half-transparent cubes, MSAA coverage and bright emission;
+it also saves glow captures for visual inspection. `color-invariance` checks all
+operators, exposure, fog, glow and adjustments for isolated camera; in-scene checks
+linear tonemapping, exposure one, fog on/off, no glow or adjustments. `composition`
+checks far=23, geometry 1mm inside the far plane, exact zero background depth,
+fog, alpha scissor, screen reads, decal overlap and reset/interruption with a live
+HUD. `camera-precision` records pointwise and column-mean errors for material and
+viewport dithering independently. Headless smoke checks both active materials,
+startup locking, textureless packets and clearing on interruption.
+
+Native phone runs select the mode at startup with
+`-harness-composition in-scene|isolated-camera` (default `in-scene`), accepted by
+both harness transports. Run `camera-image,composite,packet-retention,lifecycle`
+and the platform's projection/display-transform checks in each mode. ARKit's
+in-scene camera comparison allows up to eight byte levels of pointwise error for
+normalized storage and dithering; isolated retains its two-level threshold.
 
 The adb version rule also applies to scripts and manual one-liners. Always use
 `"$ADB"`. `harness android` installs only this demo, launches its exported
