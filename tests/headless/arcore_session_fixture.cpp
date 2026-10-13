@@ -1,9 +1,11 @@
 #include "platform/android/arcore_interface.h"
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/classes/xr_server.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <android/hardware_buffer.h>
 #include <algorithm>
 
 static ARCoreBridgeState bridge;
@@ -76,11 +78,21 @@ ARCoreJNIEnv::~ARCoreJNIEnv() {}
 
 namespace godot {
 
-void ARCoreInterface::detect_gpu_camera() {}
-void ARCoreInterface::set_camera_path(const String &) {}
-void ARCoreInterface::set_gpu_validation_enabled(bool) {}
-bool ARCoreInterface::submit_gpu_camera() { return false; }
-void ARCoreInterface::finish_gpu_validation() {}
+class FixtureHardwareBufferTexture : public Texture2D {
+	GDCLASS(FixtureHardwareBufferTexture, Texture2D)
+
+protected:
+	static void _bind_methods() {
+		ClassDB::bind_method(D_METHOD("submit_hardware_buffer", "buffer", "color_model", "color_range", "crop", "completion"), &FixtureHardwareBufferTexture::submit_hardware_buffer);
+	}
+
+public:
+	Callable completion;
+	int submit_hardware_buffer(int64_t, int, int, const Rect2i &, const Callable &p_completion) {
+		completion = p_completion;
+		return OK;
+	}
+};
 
 class ARCoreSessionFixture : public RefCounted {
 	GDCLASS(ARCoreSessionFixture, RefCounted)
@@ -123,6 +135,32 @@ class ARCoreSessionFixture : public RefCounted {
 		}
 	}
 	void planes_changed() { record_event("planes"); }
+	void check_gpu_completion_lifetime() {
+		if (!ClassDB::class_has_integer_constant("ExternalTexture", "COMPLETION_COMPLETED")) return;
+		static AHardwareBuffer_Desc buffer{ 640, 480, 1, AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420 };
+		arcore_api().ArFrame_getHardwareBuffer = [](const ArSession *, const ArFrame *, void **r_buffer) { *r_buffer = &buffer; return AR_SUCCESS; };
+		Ref<FixtureHardwareBufferTexture> texture;
+		texture.instantiate();
+		Ref<ARCoreInterface> gpu;
+		gpu.instantiate();
+		gpu->owner_thread = std::this_thread::get_id();
+		gpu->initialized = true;
+		gpu->head.instantiate();
+		gpu->session = reinterpret_cast<ArSession *>(1);
+		gpu->gpu_texture = texture;
+		gpu->gpu_size = Vector2i(640, 480);
+		gpu->submit_gpu_camera();
+		const Callable completion = texture->completion;
+		check(completion.is_valid(), "GPU submission supplies a completion");
+		const int completed = ClassDB::class_get_integer_constant("ExternalTexture", "COMPLETION_COMPLETED");
+		completion.call(completed);
+		check(gpu->gpu_active, "completion reaches the live interface");
+		gpu->session = nullptr;
+		gpu->_uninitialize();
+		gpu.unref();
+		check(completion.is_valid(), "completion validity does not depend on the freed interface");
+		completion.call(completed);
+	}
 
 protected:
 	static void _bind_methods() {
@@ -282,6 +320,7 @@ public:
 		session->session = nullptr;
 		check(events.is_empty(), "reset, lifecycle, plane and frame notifications are all deferred");
 		operation_active = false;
+		check_gpu_completion_lifetime();
 	}
 
 	int finish() {
@@ -304,6 +343,7 @@ static void initialize_fixture(godot::ModuleInitializationLevel p_level) {
 	GDREGISTER_CLASS(ARPlaneTracker);
 	GDREGISTER_CLASS(ARRaycastHit);
 	GDREGISTER_CLASS(ARCoreInterface);
+	GDREGISTER_CLASS(FixtureHardwareBufferTexture);
 	GDREGISTER_CLASS(ARCoreSessionFixture);
 }
 

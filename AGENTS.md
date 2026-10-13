@@ -56,7 +56,7 @@ avoid the shell builtin with the same name.
 | Pixel demo installation and harness | `ADB=<host-binary> ANDROID_SERIAL=<serial> harness android` |
 | Native math, retirement, YUV/GPU and fixture parser tests; Python fixture tests | `TMPDIR=/tmp tools/test-native.sh` |
 | Headless packet, facade, scripted, arguments, exporter and thread tests | `tools/test-headless.sh` |
-| ARCore native lifecycle/status and query/recording fixtures | `TMPDIR=/tmp tools/test-arcore.sh` |
+| ARCore native lifecycle/status, GPU completion lifetime and query/recording fixtures | `TMPDIR=/tmp tools/test-arcore.sh` |
 | All Python tool tests | `python3 -m unittest discover -s tests/tools` |
 | Kotlin launch argument tests | `cd android && ./gradlew :plugin:testDebugUnitTest` |
 | Generate landscape fixture | `python3 tools/fixtures.py --output demo/harness/fixtures/table.jsonl --loss-at 1 --reset-at 1.5 --pause-at 1.75 --tap-at 0.6 --drag-to 0.1 -0.7 -2 --plane-examples` |
@@ -455,6 +455,10 @@ through a session reset. Hardware-buffer errors before activation also fall back
 `NOT_YET_AVAILABLE` gets 30 consecutive attempts. After activation, missing buffers
 drop frames and failed completions are counted. `camera_path` and
 `camera_path_reason` report the choice. Callbacks from old generations are ignored.
+The engine keeps each completion until its GPU frame finishes, which at shutdown is
+after the interface has been freed, and godot-cpp's `callable_mp` dereferences its
+object to check validity. Completions are therefore static callables bound to the
+interface's instance ID; never hand the engine a `callable_mp` it may keep.
 
 GPU selection prefers the largest GPU texture under the existing camera filter,
 then the smallest CPU image: a CPU image larger than ARCore's own 640x480 tracking

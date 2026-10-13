@@ -129,6 +129,7 @@ private:
 	void inspect_intrinsics(const ArCamera *p_camera, ARFramePacket &r_packet);
 	void detect_gpu_camera();
 	void fallback_gpu_camera(const String &p_reason);
+	static void gpu_camera_completion(int p_status, uint64_t p_interface, int64_t p_generation);
 	void gpu_camera_completed(int p_status, int64_t p_generation);
 	bool submit_gpu_camera();
 	void capture_gpu_validation(int64_t p_timestamp);

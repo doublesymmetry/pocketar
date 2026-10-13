@@ -48,6 +48,11 @@ void ARCoreInterface::fallback_gpu_camera(const String &p_reason) {
 	reset();
 }
 
+void ARCoreInterface::gpu_camera_completion(int p_status, uint64_t p_interface, int64_t p_generation) {
+	ARCoreInterface *interface = Object::cast_to<ARCoreInterface>(ObjectDB::get_instance(p_interface));
+	if (interface) interface->gpu_camera_completed(p_status, p_generation);
+}
+
 void ARCoreInterface::gpu_camera_completed(int p_status, int64_t p_generation) {
 	if (!initialized || p_generation != generation || gpu_texture.is_null()) return;
 	ERR_FAIL_COND(!on_owner_thread());
@@ -112,7 +117,9 @@ bool ARCoreInterface::submit_gpu_camera() {
 		crop = Rect2i(Vector2i(), gpu_size);
 	}
 	const uint64_t start = tick_usec();
-	const Variant result = gpu_texture->call("submit_hardware_buffer", int64_t(reinterpret_cast<uintptr_t>(buffer)), gpu_color_model, gpu_color_range, crop, callable_mp(this, &ARCoreInterface::gpu_camera_completed).bind(generation));
+	// Completions can outlive this interface, and godot-cpp's callable_mp dereferences its object to check validity.
+	const Callable completion = callable_mp_static(&ARCoreInterface::gpu_camera_completion).bind(get_instance_id(), generation);
+	const Variant result = gpu_texture->call("submit_hardware_buffer", int64_t(reinterpret_cast<uintptr_t>(buffer)), gpu_color_model, gpu_color_range, crop, completion);
 	sample_timing(gpu_submit_times, gpu_submit_cursor, double(tick_usec() - start));
 	const int error = result.get_type() == Variant::INT ? int(result) : int(ERR_INVALID_DATA);
 	if (error != OK) {
