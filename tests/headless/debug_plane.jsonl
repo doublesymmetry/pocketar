@@ -1,0 +1,17 @@
+{"format":"pocketar-session","version":1,"semantics":"arkit","image_size":[64,48],"intrinsics":{"fx":52,"fy":51,"cx":32,"cy":24}}
+{"t_usec":0,"frame_id":1,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":1000,"frame_id":2,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":2000,"frame_id":3,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":3000,"frame_id":4,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":4000,"frame_id":5,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"initializing","tracking_reason":"insufficient_features","planes":[]}
+{"t_usec":5000,"frame_id":6,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":false,"session_state":"initializing","tracking_reason":"insufficient_features","planes":[]}
+{"t_usec":6000,"frame_id":7,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":7000,"frame_id":8,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":8000,"frame_id":9,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":9000,"frame_id":10,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":10000,"frame_id":11,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":11000,"frame_id":12,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":12000,"frame_id":13,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":13000,"frame_id":14,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":14000,"frame_id":15,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}
+{"t_usec":15000,"frame_id":16,"camera_transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],"tracking_valid":true,"session_state":"tracking","tracking_reason":"none","planes":[]}

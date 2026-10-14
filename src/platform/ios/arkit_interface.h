@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef DEBUG_ENABLED
+#include "core/debug_plane.h"
+#endif
+
 #include "core/ar_frame_packet.h"
 #include "core/ar_plane_tracker.h"
 #include "core/pocketar.h"
@@ -23,6 +27,9 @@ class ARKitInterface : public XRInterfaceExtension {
 	std::vector<ARPlaneSnapshot> published_planes;
 	int64_t generation = 0, sequence = 0;
 	int64_t native_anchor_count = 0;
+#ifdef DEBUG_ENABLED
+	DebugPlane debug_plane;
+#endif
 	bool initialized = false;
 	bool suspended = false;
 	bool geometry_dirty = true;
@@ -48,6 +55,10 @@ protected:
 	static void _bind_methods();
 
 public:
+#ifdef DEBUG_ENABLED
+	int64_t set_debug_plane(const Transform3D &p_transform, const Vector2 &p_extents);
+	void clear_debug_plane();
+#endif
 	ARKitInterface();
 	~ARKitInterface();
 	PocketAR::SessionState get_session_state() const { return state; }

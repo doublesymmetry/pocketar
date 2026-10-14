@@ -42,7 +42,35 @@ static void fill_synthetic_camera_image(int p_width, int p_height, int64_t p_seq
 	r_cbcr_image->set_data(p_width, p_height, false, Image::FORMAT_RG8, cbcr_data);
 }
 
+#ifdef DEBUG_ENABLED
+int64_t SimulatedARInterface::set_debug_plane(const Transform3D &p_transform, const Vector2 &p_extents) {
+	ERR_FAIL_COND_V(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id(), 0);
+	return debug_plane.set(p_transform, p_extents);
+}
+
+void SimulatedARInterface::clear_debug_plane() {
+	ERR_FAIL_COND(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id());
+	debug_plane.request_clear();
+}
+void SimulatedARInterface::publish_debug_plane(const Ref<ARFramePacket> &p_packet, bool p_tracking) {
+	debug_plane.merge(p_packet->planes, generation, p_tracking);
+	const ARPlaneSnapshot snapshot = !p_packet->planes.empty() && p_packet->planes.back().debug ? p_packet->planes.back() : ARPlaneSnapshot();
+	if (snapshot != published_debug_plane) call_deferred("emit_signal", "planes_changed");
+	published_debug_plane = snapshot;
+}
+
+void SimulatedARInterface::reset_debug_plane() {
+	debug_plane.clear();
+	if (published_debug_plane.plane_id) call_deferred("emit_signal", "planes_changed");
+	published_debug_plane = ARPlaneSnapshot();
+}
+#endif
+
 void SimulatedARInterface::_bind_methods() {
+#ifdef DEBUG_ENABLED
+	ClassDB::bind_method(D_METHOD("set_debug_plane", "transform", "extents"), &SimulatedARInterface::set_debug_plane);
+	ClassDB::bind_method(D_METHOD("clear_debug_plane"), &SimulatedARInterface::clear_debug_plane);
+#endif
 	ClassDB::bind_method(D_METHOD("set_plane_finding_mode", "mode"), &SimulatedARInterface::set_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("get_plane_finding_mode"), &SimulatedARInterface::get_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &SimulatedARInterface::get_session_generation);
@@ -75,6 +103,9 @@ bool SimulatedARInterface::start(const String &p_description) {
 }
 
 void SimulatedARInterface::stop() {
+#ifdef DEBUG_ENABLED
+	reset_debug_plane();
+#endif
 	set_primary(false);
 	XRServer::get_singleton()->remove_tracker(head);
 	head.unref();
@@ -139,6 +170,9 @@ PackedFloat64Array SimulatedARInterface::_get_projection_for_view(uint32_t p_vie
 }
 
 void SimulatedARInterface::mark_presented() {
+#ifdef DEBUG_ENABLED
+	if (debug_plane.presentation_paused()) { presented_packet.unref(); return; }
+#endif
 	presented_packet = current_packet;
 }
 

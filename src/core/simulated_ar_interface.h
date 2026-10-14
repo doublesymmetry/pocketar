@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef DEBUG_ENABLED
+#include "debug_plane.h"
+#endif
+
 #include "ar_frame_packet.h"
 #include "pocketar.h"
 #include <godot_cpp/classes/image.hpp>
@@ -12,6 +16,12 @@ class SimulatedARInterface : public XRInterfaceExtension {
 	GDCLASS(SimulatedARInterface, XRInterfaceExtension)
 
 protected:
+#ifdef DEBUG_ENABLED
+	DebugPlane debug_plane;
+	ARPlaneSnapshot published_debug_plane;
+	void publish_debug_plane(const Ref<ARFramePacket> &p_packet, bool p_tracking);
+	void reset_debug_plane();
+#endif
 	bool initialized = false;
 	bool geometry_dirty = true;
 	int64_t generation = 0;
@@ -33,6 +43,10 @@ protected:
 	void fill_packet(const Ref<ARFramePacket> &p_packet, const Transform3D &p_pose);
 
 public:
+#ifdef DEBUG_ENABLED
+	int64_t set_debug_plane(const Transform3D &p_transform, const Vector2 &p_extents);
+	void clear_debug_plane();
+#endif
 	void set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode);
 	PocketAR::PlaneFindingMode get_plane_finding_mode() const { return plane_finding_mode; }
 	int64_t get_session_generation() const { return generation; }

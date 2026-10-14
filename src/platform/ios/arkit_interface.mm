@@ -90,7 +90,23 @@ static AVAuthorizationStatus camera_authorization(Dictionary &r_diagnostics) {
 ARKitInterface::ARKitInterface() : impl(new Impl) {}
 ARKitInterface::~ARKitInterface() { if (initialized) _uninitialize(); }
 
+#ifdef DEBUG_ENABLED
+int64_t ARKitInterface::set_debug_plane(const Transform3D &p_transform, const Vector2 &p_extents) {
+	ERR_FAIL_COND_V(initialized && !on_owner_thread(), 0);
+	return debug_plane.set(p_transform, p_extents);
+}
+
+void ARKitInterface::clear_debug_plane() {
+	ERR_FAIL_COND(initialized && !on_owner_thread());
+	debug_plane.request_clear();
+}
+#endif
+
 void ARKitInterface::_bind_methods() {
+#ifdef DEBUG_ENABLED
+	ClassDB::bind_method(D_METHOD("set_debug_plane", "transform", "extents"), &ARKitInterface::set_debug_plane);
+	ClassDB::bind_method(D_METHOD("clear_debug_plane"), &ARKitInterface::clear_debug_plane);
+#endif
 	ClassDB::bind_method(D_METHOD("get_session_state"), &ARKitInterface::get_session_state);
 	ClassDB::bind_method(D_METHOD("get_tracking_reason"), &ARKitInterface::get_tracking_reason);
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &ARKitInterface::get_session_generation);
@@ -119,6 +135,12 @@ void ARKitInterface::increment(const char *p_key) { diagnostics[p_key] = int64_t
 void ARKitInterface::set_state(PocketAR::SessionState p_state) {
 	const bool changed = state != p_state;
 	if (!changed && !state_history.is_empty()) return;
+#ifdef DEBUG_ENABLED
+	if (p_state != PocketAR::TRACKING) {
+		debug_plane.pause();
+		if (debug_plane.active()) presented_packet.unref();
+	}
+#endif
 	state = p_state;
 	state_history.append(int(state));
 	if (changed) call_deferred("emit_signal", "session_state_changed", int(state));
@@ -177,6 +199,9 @@ bool ARKitInterface::_initialize() {
 	head->set_tracker_desc("ARKit display-oriented camera");
 	head->set_tracker_type(XRServer::TRACKER_HEAD);
 	XRServer::get_singleton()->add_tracker(head);
+#ifdef DEBUG_ENABLED
+	debug_plane.clear();
+#endif
 	generation = next_ar_id();
 	initialized = true;
 	active_interfaces.insert(this);
@@ -327,6 +352,9 @@ void ARKitInterface::clear_packets() {
 
 void ARKitInterface::clear_planes() {
 	const bool changed = !published_planes.empty();
+#ifdef DEBUG_ENABLED
+	debug_plane.clear();
+#endif
 	for (auto &entry : planes) { XRServer::get_singleton()->remove_tracker(entry.second); increment("retired_tracker_count"); }
 	planes.clear();
 	published_planes.clear();
@@ -416,6 +444,9 @@ bool ARKitInterface::copy_planes(void *p_frame, ARFramePacket &r_packet) {
 		increment("retired_tracker_count");
 		it = planes.erase(it);
 	}
+#ifdef DEBUG_ENABLED
+	debug_plane.merge(r_packet.planes, generation, frame.camera.trackingState == ARTrackingStateNormal);
+#endif
 	const bool changed = r_packet.planes != published_planes;
 	published_planes = r_packet.planes;
 	return changed;
@@ -539,6 +570,7 @@ void ARKitInterface::_process() {
 			reason == PocketAR::NONE ? XR_UNKNOWN_TRACKING : XR_NOT_TRACKING;
 		if (packet->tracking_valid) head->set_pose("default", packet->camera_transform, Vector3(), Vector3(), camera.trackingState == ARTrackingStateNormal ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_LOW);
 		else head->invalidate_pose("default");
+		set_state(camera.trackingState == ARTrackingStateNormal ? PocketAR::TRACKING : PocketAR::INITIALIZING);
 		const bool changed_planes = copy_planes((__bridge void *)frame, *packet.ptr());
 		if (!impl->first_frame) { timings["first_frame_ms"] = (tick_usec() - impl->start_tick) / 1000.0; impl->first_frame = true; }
 		impl->orientation = orientation;
@@ -555,7 +587,6 @@ void ARKitInterface::_process() {
 			diagnostics["projection_near_far_error"] = std::max(double(diagnostics["projection_near_far_error"]), error);
 		}
 		increment("packets_published");
-		set_state(camera.trackingState == ARTrackingStateNormal ? PocketAR::TRACKING : PocketAR::INITIALIZING);
 		if (changed_planes) call_deferred("emit_signal", "planes_changed");
 	}
 }
@@ -592,6 +623,9 @@ void ARKitInterface::mark_applied(const Ref<ARFramePacket> &p_packet) {
 }
 
 void ARKitInterface::mark_presented() {
+#ifdef DEBUG_ENABLED
+	if (debug_plane.presentation_paused()) { presented_packet.unref(); return; }
+#endif
 	if (applied_packet.is_valid() && applied_packet->get_session_generation() == generation) {
 		presented_packet = applied_packet;
 		textures->set_active_packets(current_packet, presented_packet, applied_packet);

@@ -164,6 +164,17 @@ func _run_once(host: Node, fixture: String, composition: ARView.Composition) -> 
 	for transition: Array in normalized:
 		if transition[0] == "generation":
 			transition[1] = int(transition[1]) - baseline
+	_check(normalized == [
+		["state", PocketAR.INITIALIZING], ["generation", 0],
+		["state", PocketAR.TRACKING], ["planes", 2],
+		["reason", PocketAR.INSUFFICIENT_FEATURES], ["state", PocketAR.INITIALIZING], ["planes", 2],
+		["reason", PocketAR.NONE], ["state", PocketAR.TRACKING], ["planes", 2],
+		["planes", 0], ["generation", 1], ["state", PocketAR.INITIALIZING],
+		["state", PocketAR.TRACKING], ["planes", 2],
+		["state", PocketAR.PAUSED], ["planes", 0], ["state", PocketAR.INITIALIZING],
+		["state", PocketAR.TRACKING], ["planes", 2],
+		["planes", 0], ["generation", 2], ["state", PocketAR.INITIALIZING],
+	], "fixture plane notifications preserve exact order and count without a debug plane: " + fixture)
 	var generations: Array = []
 	var states: Array = []
 	var reasons: Array = []

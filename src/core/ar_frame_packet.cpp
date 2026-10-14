@@ -56,6 +56,9 @@ TypedArray<Dictionary> ARFramePacket::get_planes() const {
 	TypedArray<Dictionary> result;
 	for (const ARPlaneSnapshot &plane : planes) {
 		Dictionary value;
+#ifdef DEBUG_ENABLED
+		value["debug"] = plane.debug;
+#endif
 		value["plane_id"] = plane.plane_id;
 		value["session_generation"] = plane.session_generation;
 		value["alignment"] = plane.alignment;

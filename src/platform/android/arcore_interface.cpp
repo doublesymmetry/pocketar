@@ -13,7 +13,23 @@
 
 namespace godot {
 
+#ifdef DEBUG_ENABLED
+int64_t ARCoreInterface::set_debug_plane(const Transform3D &p_transform, const Vector2 &p_extents) {
+	ERR_FAIL_COND_V(initialized && !on_owner_thread(), 0);
+	return debug_plane.set(p_transform, p_extents);
+}
+
+void ARCoreInterface::clear_debug_plane() {
+	ERR_FAIL_COND(initialized && !on_owner_thread());
+	debug_plane.request_clear();
+}
+#endif
+
 void ARCoreInterface::_bind_methods() {
+#ifdef DEBUG_ENABLED
+	ClassDB::bind_method(D_METHOD("set_debug_plane", "transform", "extents"), &ARCoreInterface::set_debug_plane);
+	ClassDB::bind_method(D_METHOD("clear_debug_plane"), &ARCoreInterface::clear_debug_plane);
+#endif
 	ClassDB::bind_method(D_METHOD("get_session_state"), &ARCoreInterface::get_session_state);
 	ClassDB::bind_method(D_METHOD("get_tracking_reason"), &ARCoreInterface::get_tracking_reason);
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &ARCoreInterface::get_session_generation);
@@ -51,6 +67,12 @@ void ARCoreInterface::increment(const char *p_key, int64_t p_amount) { diagnosti
 void ARCoreInterface::set_state(PocketAR::SessionState p_state) {
 	const bool changed = state != p_state;
 	if (!changed && !state_history.is_empty()) return;
+#ifdef DEBUG_ENABLED
+	if (p_state != PocketAR::TRACKING) {
+		debug_plane.pause();
+		if (debug_plane.active()) presented_packet.unref();
+	}
+#endif
 	state = p_state;
 	state_history.append(int(state));
 	UtilityFunctions::print("ARCORE state=", int(state), " generation=", generation, " reason=", int(reason));
@@ -103,6 +125,9 @@ bool ARCoreInterface::_initialize() {
 	head->set_tracker_type(XRServer::TRACKER_HEAD);
 	XRServer::get_singleton()->add_tracker(head);
 	initialized = true;
+#ifdef DEBUG_ENABLED
+	debug_plane.clear();
+#endif
 	generation = next_ar_id();
 	reset_tick = tick_usec();
 	set_primary(true);
@@ -318,7 +343,10 @@ void ARCoreInterface::pause_session() {
 }
 
 void ARCoreInterface::clear_planes() {
-	const bool changed = !planes.empty();
+	bool changed = !planes.empty();
+#ifdef DEBUG_ENABLED
+	changed = debug_plane.clear() || changed;
+#endif
 	for (auto &item : planes) {
 		XRServer::get_singleton()->remove_tracker(item.second.tracker);
 		api.ArTrackable_release(reinterpret_cast<ArTrackable *>(item.first));
@@ -328,7 +356,12 @@ void ARCoreInterface::clear_planes() {
 }
 
 void ARCoreInterface::release_session() {
-	if (!session) return;
+	if (!session) {
+#ifdef DEBUG_ENABLED
+		clear_planes();
+#endif
+		return;
+	}
 	pause_session();
 	extras.close();
 	clear_planes();
@@ -452,6 +485,9 @@ void ARCoreInterface::mark_applied(const Ref<ARFramePacket> &p_packet) {
 	applied_packet = p_packet;
 }
 void ARCoreInterface::mark_presented() {
+#ifdef DEBUG_ENABLED
+	if (debug_plane.presentation_paused()) { presented_packet.unref(); return; }
+#endif
 	if (applied_packet.is_valid() && applied_packet->get_session_generation() == generation) {
 		presented_packet = applied_packet;
 		increment("packets_presented");

@@ -22,6 +22,9 @@ bool SyntheticARInterface::_initialize() {
 		return true;
 	}
 	if (!start("Synthetic handheld camera")) return false;
+#ifdef DEBUG_ENABLED
+	reset_debug_plane();
+#endif
 	generation = next_ar_id();
 	sequence = 0;
 	make_packet(Time::get_singleton()->get_ticks_usec());
@@ -32,6 +35,9 @@ bool SyntheticARInterface::_initialize() {
 
 void SyntheticARInterface::reset() {
 	ERR_FAIL_COND(!initialized);
+#ifdef DEBUG_ENABLED
+	reset_debug_plane();
+#endif
 	generation = next_ar_id();
 	sequence = 0;
 	presented_packet.unref();
@@ -93,6 +99,9 @@ void SyntheticARInterface::make_packet(uint64_t p_tick) {
 		packet->camera_transform = display_oriented_pose(packet->physical_camera_transform, quarter_turns);
 	}
 	packet->tracking_valid = true;
+#ifdef DEBUG_ENABLED
+	publish_debug_plane(packet, true);
+#endif
 	current_packet = packet;
 	head->set_pose("default", packet->camera_transform, Vector3(), Vector3(), XRPose::XR_TRACKING_CONFIDENCE_HIGH);
 }

@@ -58,8 +58,8 @@ EXTENSION
     fi
 }
 fixture session arcore_session_fixture_init SESSION \
-    -fno-access-control -DCLOCK_BOOTTIME=CLOCK_MONOTONIC \
+    -DDEBUG_ENABLED -fno-access-control -DCLOCK_BOOTTIME=CLOCK_MONOTONIC \
     -I"$work_dir" -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/darwin" \
     src/platform/android/arcore_interface.cpp src/platform/android/arcore_frame.cpp src/platform/android/arcore_gpu.cpp \
-    src/core/ar_plane_tracker.cpp
+    src/core/ar_plane_tracker.cpp src/core/debug_plane.cpp
 fixture extras arcore_extras_fixture_init EXTRAS

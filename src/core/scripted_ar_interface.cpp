@@ -75,6 +75,12 @@ void ScriptedARInterface::_uninitialize() {
 
 void ScriptedARInterface::set_state(PocketAR::SessionState p_state) {
 	if (state == p_state) return;
+#ifdef DEBUG_ENABLED
+	if (p_state != PocketAR::TRACKING) {
+		debug_plane.pause();
+		if (debug_plane.active()) presented_packet.unref();
+	}
+#endif
 	state = p_state;
 	call_deferred("emit_signal", "session_state_changed", int(state));
 }
@@ -86,7 +92,11 @@ void ScriptedARInterface::set_reason(PocketAR::TrackingReason p_reason) {
 }
 
 void ScriptedARInterface::clear_planes() {
-	const bool changed = !planes.empty();
+	bool changed = !planes.empty();
+#ifdef DEBUG_ENABLED
+	changed = debug_plane.clear() || changed;
+	published_debug_plane = ARPlaneSnapshot();
+#endif
 	for (const auto &entry : plane_trackers) XRServer::get_singleton()->remove_tracker(entry.second);
 	plane_trackers.clear();
 	planes.clear();
@@ -216,6 +226,9 @@ void ScriptedARInterface::make_packet() {
 	fill_packet(packet, fixture_transform(frame.camera_transform));
 	packet->tracking_valid = frame.tracking_valid;
 	packet->planes = planes;
+#ifdef DEBUG_ENABLED
+	publish_debug_plane(packet, frame.tracking_valid && state == PocketAR::TRACKING);
+#endif
 	current_packet = packet;
 	if (frame.tracking_valid && state != PocketAR::PAUSED) head->set_pose("default", packet->camera_transform, Vector3(), Vector3(), XRPose::XR_TRACKING_CONFIDENCE_HIGH);
 	else head->invalidate_pose("default");

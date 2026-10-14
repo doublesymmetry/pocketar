@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef DEBUG_ENABLED
+#include "core/debug_plane.h"
+#endif
+
 #include "arcore_api.h"
 #include "arcore_extras.h"
 #include "arcore_bridge.h"
@@ -52,6 +56,9 @@ private:
 	std::vector<TextureSlot> texture_slots;
 	std::shared_ptr<DestroyStats> destroy_stats = std::make_shared<DestroyStats>();
 	std::thread::id owner_thread;
+#ifdef DEBUG_ENABLED
+	DebugPlane debug_plane;
+#endif
 	bool initialized = false;
 	bool running = false;
 	bool application_suspended = false;
@@ -139,6 +146,10 @@ protected:
 	static void _bind_methods();
 
 public:
+#ifdef DEBUG_ENABLED
+	int64_t set_debug_plane(const Transform3D &p_transform, const Vector2 &p_extents);
+	void clear_debug_plane();
+#endif
 	~ARCoreInterface();
 	PocketAR::SessionState get_session_state() const { return state; }
 	PocketAR::TrackingReason get_tracking_reason() const { return reason; }

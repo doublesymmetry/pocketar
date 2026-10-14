@@ -256,6 +256,9 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	double plane_reprojection_error = 0;
 	int plane_reprojection_samples = 0;
 	for (const auto &plane : packet->planes) {
+#ifdef DEBUG_ENABLED
+		if (plane.debug) continue;
+#endif
 		if (!packet->tracking_valid || plane.tracking_state != AR_TRACKING_STATE_TRACKING || plane.subsumed_by) continue;
 		for (int i = 0; i < plane.polygon.size(); ++i) {
 			const Vector2 vertex = plane.polygon[i];
@@ -402,6 +405,9 @@ bool ARCoreInterface::copy_planes(ARFramePacket &r_packet) {
 		r_packet.planes.push_back(snapshot);
 		++it;
 	}
+#ifdef DEBUG_ENABLED
+	debug_plane.merge(r_packet.planes, generation, r_packet.tracking_valid && state == PocketAR::TRACKING);
+#endif
 	return current_packet.is_valid() ? r_packet.planes != current_packet->planes : !r_packet.planes.empty();
 }
 }

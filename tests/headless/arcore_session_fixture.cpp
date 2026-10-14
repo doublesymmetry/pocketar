@@ -162,6 +162,80 @@ class ARCoreSessionFixture : public RefCounted {
 		completion.call(completed);
 	}
 
+#ifdef DEBUG_ENABLED
+	Ref<ARCoreInterface> debug_session;
+	int debug_notifications = 0;
+	void debug_planes_changed() { ++debug_notifications; }
+	void check_debug_plane() {
+		debug_session.instantiate();
+		const Ref<ARCoreInterface> debug = debug_session;
+		debug->owner_thread = std::this_thread::get_id();
+		debug->initialized = true;
+		debug->head.instantiate();
+		debug->session = reinterpret_cast<ArSession *>(1);
+		debug->frame = reinterpret_cast<ArFrame *>(1);
+		debug->gpu_active = true;
+		debug->extras.setup(debug->session, debug->generation);
+		debug->connect("planes_changed", callable_mp(this, &ARCoreSessionFixture::debug_planes_changed));
+		auto &api = arcore_api();
+		api.ArCamera_getTrackingState = [](const ArSession *, const ArCamera *, ArTrackingState *r_state) { *r_state = AR_TRACKING_STATE_TRACKING; };
+		api.ArCamera_getTrackingFailureReason = [](const ArSession *, const ArCamera *, ArTrackingFailureReason *r_reason) { *r_reason = AR_TRACKING_FAILURE_REASON_NONE; };
+		api.ArSession_getAllTrackables = no_op;
+		api.ArTrackableList_getSize = [](const ArSession *, const ArTrackableList *, int32_t *r_count) { *r_count = 1; };
+		api.ArTrackableList_acquireItem = [](const ArSession *, const ArTrackableList *, int32_t, ArTrackable **r_plane) { *r_plane = reinterpret_cast<ArTrackable *>(7); };
+		api.ArTrackable_getTrackingState = [](const ArSession *, const ArTrackable *, ArTrackingState *r_state) { *r_state = AR_TRACKING_STATE_TRACKING; };
+		api.ArPlane_getType = [](const ArSession *, const ArPlane *, ArPlaneType *r_type) { *r_type = AR_PLANE_HORIZONTAL_UPWARD_FACING; };
+		api.ArPlane_getCenterPose = no_op;
+		api.ArPlane_getExtentX = [](const ArSession *, const ArPlane *, float *r_extent) { *r_extent = 2; };
+		api.ArPlane_getExtentZ = api.ArPlane_getExtentX;
+		api.ArPlane_getPolygonSize = [](const ArSession *, const ArPlane *, int32_t *r_size) { *r_size = 8; };
+		api.ArPlane_getPolygon = [](const ArSession *, const ArPlane *, float *r_vertices) {
+			const float vertices[] = { -1, -1, 1, -1, 1, 1, -1, 1 };
+			std::copy_n(vertices, 8, r_vertices);
+		};
+		api.ArPlane_acquireSubsumedBy = [](const ArSession *, const ArPlane *, ArPlane **r_parent) { *r_parent = nullptr; };
+		const int64_t id = debug->set_debug_plane(Transform3D(Basis(), Vector3(0, -1, -3)), Vector2(2, 4));
+		debug->build_packet(1000);
+		const Ref<ARFramePacket> first = debug->current_packet;
+		check(first.is_valid() && first->planes.size() == 2, "debug packet merges after native planes");
+		if (first.is_valid() && first->planes.size() == 2) {
+			check(first->planes[0].plane_id > 0 && !first->planes[0].debug && first->planes[1].plane_id == id && first->planes[1].debug, "debug and native identities remain distinct");
+		}
+		check(int64_t(debug->diagnostics.get("plane_reprojection_samples", 0)) == 2, "debug vertices do not enter native reprojection counts");
+		check(debug->planes.size() == 1 && int64_t(debug->get_diagnostics()["plane_count"]) == 1, "debug plane does not enter native map or count");
+		check(debug->extras.native_planes.size() == 1 && !debug->extras.native_planes.count(id), "debug plane does not enter extras native query map");
+		check(debug->extras.recording_status == AR_RECORDING_NONE && debug->extras.playback_inputs.is_empty(), "debug injection does not start recording or inject playback inputs");
+		debug->build_packet(2000);
+		check(first->planes == debug->current_packet->planes, "unchanged merged native packet geometry");
+		api.ArCamera_getTrackingState = [](const ArSession *, const ArCamera *, ArTrackingState *r_state) { *r_state = AR_TRACKING_STATE_PAUSED; };
+		api.ArTrackableList_getSize = [](const ArSession *, const ArTrackableList *, int32_t *r_count) { *r_count = 0; };
+		api.ArTrackable_getTrackingState = [](const ArSession *, const ArTrackable *, ArTrackingState *r_state) { *r_state = AR_TRACKING_STATE_STOPPED; };
+		debug->build_packet(3000);
+		check(debug->current_packet->planes.back().tracking_state == ARPlaneTracker::PAUSED && first->planes.back().tracking_state == ARPlaneTracker::TRACKING, "native tracking loss pauses only new debug snapshots");
+		debug->mark_applied(debug->current_packet);
+		debug->mark_presented();
+		check(debug->presented_packet.is_valid(), "native pause starts with a presented debug packet");
+		debug->set_state(PocketAR::PAUSED);
+		check(debug->presented_packet.is_null(), "native pause drops presentation before post-draw");
+		debug->mark_presented();
+		check(debug->presented_packet.is_null(), "native pause cannot restore presented debug packet");
+		debug->session = nullptr;
+		debug->frame = nullptr;
+		check(debug->planes.empty() && debug->current_packet->planes.size() == 1 && debug->current_packet->planes[0].debug, "reset notification has only a debug plane to remove");
+		debug->reset();
+		check(!debug->debug_plane.active() && debug->planes.empty() && debug->current_packet.is_null(), "pending native reset removes debug tracker synchronously");
+		check(XRServer::get_singleton()->get_tracker("pocketar/plane/0/" + String::num_int64(id)).is_null(), "pending native reset unregisters debug tracker");
+		debug->set_debug_plane(Transform3D(), Vector2(2, 4));
+		Ref<ARFramePacket> packet;
+		packet.instantiate();
+		packet->tracking_valid = true;
+		debug->copy_planes(**packet);
+		check(debug->planes.empty() && packet->planes.size() == 1 && packet->planes[0].debug, "teardown notification has only a debug plane to remove");
+		debug->_uninitialize();
+		check(!debug->debug_plane.active() && debug->planes.empty(), "pending native uninitialize clears both tracker sources");
+	}
+#endif
+
 protected:
 	static void _bind_methods() {
 		ClassDB::bind_method(D_METHOD("run"), &ARCoreSessionFixture::run);
@@ -321,9 +395,15 @@ public:
 		check(events.is_empty(), "reset, lifecycle, plane and frame notifications are all deferred");
 		operation_active = false;
 		check_gpu_completion_lifetime();
+#ifdef DEBUG_ENABLED
+		check_debug_plane();
+#endif
 	}
 
 	int finish() {
+#ifdef DEBUG_ENABLED
+		check(debug_notifications == 4, "debug merged notifications cover add, tracking loss, reset and teardown only");
+#endif
 		check(reset_from_reason, "deferred tracking notification permits a game reset");
 		check(events.slice(0, 3) == expected_events.slice(0, 3), "cold-start facade sequence is exactly CHECKING, READY, INITIALIZING with no PAUSED");
 		check(events == expected_events, "deferred notifications preserve payload order and suppress unchanged values");
