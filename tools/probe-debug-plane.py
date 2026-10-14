@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -13,6 +14,18 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# Gradle rewrites the non-loaded .comment and section-name tables while packaging the AAR, so
+# Android libraries are compared by the image the loader maps.
+def loadable_digest(path):
+    tools = sorted(Path(os.environ.get("ANDROID_NDK_ROOT", "/nonexistent")).glob("toolchains/llvm/prebuilt/*/bin/llvm-objcopy"))
+    if not tools:
+        raise RuntimeError("comparing Android libraries needs llvm-objcopy under ANDROID_NDK_ROOT")
+    with tempfile.TemporaryDirectory() as directory:
+        image = Path(directory) / "image.bin"
+        subprocess.run([str(tools[0]), "-O", "binary", str(path), str(image)], check=True)
+        return digest(image)
 
 
 def run(command, log):
@@ -88,6 +101,19 @@ def verify_native(destination, platform, mode, artifact):
                 raise RuntimeError(f"expected one packaged library, found {names}")
             packaged_hash = hashlib.sha256(package.read(names[0])).hexdigest()
             packaged = f"{artifact}!{names[0]}"
+            with tempfile.TemporaryDirectory() as directory:
+                extracted = Path(directory) / "libpocketar.so"
+                extracted.write_bytes(package.read(names[0]))
+                packaged_image = loadable_digest(extracted)
+            built_image = loadable_digest(built)
+            if built_image != packaged_image:
+                raise RuntimeError(f"native image mismatch: {built} and {packaged}")
+            record = {"platform": platform, "mode": mode, "built": str(built), "packaged": packaged,
+                      "built_sha256": expected, "packaged_sha256": packaged_hash,
+                      "built_image_sha256": built_image, "packaged_image_sha256": packaged_image}
+            (destination / "native-hashes.json").write_text(json.dumps(record, indent=2) + "\n")
+            print(f"NATIVE HASH PASS {platform} {mode} {built_image} (loadable image)", flush=True)
+            return
     else:
         candidates = list(artifact.rglob("libpocketar.dylib")) if platform == "macos" else list((destination / "export").rglob("libpocketar.a"))
         if len(candidates) != 1:
