@@ -206,6 +206,11 @@ class ARCoreSessionFixture : public RefCounted {
 		const int64_t explicit_generation = camera->generation;
 		camera->set_camera_quality(PocketAR::LOWEST);
 		check(camera->generation == explicit_generation && camera->camera_quality == PocketAR::LOWEST, "explicit camera index overrides quality without a reset");
+		camera->set_camera_config_index(1);
+		check(camera->state == PocketAR::UNSUPPORTED && camera->session == nullptr, "invalid camera index releases the failed session");
+		const int64_t failed_generation = camera->generation;
+		camera->set_camera_config_index(-1);
+		check(camera->running && camera->session != nullptr && camera->generation != failed_generation, "automatic selection recovers after an invalid camera index");
 		camera->set_suspended(true);
 		camera->reset();
 		check(camera->session == nullptr && camera->state == PocketAR::PAUSED, "native reset while suspended defers recreation");
