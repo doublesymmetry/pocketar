@@ -4,6 +4,8 @@ ARGUMENTS.setdefault("platform", "macos")
 ARGUMENTS.setdefault("target", "template_debug")
 ARGUMENTS.setdefault("arch", "arm64")
 ARGUMENTS.setdefault("api_version", "4.7")
+if ARGUMENTS["platform"] == "macos":
+    ARGUMENTS.setdefault("macos_deployment_target", "13.0")
 if ARGUMENTS["platform"] == "android":
     ARGUMENTS.setdefault("ndk_version", "29.0.14206865")
     ARGUMENTS.setdefault("android_api_level", "29")

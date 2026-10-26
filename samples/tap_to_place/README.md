@@ -15,6 +15,9 @@ after a denial, enable it in app settings and return to the app.
 
 ## Run
 
+From a release sample ZIP, import `tap_to_place/project.godot` into public Godot
+4.7.2 or newer and press Run. The addon and desktop fixture are included.
+
 From the repository root, inside `devenv shell`:
 
 ```sh
@@ -25,17 +28,15 @@ stock godot --editor --path samples/tap_to_place
 Press F6 or run `stock godot --path samples/tap_to_place`. Public Godot 4.7.2 is
 the primary editor; omit `stock` to check the PocketAR engine fork.
 
-Desktop uses the existing table fixture paused at 0.8 seconds, with a synthetic
+Desktop uses a static table fixture with a synthetic
 camera image. Click the cyan wall in the centre or the table below it. Reset
 reloads that same frame. There is no live camera or plane detection on desktop.
 Phones select ARKit or ARCore and use live planes.
 
-`addons/pocketar` links to `demo/addons/pocketar`, so builds immediately update
-the sample without a second addon copy. `fixtures/table.jsonl` similarly links
-to the existing desktop fixture. Godot imports and exports these relative
-symlinks on the supported macOS host. When moving the sample outside this
-checkout, replace both links with copies of their targets, preserving the
-addon's binaries and `.uid` files. Mobile exports exclude the desktop fixture.
+In the source checkout, `addons/pocketar` links to `demo/addons/pocketar`, so
+builds update the sample without a second addon copy. Packaging replaces this
+link with the release addon. The sample owns `fixtures/table.jsonl`; mobile
+exports exclude this desktop fixture.
 
 ## Export
 
@@ -60,5 +61,5 @@ When switching engine versions, remove the generated sample `android/` directory
 before installing the new build template; overwriting it can leave old Java files.
 For iOS, build `ios debug` and `ios release`, create
 `build/exports/tap-to-place/ios`, then export the iOS preset as an Xcode project
-and sign/build it in Xcode. The [main export notes](../../README.md#export)
+and sign/build it in Xcode. The [main export notes](https://github.com/doublesymmetry/pocketar#export)
 cover platform requirements. The sample contains no harness or device runner.

@@ -1,4 +1,5 @@
 [configuration]
+version = "0.0.1"
 entry_symbol = "pocketar_library_init"
 compatibility_minimum = "4.7.2"
 android_aar_plugin = true

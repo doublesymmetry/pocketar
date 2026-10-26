@@ -15,7 +15,7 @@ are not currently supported.
 | --- | --- |
 | iOS | iOS 16+, arm64, ARKit world tracking and hardware supported by Godot's Metal renderer. No simulator build. |
 | Android | API 29+, arm64, an ARCore-supported device with Vulkan and Google Play Services for AR 1.48+. |
-| Desktop development | macOS Apple Silicon, Mobile/Metal; synthetic camera or scripted replay, without live AR. |
+| Desktop development | macOS 13+, Apple Silicon, Mobile/Metal; synthetic camera or scripted replay, without live AR. |
 
 The OS minimum alone does not establish device support. In particular,
 iPhone 7 Plus/A10/iOS 15 is outside the supported targets. These are support
@@ -44,11 +44,21 @@ Stock Godot 4.7.2 uses CPU camera uploads on Android. On engines providing
 `ExternalTexture.submit_hardware_buffer`, PocketAR automatically tries the
 hardware-buffer path and falls back to CPU if activation fails.
 
-## Install from source
+## Install
 
-A prebuilt release ZIP installation recipe will be added with the release package.
+Download `pocketar-<version>.zip` from [Releases](https://github.com/doublesymmetry/pocketar/releases),
+unzip it into your project, and enable **PocketAR** in Project Settings → Plugins.
+The ZIP contains `addons/pocketar/`, including debug and release binaries for all
+supported targets, shaders, `.uid` files, editor help and license notices. Use the
+public Godot editor and its matching export templates; no engine fork is required.
 
-For now, build on an Apple Silicon Mac with Xcode selected by `xcode-select`,
+The separate `pocketar-tap-to-place-<version>.zip` contains a complete sample
+project. Unzip it, import `tap_to_place/project.godot` in Godot and press Run.
+`SHA256SUMS` lists checksums for both ZIPs.
+
+### Build from source
+
+Build on an Apple Silicon Mac with Xcode selected by `xcode-select`,
 Nix and devenv installed. The repository environment supplies SCons, Python,
 Java 17 and the Android SDK/NDK.
 
@@ -160,9 +170,10 @@ to resume. Hiding the view or covering it with a HUD does not suspend AR.
 
 ## Export
 
-Keep the PocketAR editor plugin enabled. Build and copy the matching debug or
-release mobile binaries before exporting. Use your game's identifiers and
-signing credentials, and the export templates matching your Godot editor.
+Keep the PocketAR editor plugin enabled. The release ZIP includes both mobile
+build variants; source installations need the matching debug or release build.
+Use your game's identifiers and signing credentials, and the export templates
+matching your Godot editor.
 
 For Android:
 
@@ -231,6 +242,20 @@ feeds are unsupported.
 
 Contributor build commands, harnesses, device procedures and platform traps
 live in [AGENTS.md](AGENTS.md).
+
+To build release ZIPs from source, run `python3 tools/package.py` inside
+`devenv shell`. Outputs go to `build/package/`. `VERSION` is the release version;
+after changing it, run `python3 tools/version.py` to synchronize the plugin,
+native API, extension descriptor and export presets. Packaging rejects stale
+metadata and records source/dependency provenance in `addons/pocketar/release.json`.
+Native class docs are embedded in debug libraries; the API contract is also
+included under `addons/pocketar/docs/`.
+
+CI runs `tools/ci.sh` inside devenv on an Apple Silicon Mac with a GUI session.
+It builds both ZIPs, runs the test suites, imports and renders fresh installed
+projects on stock Godot 4.7.2 and the optional fork, checks Android exports, and
+runs the desktop harness on stock. Tags matching `v<VERSION>` run the same
+checks before publishing both ZIPs and checksums. This does not certify phones.
 
 ## License
 

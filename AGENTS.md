@@ -12,13 +12,14 @@ When already inside its shell, run commands directly; nested devenv calls fail i
 the coding sandbox. Xcode supplies the Apple compiler. Keep `apple.sdk = null`
 and `stdenv = pkgs.stdenvNoCC`; do not add another C toolchain.
 
-The supported targets are macOS arm64 (desktop harness), iOS 16+ arm64 on Metal,
+The supported targets are macOS 13+ arm64 (desktop harness), iOS 16+ arm64 on Metal,
 and Android API 29+ arm64 on Mobile/Vulkan. `godot` is PocketAR's engine: Godot
 master plus the patches in doublesymmetry/godot's `PATCHES.md`, pinned to a release of
 that fork in `nix/godot-pocketar.nix` (editor and export templates). It runs
 self-contained from `.devenv/state/godot-pocketar`. Stock Godot 4.7.2 is the oldest
 supported engine; `stock <command>` runs a command against it, for example
-`stock harness desktop`. godot-cpp is pinned to `b051e69` with `api_version=4.7`.
+`stock harness desktop`. Its editor and matching templates run self-contained
+from `.devenv/state/godot-stock`. godot-cpp is pinned to `b051e69` with `api_version=4.7`.
 Android uses compile/target SDK 36, build tools 35.0.0 (Godot 4.8's Gradle template)
 and 36.1.0, NDK 29.0.14206865, Kotlin 2.1.21 and Java 17. `SConstruct` derives `IOS_TOOLCHAIN_PATH` from `xcode-select -p`, so Xcode need
 not be named `Xcode.app`. iOS signing team: `L7G7TF62MC`. Both demo package IDs:
@@ -92,7 +93,7 @@ settings/cache or reading system certificates are separate from script errors.
 - `demo/addons/pocketar/`: ARView, shaders, extension descriptor, plane visualizer and editor export plugin.
 - `demo/addons/pocketar/bin/`: generated libraries, XCFrameworks and AARs; ignored by Git.
 - `demo/harness/`: rendering assertions and scripted replay fixtures.
-- `samples/tap_to_place/`: standalone game example, with relative symlinks to the addon and desktop table fixture.
+- `samples/tap_to_place/`: standalone game example, with a relative symlink to the addon and its own desktop table fixture.
 - `android/`: Godot v2 Kotlin plugin and AAR Gradle project.
 - `tests/native/`: standalone C++ numerical, resource and fixture parser tests.
 - `tests/headless/`: GDScript suites and mocked native ARCore fixtures.
