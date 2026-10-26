@@ -464,9 +464,10 @@ void ARCoreInterface::set_camera_quality(PocketAR::CameraQuality p_quality) {
 
 void ARCoreInterface::set_camera_config_index(int p_index) {
 	ERR_FAIL_COND(p_index < -1);
+	ERR_FAIL_COND(initialized && !on_owner_thread());
 	if (camera_config_index == p_index) return;
 	camera_config_index = p_index;
-	if (session) reset();
+	if (initialized) reset();
 }
 static_assert(int(PocketAR::PLANE_FINDING_DISABLED) == AR_PLANE_FINDING_MODE_DISABLED && int(PocketAR::PLANE_FINDING_HORIZONTAL) == AR_PLANE_FINDING_MODE_HORIZONTAL &&
 		int(PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL) == AR_PLANE_FINDING_MODE_HORIZONTAL_AND_VERTICAL, "PlaneFindingMode is passed to ARCore unchanged");
