@@ -1,22 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Godot only runs self-contained (editor settings and export templates beside it) when
-# the binary itself, not a symlink to it, sits next to `._sc_`.
-home="${DEVENV_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}}/godot-pocketar"
-if [ "$(cat "$home/.source" 2>/dev/null)" != "@out@" ]; then
-	mkdir -p "$home/editor_data/export_templates"
-	install -m 755 @out@/libexec/godot "$home/godot.tmp"
-	mv "$home/godot.tmp" "$home/godot"
-	ln -sfn @out@/share/godot/templates "$home/editor_data/export_templates/$(cat @out@/share/godot/templates/version.txt)"
-	touch "$home/._sc_"
-	echo "@out@" > "$home/.source"
+# Self-contained settings require the real executable or app bundle, not a symlink.
+godot_home="${DEVENV_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}}/@stateName@"
+executable="$godot_home/godot"
+if [ -d @out@/libexec/Godot.app ]; then
+	executable="$godot_home/Godot.app/Contents/MacOS/Godot"
+fi
+if [ "$(cat "$godot_home/.source" 2>/dev/null)" != "@out@" ]; then
+	mkdir -p "$godot_home/editor_data/export_templates"
+	if [ -d @out@/libexec/Godot.app ]; then
+		if [ -d "$godot_home/Godot.app" ]; then
+			chmod -R u+w "$godot_home/Godot.app"
+			rm -rf "$godot_home/Godot.app"
+		fi
+		cp -R @out@/libexec/Godot.app "$godot_home/Godot.app"
+		chmod -R u+w "$godot_home/Godot.app"
+	else
+		install -m 755 @out@/libexec/godot "$godot_home/godot.tmp"
+		mv "$godot_home/godot.tmp" "$godot_home/godot"
+	fi
+	ln -sfn @out@/share/godot/templates "$godot_home/editor_data/export_templates/$(cat @out@/share/godot/templates/version.txt)"
+	touch "$godot_home/._sc_"
+	echo "@out@" > "$godot_home/.source"
 fi
 
 # Godot saves the SDK and JDK paths it first sees, so give it paths that survive devenv
 # updates. The SDK root must also be writable for Gradle and have the
 # `cmdline-tools/latest` that Godot 4.8 requires; nixpkgs only installs a numbered one.
-sdk="$home/android-sdk"
+sdk="$godot_home/android-sdk"
 if [ -d "${ANDROID_HOME:-}" ] && [ "$ANDROID_HOME" != "$sdk" ]; then
 	if [ "$(cat "$sdk/.source" 2>/dev/null)" != "$ANDROID_HOME" ]; then
 		rm -rf "$sdk"
@@ -33,9 +45,9 @@ if [ -d "${ANDROID_HOME:-}" ] && [ "$ANDROID_HOME" != "$sdk" ]; then
 	export ANDROID_HOME="$sdk"
 	unset ANDROID_SDK_ROOT
 fi
-if [ -d "${JAVA_HOME:-}" ] && [ "$JAVA_HOME" != "$home/jdk" ]; then
-	ln -sfn "$JAVA_HOME" "$home/jdk"
-	export JAVA_HOME="$home/jdk"
+if [ -d "${JAVA_HOME:-}" ] && [ "$JAVA_HOME" != "$godot_home/jdk" ]; then
+	ln -sfn "$JAVA_HOME" "$godot_home/jdk"
+	export JAVA_HOME="$godot_home/jdk"
 fi
 
 # Godot generates a debug key per editor data directory, which here is per checkout.
@@ -50,4 +62,4 @@ if [ -z "${GODOT_ANDROID_KEYSTORE_DEBUG_PATH:-}" ]; then
 	export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$keystore" GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android
 fi
 
-exec "$home/godot" "$@"
+exec "$executable" "$@"

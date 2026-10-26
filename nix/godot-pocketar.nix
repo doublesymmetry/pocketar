@@ -27,7 +27,7 @@ stdenvNoCC.mkDerivation {
     mkdir -p $out/bin $out/libexec $out/share/godot
     unzip -q $editor -d $out/libexec
     unzip -q $templates -d $out/share/godot
-    substitute ${./godot-pocketar.sh} $out/bin/godot --subst-var out
+    substitute ${./godot.sh} $out/bin/godot --subst-var out --replace-fail '@stateName@' godot-pocketar
     chmod +x $out/bin/godot
   '';
 

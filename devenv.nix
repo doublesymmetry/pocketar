@@ -16,6 +16,7 @@ in
     pkgs.python3
     pkgs.jq
     pkgs.ripgrep
+    pkgs.actionlint
   ];
 
   # Godot 4.7 builds Android with JDK 17; the android module enables Java with a newer default.

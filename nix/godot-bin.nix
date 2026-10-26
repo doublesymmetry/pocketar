@@ -1,26 +1,34 @@
 {
-  stdenv,
+  stdenvNoCC,
   fetchurl,
   unzip,
 }:
 let
   version = "4.7.2";
 in
-stdenv.mkDerivation {
+stdenvNoCC.mkDerivation {
   pname = "godot-bin";
   inherit version;
 
-  src = fetchurl {
+  editor = fetchurl {
     url = "https://github.com/godotengine/godot-builds/releases/download/${version}-stable/Godot_v${version}-stable_macos.universal.zip";
     hash = "sha256-xYok4x1yC+nWL2DLVifE5pX7cvIbDP4bycyqmjs7pj4=";
   };
+  templates = fetchurl {
+    url = "https://github.com/godotengine/godot-builds/releases/download/${version}-stable/Godot_v${version}-stable_export_templates.tpz";
+    hash = "sha512-yk1xxNe4HfwV0amLqgdTSqlbA/3aeKAHWwZnLhZI0uX0CYDJrcKNI+G5LnMu5780YZl6qASvdOwvzXqTzLhAeQ==";
+  };
 
   nativeBuildInputs = [ unzip ];
-  unpackPhase = "unzip $src";
+  dontUnpack = true;
+  dontFixup = true;
   installPhase = ''
-    mkdir -p $out/Applications $out/bin
-    cp -r Godot.app $out/Applications/
-    ln -s "$out/Applications/Godot.app/Contents/MacOS/Godot" $out/bin/godot
+    mkdir -p $out/bin $out/libexec $out/share/godot
+    unzip -q $editor
+    cp -R Godot.app $out/libexec/
+    unzip -q $templates 'templates/android*' 'templates/ios.zip' 'templates/macos.zip' 'templates/version.txt' -d $out/share/godot
+    substitute ${./godot.sh} $out/bin/godot --subst-var out --replace-fail '@stateName@' godot-stock
+    chmod +x $out/bin/godot
   '';
 
   meta.platforms = [ "aarch64-darwin" "x86_64-darwin" ];
