@@ -11,7 +11,7 @@
 #include <godot_cpp/classes/xr_interface_extension.hpp>
 #include <map>
 #include <memory>
-#include <string>
+#include <array>
 
 namespace godot {
 
@@ -23,8 +23,9 @@ class ARKitInterface : public XRInterfaceExtension {
 	Ref<ARKitTexturePool> textures;
 	Ref<XRPositionalTracker> head;
 	Ref<ARFramePacket> current_packet, presented_packet, applied_packet;
-	std::map<std::string, Ref<ARPlaneTracker>> planes;
+	std::map<std::array<uint8_t, 16>, Ref<ARPlaneTracker>> planes;
 	std::vector<ARPlaneSnapshot> published_planes;
+	std::vector<Vector2> plane_polygon;
 	int64_t generation = 0, sequence = 0;
 	int64_t native_anchor_count = 0;
 #ifdef DEBUG_ENABLED
@@ -32,6 +33,9 @@ class ARKitInterface : public XRInterfaceExtension {
 #endif
 	bool initialized = false;
 	bool suspended = false;
+	bool application_suspended = false;
+	PocketAR::CameraQuality camera_quality = PocketAR::HIGHEST;
+	int camera_frame_rate = 0;
 	bool geometry_dirty = true;
 	bool diagnostics_enabled = false;
 	Vector2i viewport_size = Vector2i(1, 1);
@@ -39,7 +43,7 @@ class ARKitInterface : public XRInterfaceExtension {
 	Transform3D last_good_pose;
 	PocketAR::SessionState state = PocketAR::CHECKING;
 	PocketAR::TrackingReason reason = PocketAR::NONE;
-	PocketAR::PlaneFindingMode plane_finding_mode = PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL;
+	PocketAR::PlaneFindingMode plane_finding_mode = PocketAR::PLANE_FINDING_DISABLED;
 	TrackingStatus tracking_status = XR_UNKNOWN_TRACKING;
 	Dictionary diagnostics, timings;
 	Array state_history;
@@ -47,6 +51,8 @@ class ARKitInterface : public XRInterfaceExtension {
 	void set_reason(PocketAR::TrackingReason p_reason);
 	void increment(const char *p_key);
 	void run_session(bool p_reset);
+	void pause_session();
+	void choose_camera_format();
 	void clear_packets();
 	void clear_planes();
 	bool copy_planes(void *p_frame, ARFramePacket &r_packet);
@@ -71,6 +77,9 @@ public:
 	void reset();
 	void set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode);
 	PocketAR::PlaneFindingMode get_plane_finding_mode() const { return plane_finding_mode; }
+	void set_suspended(bool p_suspended);
+	void set_camera_quality(PocketAR::CameraQuality p_quality);
+	void set_camera_frame_rate(int p_fps);
 	void set_display_geometry(const Vector2i &p_size, int p_turns, double p_near, double p_far);
 	Ref<ARFramePacket> get_current_packet() const { return current_packet; }
 	Ref<ARFramePacket> get_presented_packet() const { return presented_packet; }
@@ -80,6 +89,7 @@ public:
 	Array live_hit_test(const Vector2 &p_pixels);
 	void application_pause();
 	void application_resume();
+	void anchors_changed(void *p_session, void *p_anchors, bool p_removed);
 	void session_interrupted(bool p_interrupted);
 	void session_failed(int p_code, const String &p_message);
 

@@ -77,6 +77,7 @@ func _run() -> void:
 		if view.composition != mode:
 			view.free()
 			view = preload("res://addons/pocketar/ar_view.tscn").instantiate() as ARView
+			view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 			view.composition = mode
 			view.handle_presses = true
 			add_child(view)
@@ -110,6 +111,7 @@ func _scripted() -> bool:
 	var result: Dictionary = await preload("res://harness/scripted_suite.gd").new().run(self, mode)
 	detail = result["detail"]
 	view = preload("res://addons/pocketar/ar_view.tscn").instantiate() as ARView
+	view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 	view.composition = mode
 	view.handle_presses = true
 	add_child(view)

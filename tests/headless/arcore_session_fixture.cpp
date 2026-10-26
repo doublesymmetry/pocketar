@@ -77,6 +77,15 @@ void arcore_bridge_set_owner(godot::ARCoreInterface *) {}
 ARCoreJNIEnv::ARCoreJNIEnv(JavaVM *p_vm) : vm(p_vm) { env = reinterpret_cast<JNIEnv *>(1); }
 ARCoreJNIEnv::~ARCoreJNIEnv() {}
 
+struct TestPlane {
+	ArTrackingState state = AR_TRACKING_STATE_TRACKING;
+	TestPlane *parent = nullptr;
+	float polygon[8] = { -1, -1, 1, -1, 1, 1, -1, 1 };
+	int references = 0;
+};
+static std::vector<TestPlane *> changed_planes;
+static int polygon_reads = 0;
+
 namespace godot {
 
 class FixtureHardwareBufferTexture : public Texture2D {
@@ -162,6 +171,104 @@ class ARCoreSessionFixture : public RefCounted {
 		check(completion.is_valid(), "completion validity does not depend on the freed interface");
 		completion.call(completed);
 	}
+	void check_activity() {
+		Ref<ARCoreInterface> camera;
+		camera.instantiate();
+		camera->owner_thread = std::this_thread::get_id();
+		camera->head.instantiate();
+		camera->set_suspended(true);
+		camera->initialized = true;
+		mock_session_creation();
+		bridge.resumed = true;
+		bridge.state = PocketAR::CHECKING;
+		camera->bridge_changed();
+		check(camera->state == PocketAR::PAUSED && camera->session == nullptr, "explicit startup suspension reports paused while setup is pending");
+		camera->reset();
+		check(camera->state == PocketAR::PAUSED && camera->session == nullptr, "suspended reset preserves paused state while setup is pending");
+		bridge.state = PocketAR::READY;
+		camera->bridge_changed();
+		check(camera->state == PocketAR::PAUSED && camera->session == nullptr, "suspended ready state does not create a session");
+		camera->set_suspended(false);
+		check(camera->running, "explicit resume starts a ready native session");
+		ArSession *native = camera->session;
+		const int64_t generation = camera->generation;
+		camera->set_suspended(true);
+		camera->application_pause();
+		camera->application_resume();
+		camera->bridge_changed();
+		check(!camera->running && camera->state == PocketAR::PAUSED, "lifecycle and bridge resume cannot override explicit suspension");
+		camera->application_pause();
+		camera->set_suspended(false);
+		check(!camera->running, "explicit resume waits for application resume");
+		camera->application_resume();
+		check(camera->running && camera->session == native && camera->generation == generation, "native resume retains session and generation");
+		camera->set_camera_config_index(0);
+		const int64_t explicit_generation = camera->generation;
+		camera->set_camera_quality(PocketAR::LOWEST);
+		check(camera->generation == explicit_generation && camera->camera_quality == PocketAR::LOWEST, "explicit camera index overrides quality without a reset");
+		camera->set_suspended(true);
+		camera->reset();
+		check(camera->session == nullptr && camera->state == PocketAR::PAUSED, "native reset while suspended defers recreation");
+		camera->set_suspended(false);
+		check(camera->running, "resume after suspended reset recreates the session");
+		camera->_uninitialize();
+	}
+	void check_incremental_planes() {
+		Ref<ARCoreInterface> camera;
+		camera.instantiate();
+		camera->session = reinterpret_cast<ArSession *>(1);
+		auto &api = arcore_api();
+		api.ArFrame_getUpdatedTrackables = no_op;
+		api.ArTrackableList_getSize = [](const ArSession *, const ArTrackableList *, int32_t *r_count) { *r_count = changed_planes.size(); };
+		api.ArTrackableList_acquireItem = [](const ArSession *, const ArTrackableList *, int32_t p_index, ArTrackable **r_plane) { ++changed_planes[p_index]->references; *r_plane = reinterpret_cast<ArTrackable *>(changed_planes[p_index]); };
+		api.ArTrackable_release = [](ArTrackable *p_plane) { --reinterpret_cast<TestPlane *>(p_plane)->references; };
+		api.ArTrackable_getTrackingState = [](const ArSession *, const ArTrackable *p_plane, ArTrackingState *r_state) { *r_state = reinterpret_cast<const TestPlane *>(p_plane)->state; };
+		api.ArPlane_getType = [](const ArSession *, const ArPlane *, ArPlaneType *r_type) { *r_type = AR_PLANE_HORIZONTAL_UPWARD_FACING; };
+		api.ArPlane_getCenterPose = no_op;
+		api.ArPose_getPoseRaw = [](const ArSession *, const ArPose *, float *r_pose) { std::fill_n(r_pose, 7, 0); r_pose[3] = 1; };
+		api.ArPlane_getExtentX = [](const ArSession *, const ArPlane *, float *r_extent) { *r_extent = 2; };
+		api.ArPlane_getExtentZ = api.ArPlane_getExtentX;
+		api.ArPlane_getPolygonSize = [](const ArSession *, const ArPlane *, int32_t *r_size) { *r_size = 8; };
+		api.ArPlane_getPolygon = [](const ArSession *, const ArPlane *p_plane, float *r_polygon) { ++polygon_reads; std::copy_n(reinterpret_cast<const TestPlane *>(p_plane)->polygon, 8, r_polygon); };
+		api.ArPlane_acquireSubsumedBy = [](const ArSession *, const ArPlane *p_plane, ArPlane **r_parent) {
+			TestPlane *parent = reinterpret_cast<const TestPlane *>(p_plane)->parent;
+			if (parent) ++parent->references;
+			*r_parent = reinterpret_cast<ArPlane *>(parent);
+		};
+		TestPlane first, parent;
+		changed_planes = { &first };
+		camera->refresh_planes();
+		Ref<ARFramePacket> retained;
+		retained.instantiate();
+		camera->copy_planes(**retained);
+		check(retained->planes.size() == 1 && polygon_reads == 1, "native discovery copies one plane");
+		changed_planes.clear();
+		camera->refresh_planes();
+		check(polygon_reads == 1, "unchanged native planes never read polygons");
+		first.state = AR_TRACKING_STATE_PAUSED;
+		changed_planes = { &first };
+		camera->refresh_planes();
+		check(camera->planes.begin()->second.tracker->get_tracking_state() == ARPlaneTracker::PAUSED, "tracking transition reaches tracker before image publication");
+		check(camera->planes.begin()->second.tracker->get_snapshot().polygon.ptr() == retained->planes[0].polygon.ptr(), "tracking-only update shares the original polygon allocation");
+		check(int64_t(camera->diagnostics["plane_geometry_rebuilds"]) == 1, "tracking-only change reuses polygon storage");
+		first.state = AR_TRACKING_STATE_TRACKING;
+		first.parent = &parent;
+		first.polygon[0] = -2;
+		camera->refresh_planes();
+		Ref<ARFramePacket> merged;
+		merged.instantiate();
+		camera->copy_planes(**merged);
+		check(merged->planes.size() == 2 && camera->planes.at(reinterpret_cast<ArPlane *>(&first)).tracker->get_subsumed_by() == camera->planes.at(reinterpret_cast<ArPlane *>(&parent)).id, "subsumption discovers and copies an unlisted parent");
+		check(retained->planes[0].polygon[0] == Vector2(-1, -1) && retained->planes[0].tracking_state == ARPlaneTracker::TRACKING, "native changes preserve retained packet geometry and state");
+		first.state = AR_TRACKING_STATE_STOPPED;
+		camera->refresh_planes();
+		check(camera->planes.size() == 1 && first.references == 0, "stopped native plane releases ownership and tracker");
+		camera->clear_planes();
+		check(parent.references == 0, "reset releases cached parent ownership");
+		camera->session = nullptr;
+		changed_planes.clear();
+		api.ArTrackable_release = no_op;
+	}
 	void check_frame_diagnostics() {
 		Ref<ARCoreInterface> camera;
 		camera.instantiate();
@@ -173,7 +280,7 @@ class ARCoreSessionFixture : public RefCounted {
 		camera->frame = reinterpret_cast<ArFrame *>(1);
 		camera->extras.setup(camera->session, camera->generation);
 		auto &api = arcore_api();
-		api.ArSession_getAllTrackables = no_op;
+		api.ArFrame_getUpdatedTrackables = no_op;
 		api.ArTrackableList_getSize = [](const ArSession *, const ArTrackableList *, int32_t *r_count) { *r_count = 0; };
 		api.ArFrame_acquireCameraImage = [](ArSession *, ArFrame *, ArImage **r_image) { *r_image = reinterpret_cast<ArImage *>(1); return AR_SUCCESS; };
 		api.ArImage_getTimestamp = [](const ArSession *, const ArImage *, int64_t *r_timestamp) { *r_timestamp = 1000; };
@@ -231,7 +338,7 @@ class ARCoreSessionFixture : public RefCounted {
 		auto &api = arcore_api();
 		api.ArCamera_getTrackingState = [](const ArSession *, const ArCamera *, ArTrackingState *r_state) { *r_state = AR_TRACKING_STATE_TRACKING; };
 		api.ArCamera_getTrackingFailureReason = [](const ArSession *, const ArCamera *, ArTrackingFailureReason *r_reason) { *r_reason = AR_TRACKING_FAILURE_REASON_NONE; };
-		api.ArSession_getAllTrackables = no_op;
+		api.ArFrame_getUpdatedTrackables = no_op;
 		api.ArTrackableList_getSize = [](const ArSession *, const ArTrackableList *, int32_t *r_count) { *r_count = 1; };
 		api.ArTrackableList_acquireItem = [](const ArSession *, const ArTrackableList *, int32_t, ArTrackable **r_plane) { *r_plane = reinterpret_cast<ArTrackable *>(7); };
 		api.ArTrackable_getTrackingState = [](const ArSession *, const ArTrackable *, ArTrackingState *r_state) { *r_state = AR_TRACKING_STATE_TRACKING; };
@@ -246,6 +353,7 @@ class ARCoreSessionFixture : public RefCounted {
 		};
 		api.ArPlane_acquireSubsumedBy = [](const ArSession *, const ArPlane *, ArPlane **r_parent) { *r_parent = nullptr; };
 		const int64_t id = debug->set_debug_plane(Transform3D(Basis(), Vector3(0, -1, -3)), Vector2(2, 4));
+		debug->refresh_planes();
 		debug->build_packet(1000);
 		const Ref<ARFramePacket> first = debug->current_packet;
 		check(first.is_valid() && first->planes.size() == 2, "debug packet merges after native planes");
@@ -261,8 +369,9 @@ class ARCoreSessionFixture : public RefCounted {
 		check(first->planes == debug->current_packet->planes, "unchanged merged native packet geometry");
 		check(int64_t(debug->diagnostics["plane_reprojection_samples"]) == 2, "ordinary GPU frames copy planes without reprojecting vertices");
 		api.ArCamera_getTrackingState = [](const ArSession *, const ArCamera *, ArTrackingState *r_state) { *r_state = AR_TRACKING_STATE_PAUSED; };
-		api.ArTrackableList_getSize = [](const ArSession *, const ArTrackableList *, int32_t *r_count) { *r_count = 0; };
+		api.ArTrackableList_getSize = [](const ArSession *, const ArTrackableList *, int32_t *r_count) { *r_count = 1; };
 		api.ArTrackable_getTrackingState = [](const ArSession *, const ArTrackable *, ArTrackingState *r_state) { *r_state = AR_TRACKING_STATE_STOPPED; };
+		debug->refresh_planes();
 		debug->build_packet(3000);
 		check(debug->current_packet->planes.back().tracking_state == ARPlaneTracker::PAUSED && first->planes.back().tracking_state == ARPlaneTracker::TRACKING, "native tracking loss pauses only new debug snapshots");
 		debug->mark_applied(debug->current_packet);
@@ -326,7 +435,7 @@ public:
 		session->bridge_changed();
 		check(create_calls == 1 && session->get_session_state() == PocketAR::INITIALIZING, "cold-start resume creates and initializes the session");
 		expect_event("state", PocketAR::INITIALIZING);
-		check(effective_config.planes == AR_PLANE_FINDING_MODE_HORIZONTAL_AND_VERTICAL, "default config detects both alignments");
+		check(effective_config.planes == AR_PLANE_FINDING_MODE_DISABLED, "default config disables plane discovery");
 		const int64_t mode_generation = session->get_session_generation();
 		ArSession *native_session = session->session;
 		ArConfig *native_config = session->config;
@@ -449,6 +558,7 @@ public:
 		check(events.is_empty(), "reset, lifecycle, plane and frame notifications are all deferred");
 		operation_active = false;
 		check_gpu_completion_lifetime();
+		check_incremental_planes();
 		check_frame_diagnostics();
 #ifdef DEBUG_ENABLED
 		check_debug_plane();
@@ -464,6 +574,7 @@ public:
 		check(events == expected_events, "deferred notifications preserve payload order and suppress unchanged values");
 		session->_uninitialize();
 		check(session->get_session_state() == PocketAR::PAUSED, "uninitializing a pending session reports PAUSED");
+		check_activity();
 		UtilityFunctions::print("SESSION RESULT ", failures == 0 ? "PASS" : "FAIL", " ", checks, " checks");
 		return failures;
 	}

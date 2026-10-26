@@ -22,7 +22,7 @@ void ARCoreInterface::_process() {
 	if (!initialized) return;
 	ERR_FAIL_COND(!on_owner_thread());
 	bridge_changed();
-	if (!session || !running || application_suspended || state == PocketAR::FAILED || state == PocketAR::UNSUPPORTED || state == PocketAR::PERMISSION_DENIED) return;
+	if (!session || !running || application_suspended || suspended || state == PocketAR::FAILED || state == PocketAR::UNSUPPORTED || state == PocketAR::PERMISSION_DENIED) return;
 	const auto bridge = arcore_bridge_snapshot();
 	if (!bridge.resumed || bridge.state != PocketAR::READY) return;
 	if (frame_setup_swap != rd_swaps) {
@@ -58,6 +58,7 @@ void ARCoreInterface::_process() {
 		return;
 	}
 	increment("successful_updates");
+	refresh_planes();
 	extras.on_tick(frame);
 	int64_t timestamp = 0;
 	api.ArFrame_getTimestamp(session, frame, &timestamp);
@@ -343,6 +344,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 			packet->image_size = current_packet->image_size;
 		}
 	}
+	packet->reuse_plane_values(current_packet);
 	current_packet = packet;
 	head->set_pose("default", last_good_pose, Vector3(), Vector3(), packet->tracking_valid ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_NONE);
 	increment("packets_published");
@@ -364,35 +366,44 @@ int64_t ARCoreInterface::ensure_plane(ArPlane *p_plane, bool p_acquired) {
 	snapshot.tracking_state = AR_TRACKING_STATE_PAUSED;
 	entry.tracker->update(snapshot);
 	XRServer::get_singleton()->add_tracker(entry.tracker);
+	entry.dirty = true;
 	planes.emplace(p_plane, entry);
+	pending_planes.push_back(p_plane);
 	return entry.id;
 }
 
-bool ARCoreInterface::copy_planes(ARFramePacket &r_packet) {
-	api.ArSession_getAllTrackables(session, AR_TRACKABLE_PLANE, trackable_list);
+void ARCoreInterface::refresh_planes() {
+	api.ArFrame_getUpdatedTrackables(session, frame, AR_TRACKABLE_PLANE, trackable_list);
 	int32_t count = 0;
 	api.ArTrackableList_getSize(session, trackable_list, &count);
 	for (int i = 0; i < count; ++i) {
 		ArTrackable *trackable = nullptr;
 		api.ArTrackableList_acquireItem(session, trackable_list, i, &trackable);
+		ArPlane *plane = reinterpret_cast<ArPlane *>(trackable);
 		ArTrackingState state;
 		api.ArTrackable_getTrackingState(session, trackable, &state);
-		if (state == AR_TRACKING_STATE_STOPPED && planes.find(reinterpret_cast<ArPlane *>(trackable)) == planes.end()) {
+		if (state == AR_TRACKING_STATE_STOPPED && planes.find(plane) == planes.end()) {
 			api.ArTrackable_release(trackable);
-		} else ensure_plane(reinterpret_cast<ArPlane *>(trackable), true);
+			continue;
+		}
+		ensure_plane(plane, true);
+		auto &entry = planes.at(plane);
+		if (!entry.dirty) { entry.dirty = true; pending_planes.push_back(plane); }
 	}
-	for (auto it = planes.begin(); it != planes.end();) {
-		ArPlane *plane = it->first;
+	for (size_t i = 0; i < pending_planes.size(); ++i) {
+		ArPlane *plane = pending_planes[i];
+		auto found = planes.find(plane);
+		ARPlaneSnapshot snapshot = found->second.tracker->get_snapshot();
 		ArTrackingState tracking;
 		api.ArTrackable_getTrackingState(session, reinterpret_cast<ArTrackable *>(plane), &tracking);
 		if (tracking == AR_TRACKING_STATE_STOPPED) {
-			XRServer::get_singleton()->remove_tracker(it->second.tracker);
+			XRServer::get_singleton()->remove_tracker(found->second.tracker);
 			api.ArTrackable_release(reinterpret_cast<ArTrackable *>(plane));
-			it = planes.erase(it);
+			planes.erase(found);
 			continue;
 		}
-		ARPlaneSnapshot snapshot;
-		snapshot.session_generation = generation; snapshot.plane_id = it->second.id; snapshot.tracking_state = tracking;
+		found->second.dirty = false;
+		snapshot.tracking_state = tracking;
 		ArPlaneType type;
 		api.ArPlane_getType(session, plane, &type); snapshot.alignment = type;
 		api.ArPlane_getCenterPose(session, plane, scratch_pose); snapshot.transform = read_pose();
@@ -401,19 +412,28 @@ bool ARCoreInterface::copy_planes(ARFramePacket &r_packet) {
 		snapshot.extents = Vector2(extent_x, extent_z);
 		int32_t polygon_size = 0;
 		api.ArPlane_getPolygonSize(session, plane, &polygon_size);
-		if (polygon_size >= 6 && polygon_size % 2 == 0) {
-			std::vector<float> polygon(polygon_size);
-			api.ArPlane_getPolygon(session, plane, polygon.data());
+		if (polygon_size < 6 || polygon_size % 2) polygon_size = 0;
+		plane_polygon.resize(polygon_size);
+		if (polygon_size) api.ArPlane_getPolygon(session, plane, plane_polygon.data());
+		bool same_polygon = snapshot.polygon.size() == polygon_size / 2;
+		for (int v = 0; same_polygon && v < polygon_size / 2; ++v) same_polygon = snapshot.polygon.get(v) == Vector2(plane_polygon[2 * v], plane_polygon[2 * v + 1]);
+		if (!same_polygon) {
+			snapshot.polygon = PackedVector2Array();
 			snapshot.polygon.resize(polygon_size / 2);
-			for (int v = 0; v < polygon_size / 2; ++v) snapshot.polygon[v] = Vector2(polygon[2*v], polygon[2*v+1]);
+			for (int v = 0; v < polygon_size / 2; ++v) snapshot.polygon[v] = Vector2(plane_polygon[2 * v], plane_polygon[2 * v + 1]);
+			increment("plane_geometry_rebuilds");
 		}
 		ArPlane *parent = nullptr;
 		api.ArPlane_acquireSubsumedBy(session, plane, &parent);
-		if (parent) snapshot.subsumed_by = ensure_plane(parent, true);
-		it->second.tracker->update(snapshot);
-		r_packet.planes.push_back(snapshot);
-		++it;
+		snapshot.subsumed_by = parent ? ensure_plane(parent, true) : 0;
+		found->second.tracker->update(snapshot);
+		increment("plane_updates");
 	}
+	pending_planes.clear();
+}
+
+bool ARCoreInterface::copy_planes(ARFramePacket &r_packet) {
+	for (const auto &entry : planes) r_packet.planes.push_back(entry.second.tracker->get_snapshot());
 #ifdef DEBUG_ENABLED
 	debug_plane.merge(r_packet.planes, generation, r_packet.tracking_valid && state == PocketAR::TRACKING);
 #endif

@@ -48,6 +48,7 @@ func _run_once(host: Node, fixture: String, composition: ARView.Composition) -> 
 	view.composition = composition
 	view.backend = ARView.Backend.SCRIPTED
 	view.interface = scripted
+	view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 	view.handle_presses = true
 	view.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 	view.size = target_size

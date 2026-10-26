@@ -23,9 +23,13 @@ protected:
 	void reset_debug_plane();
 #endif
 	bool initialized = false;
+	bool suspended = false;
+	bool application_suspended = false;
+	bool is_paused() const { return suspended || application_suspended; }
+	virtual void activity_changed() = 0;
 	bool geometry_dirty = true;
 	int64_t generation = 0;
-	PocketAR::PlaneFindingMode plane_finding_mode = PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL;
+	PocketAR::PlaneFindingMode plane_finding_mode = PocketAR::PLANE_FINDING_DISABLED;
 	ARIntrinsics intrinsics;
 	Vector2 viewport_size = Vector2(960, 720);
 	int quarter_turns = 0;
@@ -47,6 +51,9 @@ public:
 	int64_t set_debug_plane(const Transform3D &p_transform, const Vector2 &p_extents);
 	void clear_debug_plane();
 #endif
+	void set_suspended(bool p_suspended);
+	void application_pause();
+	void application_resume();
 	void set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode);
 	PocketAR::PlaneFindingMode get_plane_finding_mode() const { return plane_finding_mode; }
 	int64_t get_session_generation() const { return generation; }

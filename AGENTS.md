@@ -336,8 +336,8 @@ application Context global references, never a JNIEnv. Session destroy
 is the exception: a JVM-attached worker owns the bare paused session after every
 other native reference has been released. Shutdown never waits for destroy.
 
-The config explicitly uses EXPOSE_HARDWARE_BUFFER, LATEST_CAMERA_IMAGE, horizontal
-and vertical planes by default, auto focus and disabled light estimation. Depth, instant
+The config explicitly uses EXPOSE_HARDWARE_BUFFER, LATEST_CAMERA_IMAGE, plane
+discovery disabled by default, auto focus and disabled light estimation. Depth, instant
 placement, cloud/geospatial anchors, semantics, faces, stabilization and streetscape
 geometry keep the SDK's disabled defaults. CPU camera selection uses a
 non-null back-camera/30fps/no-depth/no-stereo filter, largest matching-aspect CPU
@@ -507,7 +507,7 @@ never primary; it keeps swap callbacks alive after an ARView has been removed.
 
 The session polls `currentFrame` once per `_process` inside an autorelease pool.
 Packets copy values and plane boundaries; no ARFrame, ARCamera or ARAnchor enters
-a packet. Plane detection defaults to horizontal and vertical; autofocus and gravity
+a packet. Plane detection defaults to disabled; autofocus and gravity
 alignment are fixed. Light estimation and HDR video are off.
 
 Interface orientation comes from the Godot view's window scene `effectiveGeometry`.
@@ -678,9 +678,9 @@ frames one apart while the camera moves.
 ## Scripted sessions and the game facade
 
 `ARView.plane_finding_mode` can be set before startup or while running. Its
-`PocketAR.PlaneFindingMode` values are `PLANE_FINDING_DISABLED=0`,
+`PocketAR.PlaneFindingMode` values are `PLANE_FINDING_DISABLED=0` (default),
 `PLANE_FINDING_HORIZONTAL=1` (upward and downward), and
-`PLANE_FINDING_HORIZONTAL_AND_VERTICAL=3` (default). The property reads the
+`PLANE_FINDING_HORIZONTAL_AND_VERTICAL=3`. The property reads the
 backend immediately; all four backends expose `set_plane_finding_mode()` and
 `get_plane_finding_mode()`. The selected mode survives pause/resume and reset.
 Reset still clears planes and changes generation, even when detection is disabled.

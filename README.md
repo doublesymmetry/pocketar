@@ -89,6 +89,7 @@ func _ready() -> void:
 		"Android": ar.backend = ARView.Backend.ARCORE
 		_: ar.backend = ARView.Backend.SYNTHETIC
 	ar.composition = ARView.Composition.IN_SCENE
+	ar.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 	ar.handle_presses = true
 	ar.screen_pressed.connect(_place)
 	ar.session_generation_changed.connect(_clear_placements)
@@ -133,6 +134,29 @@ keeps placed content attached as tracking changes. Use `session_state`,
 `tracking_reason` and their change signals to show tracking, permission,
 unsupported-device and interruption states. A new `session_generation`
 invalidates old plane identities; clear or rebuild placements then.
+
+## Session cost controls
+
+Plane discovery is disabled by default. This is a behavior change: games that
+need planes must set `ar.plane_finding_mode` to `PocketAR.PLANE_FINDING_HORIZONTAL`
+or `PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL`. The demo, rendering
+harnesses and tap-to-place sample enable their required planes explicitly.
+Disabling discovery later preserves planes already found; reset clears them.
+
+`ar.camera_quality` accepts `PocketAR.HIGHEST`, `BALANCED` or `LOWEST`.
+`HIGHEST` remains the default: the largest matching CPU image on stock Android,
+the largest GPU image on the hardware-buffer path, and Apple's first supported
+iOS video format. `BALANCED` chooses the lower middle available resolution tier;
+`LOWEST` chooses the smallest. These are selection policies, not measured power
+presets. iOS also accepts `ar.camera_frame_rate = 30` or `60`; zero preserves
+platform ordering. See the [selection and fallback rules](docs/api.md#session-controls).
+Native `get_diagnostics()` reports the requested preferences and chosen format.
+
+Set `ar.suspended = true` for menus or inactive AR screens. This pauses the native
+session and stops the virtual viewport updating. Set it to false to resume;
+ordinary resume keeps the generation and tracking map where the platform permits.
+Application pause and explicit suspension are independent, so both must be clear
+to resume. Hiding the view or covering it with a HUD does not suspend AR.
 
 ## Export
 

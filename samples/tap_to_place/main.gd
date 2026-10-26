@@ -24,6 +24,7 @@ func _start() -> void:
 			Engine.get_singleton("PocketARPlugin").requestSession()
 		return
 	ar = preload("res://addons/pocketar/ar_view.tscn").instantiate() as ARView
+	ar.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 	match OS.get_name():
 		"iOS": ar.backend = ARView.Backend.ARKIT
 		"Android": ar.backend = ARView.Backend.ARCORE

@@ -14,18 +14,6 @@
 				Advances to nonnegative fixture time in microseconds, applying reached records in file order and publishing the newest reached frame. Time cannot move backwards; call with zero before initialization.
 			</description>
 		</method>
-		<method name="application_pause">
-			<return type="void" />
-			<description>
-				Internal lifecycle protocol used by ARView/platform callbacks and test drivers. Prefer normal application lifecycle for a running view.
-			</description>
-		</method>
-		<method name="application_resume">
-			<return type="void" />
-			<description>
-				Internal lifecycle protocol used by ARView/platform callbacks and test drivers. Prefer normal application lifecycle for a running view.
-			</description>
-		</method>
 		<method name="get_pending_inputs">
 			<return type="Dictionary[]" />
 			<description>
@@ -67,6 +55,12 @@
 			<return type="void" />
 			<description>
 				Changes generation, clears packets/trackers and keeps the fixture cursor. Planes remain absent until a later frame supplies them again. Does not rewind.
+			</description>
+		</method>
+		<method name="get_plane_geometry_rebuild_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Diagnostic count of polygon storage rebuilds during replay.
 			</description>
 		</method>
 	</methods>

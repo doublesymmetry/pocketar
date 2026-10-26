@@ -71,6 +71,9 @@ void SimulatedARInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_debug_plane", "transform", "extents"), &SimulatedARInterface::set_debug_plane);
 	ClassDB::bind_method(D_METHOD("clear_debug_plane"), &SimulatedARInterface::clear_debug_plane);
 #endif
+	ClassDB::bind_method(D_METHOD("set_suspended", "suspended"), &SimulatedARInterface::set_suspended);
+	ClassDB::bind_method(D_METHOD("application_pause"), &SimulatedARInterface::application_pause);
+	ClassDB::bind_method(D_METHOD("application_resume"), &SimulatedARInterface::application_resume);
 	ClassDB::bind_method(D_METHOD("set_plane_finding_mode", "mode"), &SimulatedARInterface::set_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("get_plane_finding_mode"), &SimulatedARInterface::get_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &SimulatedARInterface::get_session_generation);
@@ -87,6 +90,24 @@ void SimulatedARInterface::_bind_methods() {
 void SimulatedARInterface::set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode) {
 	ERR_FAIL_COND(p_mode != PocketAR::PLANE_FINDING_DISABLED && p_mode != PocketAR::PLANE_FINDING_HORIZONTAL && p_mode != PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL);
 	plane_finding_mode = p_mode;
+}
+
+void SimulatedARInterface::set_suspended(bool p_suspended) {
+	const bool paused = is_paused();
+	suspended = p_suspended;
+	if (initialized && paused != is_paused()) activity_changed();
+}
+
+void SimulatedARInterface::application_pause() {
+	const bool paused = is_paused();
+	application_suspended = true;
+	if (initialized && !paused) activity_changed();
+}
+
+void SimulatedARInterface::application_resume() {
+	const bool paused = is_paused();
+	application_suspended = false;
+	if (initialized && paused != is_paused()) activity_changed();
 }
 
 bool SimulatedARInterface::start(const String &p_description) {
@@ -170,6 +191,7 @@ PackedFloat64Array SimulatedARInterface::_get_projection_for_view(uint32_t p_vie
 }
 
 void SimulatedARInterface::mark_presented() {
+	if (is_paused()) return;
 #ifdef DEBUG_ENABLED
 	if (debug_plane.presentation_paused()) { presented_packet.unref(); return; }
 #endif

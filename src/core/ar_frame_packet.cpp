@@ -52,21 +52,37 @@ Dictionary ARFramePacket::get_intrinsics() const {
 	return result;
 }
 
+void ARFramePacket::reuse_plane_values(const Ref<ARFramePacket> &p_previous) {
+	if (!planes.empty() && p_previous.is_valid() && planes == p_previous->planes) {
+		if (!p_previous->plane_values) p_previous->plane_values = std::make_shared<TypedArray<Dictionary>>();
+		plane_values = p_previous->plane_values;
+	}
+}
+
 TypedArray<Dictionary> ARFramePacket::get_planes() const {
-	TypedArray<Dictionary> result;
-	for (const ARPlaneSnapshot &plane : planes) {
-		Dictionary value;
+	if (planes.empty()) return TypedArray<Dictionary>();
+	if (!plane_values) plane_values = std::make_shared<TypedArray<Dictionary>>();
+	if (plane_values->is_empty()) {
+		for (const ARPlaneSnapshot &plane : planes) {
+			Dictionary value;
 #ifdef DEBUG_ENABLED
-		value["debug"] = plane.debug;
+			value["debug"] = plane.debug;
 #endif
-		value["plane_id"] = plane.plane_id;
-		value["session_generation"] = plane.session_generation;
-		value["alignment"] = plane.alignment;
-		value["extents"] = plane.extents;
-		value["polygon"] = plane.polygon.duplicate();
-		value["subsumed_by"] = plane.subsumed_by;
-		value["tracking_state"] = plane.tracking_state;
-		value["transform"] = plane.transform;
+			value["plane_id"] = plane.plane_id;
+			value["session_generation"] = plane.session_generation;
+			value["alignment"] = plane.alignment;
+			value["extents"] = plane.extents;
+			value["subsumed_by"] = plane.subsumed_by;
+			value["tracking_state"] = plane.tracking_state;
+			value["transform"] = plane.transform;
+			plane_values->push_back(value);
+		}
+	}
+	TypedArray<Dictionary> result;
+	for (size_t i = 0; i < planes.size(); ++i) {
+		Dictionary value = Dictionary((*plane_values)[i]).duplicate();
+		// A fresh Variant owns a copy-on-write polygon; sharing a cached Variant lets scripts mutate it.
+		value["polygon"] = planes[i].polygon;
 		result.push_back(value);
 	}
 	return result;

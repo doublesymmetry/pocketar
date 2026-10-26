@@ -136,7 +136,28 @@
 			<return type="void" />
 			<param index="0" name="mode" type="int" enum="PocketAR.PlaneFindingMode" />
 			<description>
-				Selects [enum PocketAR.PlaneFindingMode] before or during the session, retained across pause/reset. Disabling retains existing planes; native refinement behavior differs by platform. Prefer ARView.plane_finding_mode.
+				Defaults to disabled. Selects [enum PocketAR.PlaneFindingMode] before or during the session, retained across pause/reset. Disabling retains existing planes; native refinement behavior differs by platform. Prefer ARView.plane_finding_mode.
+			</description>
+		</method>
+		<method name="set_suspended">
+			<return type="void" />
+			<param index="0" name="suspended" type="bool" />
+			<description>
+				Internal ARView protocol. Explicit suspension is independent of application pause. Prefer ARView.suspended.
+			</description>
+		</method>
+		<method name="set_camera_quality">
+			<return type="void" />
+			<param index="0" name="quality" type="int" enum="PocketAR.CameraQuality" />
+			<description>
+				Prefer ARView.camera_quality. Defaults to HIGHEST; diagnostics report the chosen format.
+			</description>
+		</method>
+		<method name="set_camera_frame_rate">
+			<return type="void" />
+			<param index="0" name="fps" type="int" />
+			<description>
+				Prefer ARView.camera_frame_rate. Accepts 0 (platform default), 30 or 60; an unavailable rate uses the nearest supported rate, lower on ties.
 			</description>
 		</method>
 	</methods>

@@ -15,6 +15,8 @@ class ScriptedARInterface : public SimulatedARInterface {
 	size_t cursor = 0;
 	int64_t latest_frame_index = -1;
 	int64_t latest_planes_index = -1;
+	int64_t applied_planes_index = -1;
+	PocketAR::PlaneFindingMode applied_plane_mode = PocketAR::PLANE_FINDING_DISABLED;
 	PocketAR::SessionState state = PocketAR::INITIALIZING;
 	PocketAR::TrackingReason reason = PocketAR::NONE;
 	pocketar::ScriptedSession session;
@@ -28,6 +30,8 @@ class ScriptedARInterface : public SimulatedARInterface {
 	void apply_planes(const std::vector<pocketar::FixturePlane> &p_planes);
 	void advance_records(int64_t p_t_usec);
 	void make_packet();
+	void activity_changed() override;
+	int64_t plane_geometry_rebuild_count = 0;
 
 protected:
 	static void _bind_methods();
@@ -37,11 +41,10 @@ public:
 	void advance_to(int64_t p_t_usec);
 	TypedArray<Dictionary> get_pending_inputs();
 	void reset();
-	void application_pause();
-	void application_resume();
 	PocketAR::SessionState get_session_state() const { return state; }
 	PocketAR::TrackingReason get_tracking_reason() const { return reason; }
 	int64_t get_plane_count() const;
+	int64_t get_plane_geometry_rebuild_count() const { return plane_geometry_rebuild_count; }
 	String get_semantics() const { return String(session.semantics.c_str()); }
 
 	StringName _get_name() const override { return "PocketARScripted"; }

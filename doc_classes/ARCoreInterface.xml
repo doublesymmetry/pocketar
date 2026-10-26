@@ -171,7 +171,7 @@
 			<return type="void" />
 			<param index="0" name="mode" type="int" enum="PocketAR.PlaneFindingMode" />
 			<description>
-				Selects [enum PocketAR.PlaneFindingMode] before or during the session, retained across pause/reset. Disabling retains existing planes; native refinement behavior differs by platform. Prefer ARView.plane_finding_mode.
+				Defaults to disabled. Selects [enum PocketAR.PlaneFindingMode] before or during the session, retained across pause/reset. Disabling retains existing planes; native refinement behavior differs by platform. Prefer ARView.plane_finding_mode.
 			</description>
 		</method>
 		<method name="set_point_cloud_enabled">
@@ -199,6 +199,20 @@
 			<return type="Dictionary" />
 			<description>
 				Stops Android dataset recording and returns a platform status dictionary.
+			</description>
+		</method>
+		<method name="set_suspended">
+			<return type="void" />
+			<param index="0" name="suspended" type="bool" />
+			<description>
+				Internal ARView protocol. Explicit suspension is independent of application pause. Prefer ARView.suspended.
+			</description>
+		</method>
+		<method name="set_camera_quality">
+			<return type="void" />
+			<param index="0" name="quality" type="int" enum="PocketAR.CameraQuality" />
+			<description>
+				Prefer ARView.camera_quality. Defaults to HIGHEST; diagnostics report the chosen format.
 			</description>
 		</method>
 	</methods>

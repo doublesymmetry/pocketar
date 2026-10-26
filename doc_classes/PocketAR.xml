@@ -87,13 +87,13 @@
 			The camera cannot be used, including ARKit interruption.
 		</constant>
 		<constant name="PLANE_FINDING_DISABLED" value="0" enum="PlaneFindingMode">
-			Disable discovery while retaining existing planes. Refinement behavior is backend-specific; this does not create anchors.
+			Default mode. Disable discovery while retaining existing planes. Refinement behavior is backend-specific; this does not create anchors.
 		</constant>
 		<constant name="PLANE_FINDING_HORIZONTAL" value="1" enum="PlaneFindingMode">
 			Discover horizontal planes, both upward and downward facing.
 		</constant>
 		<constant name="PLANE_FINDING_HORIZONTAL_AND_VERTICAL" value="3" enum="PlaneFindingMode">
-			Discover horizontal and vertical planes. Default mode.
+			Discover horizontal and vertical planes. Games opt in explicitly.
 		</constant>
 		<constant name="ALIGNMENT_MASK_HORIZONTAL_UPWARD" value="1" enum="AlignmentMask">
 			Raycast mask bit for upward-facing horizontal planes.
@@ -106,6 +106,15 @@
 		</constant>
 		<constant name="ALIGNMENT_MASK_ALL" value="7" enum="AlignmentMask">
 			Raycast mask including all alignments.
+		</constant>
+		<constant name="HIGHEST" value="0" enum="CameraQuality">
+			Preserve the platform's highest-quality selection. Default camera preference.
+		</constant>
+		<constant name="BALANCED" value="1" enum="CameraQuality">
+			Select the lower middle available resolution tier. This is not a measured power preset.
+		</constant>
+		<constant name="LOWEST" value="2" enum="CameraQuality">
+			Select the smallest available resolution tier.
 		</constant>
 	</constants>
 </class>

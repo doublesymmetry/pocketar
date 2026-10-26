@@ -9,7 +9,7 @@ extends Node3D
 ## View supplying plane snapshots. Assign before ready.
 @export var ar_view: ARView
 
-## Number of plane meshes currently displayed.
+## Number of cached plane meshes. A hidden visualizer catches up when shown.
 var plane_count: int:
 	get:
 		return _meshes.size()
@@ -24,6 +24,7 @@ func _ready() -> void:
 	var update := func(_value: int) -> void: _update_planes(ar_view.applied_packet)
 	ar_view.session_generation_changed.connect(update)
 	ar_view.session_state_changed.connect(update)
+	visibility_changed.connect(func() -> void: _update_planes(ar_view.applied_packet))
 	_update_planes(ar_view.applied_packet)
 
 
@@ -34,6 +35,8 @@ func _clear() -> void:
 
 
 func _update_planes(packet: ARFramePacket) -> void:
+	if not is_visible_in_tree():
+		return
 	if ar_view.session_state != PocketAR.TRACKING or packet == null or not packet.tracking_valid or packet.session_generation != ar_view.session_generation:
 		_clear()
 		return

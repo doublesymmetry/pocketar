@@ -19,12 +19,13 @@ func _run() -> void:
 	var interface := ScriptedARInterface.new()
 	var fixture: String = get_script().resource_path.get_base_dir().path_join("plane_finding.jsonl")
 	_check(interface.load_fixture(fixture) == OK, "plane fixture loads")
+	view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 	view.backend = ARView.Backend.SCRIPTED
 	view.interface = interface
 	root.add_child(view)
 	var first: ARFramePacket = interface.get_current_packet()
 	var frozen: Array[Dictionary] = first.planes
-	_check(frozen.size() == 3, "default finds upward, downward and vertical planes")
+	_check(frozen.size() == 3, "explicit mode finds upward, downward and vertical planes")
 	interface.mark_presented()
 	await process_frame
 	var changes: Array[int] = []
@@ -72,7 +73,6 @@ func _run() -> void:
 	_check(interface.load_fixture(fixture) == OK, "fixture reloads")
 	view.backend = ARView.Backend.SCRIPTED
 	view.interface = interface
-	view.plane_finding_mode = PocketAR.PLANE_FINDING_DISABLED
 	root.add_child(view)
 	_check(interface.get_current_packet().planes.is_empty(), "disabled startup has no planes")
 	view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL

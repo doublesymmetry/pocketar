@@ -27,6 +27,7 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 	view = AR_VIEW.instantiate() as ARView
+	view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 	var composition_index: int = args.find("-harness-composition")
 	if composition_index >= 0:
 		if composition_index + 1 >= args.size() or args[composition_index + 1] not in ["in-scene", "isolated-camera"]:

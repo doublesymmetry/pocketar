@@ -64,7 +64,7 @@ enum Backend {
 @export var environment: Environment
 ## Plane discovery mode, changeable while running and retained across reset.
 ## Disabling discovery preserves existing planes; their refinement differs by backend. This does not create anchors.
-@export var plane_finding_mode: PocketAR.PlaneFindingMode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL:
+@export var plane_finding_mode: PocketAR.PlaneFindingMode = PocketAR.PLANE_FINDING_DISABLED:
 	set(value):
 		if value not in [PocketAR.PLANE_FINDING_DISABLED, PocketAR.PLANE_FINDING_HORIZONTAL, PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL]:
 			push_error("Invalid plane finding mode")
@@ -74,6 +74,36 @@ enum Backend {
 			interface.call("set_plane_finding_mode", value)
 	get:
 		return int(interface.call("get_plane_finding_mode")) if interface != null else _plane_finding_mode
+
+## Native camera resolution preference. HIGHEST preserves the platform's original selection.
+## Changing this can reset the native session; explicit Android configuration indices take precedence.
+@export var camera_quality: PocketAR.CameraQuality = PocketAR.HIGHEST:
+	set(value):
+		if value < PocketAR.HIGHEST or value > PocketAR.LOWEST:
+			push_error("Invalid camera quality")
+			return
+		camera_quality = value
+		if interface != null and interface.has_method("set_camera_quality"):
+			interface.call("set_camera_quality", value)
+## Preferred iOS capture rate; zero keeps platform ordering. An unavailable rate uses the nearest supported rate.
+## Android keeps its 30 fps camera filter. This does not set the game's rendering rate.
+@export_enum("Platform default:0", "30 fps:30", "60 fps:60") var camera_frame_rate: int = 0:
+	set(value):
+		if value not in [0, 30, 60]:
+			push_error("Invalid camera frame rate")
+			return
+		camera_frame_rate = value
+		if interface != null and interface.has_method("set_camera_frame_rate"):
+			interface.call("set_camera_frame_rate", value)
+## Pause camera tracking and virtual viewport updates explicitly. Visibility does not suspend AR.
+## Resume retains the session generation and tracking map where the platform allows it.
+@export var suspended: bool = false:
+	set(value):
+		suspended = value
+		if interface != null:
+			interface.call("set_suspended", value)
+		if is_node_ready():
+			_update_activity()
 
 ## Internal rendering viewport. Use [member world_3d] and [member scene_root] for game content.
 @onready var virtual_scene: SubViewport = $VirtualScene
@@ -101,6 +131,7 @@ var waiting_for_packet: bool = true
 var camera_material: ShaderMaterial
 ## Internal in-scene camera mesh.
 var camera_quad: MeshInstance3D
+var _application_paused: bool = false
 var _composition_locked: bool = false
 var _environment_properties: Array[StringName] = []
 var _geometry_interface_id: int = 0
@@ -109,7 +140,7 @@ var _geometry_turns: int = -1
 var _geometry_clip_range := Vector2.ZERO
 var _camera_projection := Projection()
 var _camera_clip_range := Vector2.ZERO
-var _plane_finding_mode: PocketAR.PlaneFindingMode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
+var _plane_finding_mode: PocketAR.PlaneFindingMode = PocketAR.PLANE_FINDING_DISABLED
 ## Current backend state, or PAUSED before a backend exists. Read immediately; notifications are deferred.
 var session_state: PocketAR.SessionState:
 	get:
@@ -171,6 +202,12 @@ func _ready() -> void:
 		else:
 			interface = SyntheticARInterface.new()
 	interface.call("set_plane_finding_mode", _plane_finding_mode)
+	if interface.has_method("set_camera_quality"):
+		interface.call("set_camera_quality", camera_quality)
+	if interface.has_method("set_camera_frame_rate"):
+		interface.call("set_camera_frame_rate", camera_frame_rate)
+	interface.call("set_suspended", suspended)
+	_update_activity()
 	interface.connect("session_state_changed", _on_session_state_changed)
 	interface.connect("tracking_reason_changed", _on_tracking_reason_changed)
 	interface.connect("session_generation_changed", _on_session_generation_changed)
@@ -201,7 +238,8 @@ func _exit_tree() -> void:
 
 
 func _process(_delta: float) -> void:
-	_update_geometry()
+	if not suspended and not _application_paused:
+		_update_geometry()
 
 
 ## Reset an initialized session, clear presentation and planes, and change the generation.
@@ -233,10 +271,18 @@ func _on_session_generation_changed(generation: int) -> void:
 func _notification(what: int) -> void:
 	if interface == null:
 		return
-	if what == NOTIFICATION_APPLICATION_PAUSED and interface.has_method("application_pause"):
+	if what == NOTIFICATION_APPLICATION_PAUSED:
+		_application_paused = true
 		interface.call("application_pause")
-	elif what == NOTIFICATION_APPLICATION_RESUMED and interface.has_method("application_resume"):
+		_update_activity()
+	elif what == NOTIFICATION_APPLICATION_RESUMED:
+		_application_paused = false
 		interface.call("application_resume")
+		_update_activity()
+
+
+func _update_activity() -> void:
+	virtual_scene.render_target_update_mode = SubViewport.UPDATE_DISABLED if suspended or _application_paused else SubViewport.UPDATE_ALWAYS
 
 
 func _update_geometry() -> void:
@@ -257,7 +303,8 @@ func _update_geometry() -> void:
 
 
 func _apply_packet() -> void:
-	_sync_environment()
+	if not suspended and not _application_paused:
+		_sync_environment()
 	var packet: ARFramePacket = interface.call("get_current_packet") as ARFramePacket
 	var shader: ShaderMaterial = camera_material
 	if packet == null:
@@ -334,7 +381,8 @@ func _sync_environment() -> void:
 
 
 func _mark_presented() -> void:
-	interface.call("mark_presented")
+	if not suspended and not _application_paused:
+		interface.call("mark_presented")
 
 
 ## Convert view-local pixels using the presented packet. Returns origin (world near-plane point in metres),
@@ -362,7 +410,7 @@ func raycast(screen_point: Vector2, alignments: int = PocketAR.ALIGNMENT_MASK_AL
 
 
 func _presented_packet() -> ARFramePacket:
-	if interface == null or size.x <= 0 or size.y <= 0:
+	if interface == null or suspended or _application_paused or size.x <= 0 or size.y <= 0:
 		return null
 	var packet: ARFramePacket = interface.call("get_presented_packet") as ARFramePacket
 	if packet == null or not packet.tracking_valid or packet.session_generation != session_generation:

@@ -16,7 +16,7 @@ func _check(condition: bool, message: String) -> void:
 func _run() -> void:
 	var scene: PackedScene = load("res://addons/pocketar/ar_view.tscn") as PackedScene
 	var view: ARView = scene.instantiate() as ARView
-	_check(view.plane_finding_mode == PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL, "plane finding defaults to both alignments")
+	_check(view.plane_finding_mode == PocketAR.PLANE_FINDING_DISABLED, "plane finding defaults to disabled")
 	view.plane_finding_mode = PocketAR.PLANE_FINDING_DISABLED
 	_check(view.plane_finding_mode == PocketAR.PLANE_FINDING_DISABLED, "mode can be set before ready")
 	_check(view.has_method("reset"), "ARView has a session reset facade")

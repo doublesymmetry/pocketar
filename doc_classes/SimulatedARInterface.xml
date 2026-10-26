@@ -65,7 +65,26 @@
 			<return type="void" />
 			<param index="0" name="mode" type="int" enum="PocketAR.PlaneFindingMode" />
 			<description>
-				Selects [enum PocketAR.PlaneFindingMode] before or during the session, retained across pause/reset. Disabling retains existing planes; native refinement behavior differs by platform. Prefer ARView.plane_finding_mode.
+				Defaults to disabled. Selects [enum PocketAR.PlaneFindingMode] before or during the session, retained across pause/reset. Disabling retains existing planes; native refinement behavior differs by platform. Prefer ARView.plane_finding_mode.
+			</description>
+		</method>
+		<method name="set_suspended">
+			<return type="void" />
+			<param index="0" name="suspended" type="bool" />
+			<description>
+				Internal ARView protocol. Explicit suspension is independent of application pause. Prefer ARView.suspended.
+			</description>
+		</method>
+		<method name="application_pause">
+			<return type="void" />
+			<description>
+				Internal lifecycle protocol used by ARView/platform callbacks and test drivers. Prefer normal application lifecycle for a running view.
+			</description>
+		</method>
+		<method name="application_resume">
+			<return type="void" />
+			<description>
+				Internal lifecycle protocol used by ARView/platform callbacks and test drivers. Prefer normal application lifecycle for a running view.
 			</description>
 		</method>
 	</methods>
