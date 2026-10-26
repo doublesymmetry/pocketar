@@ -1,8 +1,15 @@
 class_name ARPlaneVisualizer
 extends Node3D
+## Optional cyan plane visualization for samples and debugging.
+##
+## Add under ARView.scene_root and assign [member ar_view] before adding to the tree.
+## Draws tracking, unsubsumed polygons from applied packets; hides them when the session
+## stops tracking. The material is a sample style, not a placement or anchor API.
 
+## View supplying plane snapshots. Assign before ready.
 @export var ar_view: ARView
 
+## Number of plane meshes currently displayed.
 var plane_count: int:
 	get:
 		return _meshes.size()

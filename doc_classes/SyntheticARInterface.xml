@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="SyntheticARInterface" inherits="SimulatedARInterface" api_type="extension" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Advanced desktop AR simulation with a generated camera image.
+	</brief_description>
+	<description>
+		ARView creates this for backend 0. It supplies colour bars and a configurable pose/calibration, not live camera tracking or real planes. Use its setters for desktop simulation; presentation and debug controls are internal. Time uses Time.get_ticks_usec(), with complete packets repeated below the render rate.
+	</description>
+	<methods>
+		<method name="get_session_state" qualifiers="const">
+			<return type="int" enum="PocketAR.SessionState" />
+			<description>
+				Returns the current [enum PocketAR.SessionState]. ARView.session_state is the game facade; notifications are deferred.
+			</description>
+		</method>
+		<method name="get_tracking_reason" qualifiers="const">
+			<return type="int" enum="PocketAR.TrackingReason" />
+			<description>
+				Returns the current [enum PocketAR.TrackingReason]. NONE alone does not guarantee tracking.
+			</description>
+		</method>
+		<method name="reset">
+			<return type="void" />
+			<description>
+				Clears presentation and planes and changes session generation. Retains the selected plane-finding mode. Prefer ARView.reset for a running view.
+			</description>
+		</method>
+		<method name="set_camera_rate">
+			<return type="void" />
+			<param index="0" name="fps" type="float" />
+			<description>
+				Sets simulated acquisition rate in frames/second, greater than zero and at most 240. Slower acquisition repeats whole packets between updates.
+			</description>
+		</method>
+		<method name="set_frame_id_pose">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				Internal harness control: derives camera position from frame ID to measure presentation consistency.
+			</description>
+		</method>
+		<method name="set_intrinsics">
+			<return type="void" />
+			<param index="0" name="fx" type="float" />
+			<param index="1" name="fy" type="float" />
+			<param index="2" name="cx" type="float" />
+			<param index="3" name="cy" type="float" />
+			<param index="4" name="image_size" type="Vector2i" />
+			<description>
+				Sets focal lengths fx/fy and principal point cx/cy in physical image pixels. Focal lengths must be positive and image dimensions 32-4096. Applies to the next acquisition.
+			</description>
+		</method>
+		<method name="set_pose">
+			<return type="void" />
+			<param index="0" name="pose" type="Transform3D" />
+			<description>
+				Sets a finite rigid world-from-camera transform in metres in the physical image-camera basis, before display rotation. Applies to the next acquisition.
+			</description>
+		</method>
+	</methods>
+</class>

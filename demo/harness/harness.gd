@@ -417,6 +417,9 @@ func _camera_transform() -> bool:
 	_reset_scene()
 	button.hide()
 	view.interface.set_intrinsics(DEFAULT_K.x, DEFAULT_K.y, DEFAULT_K.z, DEFAULT_K.w, IMAGE_SIZE)
+	# Material dithering adds several sRGB byte levels near black in the normalized scene buffer.
+	var dithered: bool = view.composition == ARView.Composition.IN_SCENE and ProjectSettings.get_setting("rendering/anti_aliasing/quality/use_debanding")
+	var tolerance: float = (8.0 if dithered else 1.001) / 255.0
 	var samples: int = 0
 	for turns: int in range(4):
 		for base_size: Vector2i in [Vector2i(800, 720), Vector2i(720, 960)]:
@@ -442,7 +445,7 @@ func _camera_transform() -> bool:
 				if not Rect2(Vector2(2, 2), view.size - Vector2(4, 4)).has_point(predicted):
 					continue
 				var actual: Color = image.get_pixelv(Vector2i(predicted))
-				if _color_error(actual, expected) > 1.001 / 255.0:
+				if _color_error(actual, expected) > tolerance:
 					detail = "rotation=%d size=%s source=%s screen=%s rgb=%s expected=%s frame=%d" % [turns, view.size, source, predicted, actual, expected, packet.frame_id]
 					return false
 				if landmark < 14:
@@ -453,7 +456,7 @@ func _camera_transform() -> bool:
 				detail = "insufficient visible landmarks: bars=%d stripe=%d" % [bar_samples, stripe_samples]
 				return false
 			samples += bar_samples + stripe_samples
-	detail = "all four rotations at two cropped aspect ratios; %d bar-boundary and frame-stripe samples <= 1/255" % samples
+	detail = "all four rotations at two cropped aspect ratios; %d bar-boundary and frame-stripe samples <= %.3f/255" % [samples, tolerance * 255]
 	return true
 
 
@@ -568,7 +571,8 @@ func _transparency() -> bool:
 				if in_scene:
 					expected = background_image.get_pixel(x, y).srgb_to_linear().lerp(opaque_color.srgb_to_linear(), alpha).linear_to_srgb()
 				worst = maxf(worst, _color_error(image.get_pixel(x, y), expected))
-	if edge_samples < 8 or worst > 4.0 / 255.0:
+	var edge_tolerance: float = (8.0 if in_scene and ProjectSettings.get_setting("rendering/anti_aliasing/quality/use_debanding") else 4.0) / 255.0
+	if edge_samples < 8 or worst > edge_tolerance:
 		detail = "MSAA edge samples=%d worst halo error=%.3f/255" % [edge_samples, worst * 255]
 		return false
 	view.environment.tonemap_exposure = 0.125
@@ -736,7 +740,7 @@ func _composition() -> bool:
 	await _settle()
 	image = await _capture("composition-depth-zero")
 	var background_pixel := Vector2i(view.size * Vector2(0.1, 0.7))
-	if _color_error(image.get_pixelv(background_pixel), Color.GREEN) > 2.0 / 255.0 or _color_error(image.get_pixelv(far_pixel), Color.RED) > 2.0 / 255.0:
+	if _color_error(image.get_pixelv(background_pixel), Color.GREEN) > 2.001 / 255.0 or _color_error(image.get_pixelv(far_pixel), Color.RED) > 2.001 / 255.0:
 		detail = "depth reader must see exact zero background and positive far-geometry depth"
 		return false
 	probe.free()

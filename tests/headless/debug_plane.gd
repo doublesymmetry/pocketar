@@ -35,7 +35,7 @@ func _run() -> void:
 	var interface := ScriptedARInterface.new()
 	var fixture: String = get_script().resource_path.get_base_dir().path_join("debug_plane.jsonl")
 	_check(interface.load_fixture(fixture) == OK, "plane-free fixture loads")
-	view.backend = 3
+	view.backend = ARView.Backend.SCRIPTED
 	view.interface = interface
 	root.add_child(view)
 	var visualizer := ARPlaneVisualizer.new()

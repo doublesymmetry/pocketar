@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="ARFramePacket" inherits="RefCounted" api_type="extension" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Copied camera calibration, pose and plane values for one AR frame.
+	</brief_description>
+	<description>
+		Obtain packets from ARView.packet_applied or the advanced backend interface. Constructing an empty packet does not capture a frame. Values are read-only copies; world units are metres and camera axes are +X right, +Y up, -Z forward.
+		Native texture references do not archive images. ARKit and ARCore CPU textures are protected while current, presented or applied to ARView. Retaining a packet or texture does not extend that protection: retired ARKit textures clear, and ARCore CPU slots can show newer pixels. ARCore GPU packets share one texture whose pixels can change during the next conversion, even before the next packet is presented. Simulated packets own their images.
+		At camera rates below the render rate, the whole packet repeats. If texture acquisition is refused, new copied values can use previous textures. Use packet values for geometry and input, not texture references as a recording API.
+	</description>
+	<members>
+		<member name="camera_transform" type="Transform3D" setter="" getter="get_camera_transform" default="Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)">
+			World-from-camera transform in metres, including display orientation. +X right, +Y up, -Z forward.
+		</member>
+		<member name="cbcr_texture" type="Texture2D" setter="" getter="get_cbcr_texture">
+			Advanced rendering: chroma texture, or null when unavailable or using RGB. CPU textures sample .rg; imported chroma uses .ra when [member imported_chroma] is true. See the class texture-lifetime contract.
+		</member>
+		<member name="display_transform" type="Transform2D" setter="" getter="get_display_transform" default="Transform2D(1, 0, 0, 1, 0, 0)">
+			Maps top-left-origin viewport UV into top-left-origin camera-image UV, including centred aspect-fill crop and rotation. ARCore GPU maps into TEXTURE_NORMALIZED.
+		</member>
+		<member name="frame_id" type="int" setter="" getter="get_frame_id" default="0">
+			Frame identifier within the session generation. Combine with [member session_generation]; do not assume IDs are consecutive.
+		</member>
+		<member name="image_size" type="Vector2i" setter="" getter="get_image_size" default="Vector2i(0, 0)">
+			Camera texture image size in pixels. On ARCore GPU this is the GPU texture size and can differ from intrinsics.image_size.
+		</member>
+		<member name="imported_chroma" type="bool" setter="" getter="get_imported_chroma" default="false">
+			Internal shader convention: true selects luminance-alpha (.ra) for imported chroma; false selects CPU RG8 (.rg).
+		</member>
+		<member name="intrinsics" type="Dictionary" setter="" getter="get_intrinsics" default="{ &quot;cx&quot;: 301.0, &quot;cy&quot;: 227.0, &quot;fx&quot;: 520.0, &quot;fy&quot;: 510.0, &quot;image_size&quot;: Vector2i(640, 480) }">
+			Copied dictionary with fx, fy (focal lengths), cx, cy (principal point) in pixels, and image_size (Vector2i). On ARCore these always describe the CPU image, whose crop and field of view can differ from the GPU image.
+		</member>
+		<member name="physical_camera_transform" type="Transform3D" setter="" getter="get_physical_camera_transform" default="Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)">
+			World-from-camera transform before display rotation, in the physical image-camera basis.
+		</member>
+		<member name="planes" type="Dictionary[]" setter="" getter="get_planes" default="[]">
+			Copied plane dictionaries: plane_id, session_generation, alignment, extents, polygon, subsumed_by, tracking_state, transform. Geometry and enums follow [ARPlaneTracker]. Editing this array does not modify the packet or trackers. Debug builds also include the internal debug flag.
+		</member>
+		<member name="projection" type="Projection" setter="" getter="get_projection" default="Projection(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)">
+			Full camera projection, with column-major storage and OpenGL NDC depth [code][-1,+1][/code]. Godot applies device depth and Y corrections.
+		</member>
+		<member name="quarter_turns" type="int" setter="" getter="get_quarter_turns" default="0">
+			Clockwise display orientation in quarter turns (0-3) relative to the physical camera image.
+		</member>
+		<member name="rgb_texture" type="Texture2D" setter="" getter="get_rgb_texture">
+			Advanced rendering: RGB camera texture, or null on the Y/CbCr path. The ARCore GPU texture is shared and can change even while this packet is presented.
+		</member>
+		<member name="session_generation" type="int" setter="" getter="get_session_generation" default="0">
+			Process-wide unique session identity. A reset invalidates identities and presentation from the old generation.
+		</member>
+		<member name="timestamp_ns" type="int" setter="" getter="get_timestamp_ns" default="0">
+			Backend frame timestamp in nanoseconds. Native precision depends on the backend; do not assume a host-clock offset.
+		</member>
+		<member name="timestamp_usec" type="int" setter="" getter="get_timestamp_usec" default="0">
+			Backend frame timestamp in microseconds. Not wall time; clocks are not interchangeable across backends. Synthetic uses Time.get_ticks_usec().
+		</member>
+		<member name="tracking_valid" type="bool" setter="" getter="get_tracking_valid" default="false">
+			Whether this packet has a usable camera pose. ARKit limited poses can remain valid while plane trackers are paused; ARCore requires native tracking.
+		</member>
+		<member name="viewport_size" type="Vector2" setter="" getter="get_viewport_size" default="Vector2(0, 0)">
+			Viewport size in pixels used to construct this projection and display transform.
+		</member>
+		<member name="y_texture" type="Texture2D" setter="" getter="get_y_texture">
+			Advanced rendering: luma texture, or null when unavailable or using RGB. See the class texture-lifetime contract.
+		</member>
+	</members>
+</class>

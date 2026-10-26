@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="ScriptedARInterface" inherits="SimulatedARInterface" api_type="extension" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Advanced deterministic AR fixture replay for desktop tests.
+	</brief_description>
+	<description>
+		Load a version-1 PocketAR JSON-lines fixture, call advance_to(0), then assign this interface to a Scripted ARView before adding it to the tree. Time moves only through advance_to(); camera pixels are generated bars. Fixture schema lives in AGENTS.md. Replay/diagnostic methods are outside the stable game API.
+	</description>
+	<methods>
+		<method name="advance_to">
+			<return type="void" />
+			<param index="0" name="t_usec" type="int" />
+			<description>
+				Advances to nonnegative fixture time in microseconds, applying reached records in file order and publishing the newest reached frame. Time cannot move backwards; call with zero before initialization.
+			</description>
+		</method>
+		<method name="application_pause">
+			<return type="void" />
+			<description>
+				Internal lifecycle protocol used by ARView/platform callbacks and test drivers. Prefer normal application lifecycle for a running view.
+			</description>
+		</method>
+		<method name="application_resume">
+			<return type="void" />
+			<description>
+				Internal lifecycle protocol used by ARView/platform callbacks and test drivers. Prefer normal application lifecycle for a running view.
+			</description>
+		</method>
+		<method name="get_pending_inputs">
+			<return type="Dictionary[]" />
+			<description>
+				Drains reached input dictionaries: kind, finger, uv (Vector2), target_frame and session_generation. Returns [code][][/code] when none remain. The driver waits for target_frame to be presented and injects input; the library does not.
+			</description>
+		</method>
+		<method name="get_plane_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of current tracking, unsubsumed replay planes.
+			</description>
+		</method>
+		<method name="get_semantics" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the fixture semantics string, arkit or arcore.
+			</description>
+		</method>
+		<method name="get_session_state" qualifiers="const">
+			<return type="int" enum="PocketAR.SessionState" />
+			<description>
+				Returns the current [enum PocketAR.SessionState]. ARView.session_state is the game facade; notifications are deferred.
+			</description>
+		</method>
+		<method name="get_tracking_reason" qualifiers="const">
+			<return type="int" enum="PocketAR.TrackingReason" />
+			<description>
+				Returns the current [enum PocketAR.TrackingReason]. NONE alone does not guarantee tracking.
+			</description>
+		</method>
+		<method name="load_fixture">
+			<return type="int" enum="Error" />
+			<param index="0" name="path" type="String" />
+			<description>
+				Loads and validates the whole UTF-8 JSON-lines fixture. Returns OK on success or a file/parse Error. Malformed records report a line number and preserve the existing fixture. Reload to rewind.
+			</description>
+		</method>
+		<method name="reset">
+			<return type="void" />
+			<description>
+				Changes generation, clears packets/trackers and keeps the fixture cursor. Planes remain absent until a later frame supplies them again. Does not rewind.
+			</description>
+		</method>
+	</methods>
+</class>

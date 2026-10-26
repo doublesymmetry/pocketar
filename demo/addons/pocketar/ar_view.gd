@@ -1,25 +1,69 @@
 class_name ARView
 extends Control
+## Handheld AR camera, virtual scene and HUD in one Control.
+##
+## Instantiate res://addons/pocketar/ar_view.tscn; ARView.new() lacks its children.
+## One active view owns the primary XR interface and a private [World3D].
+## World units are metres, with camera +X right, +Y up and -Z forward.
+## Keep XROrigin3D at identity and XR world scale at one. Requires Mobile rendering,
+## Safe render threading and an SDR outer viewport. Set [member backend] and
+## [member composition] before adding the view to the tree.
 
+## An unconsumed touch or left mouse press, in view-local pixels, when [member handle_presses] is true.
+## The ray uses the presented packet and can be empty while tracking is unavailable.
 signal screen_pressed(screen_point: Vector2, ray: Dictionary)
+## A new packet was applied before drawing, including the initial application during startup.
+## Repeated packets do not emit. This is not a presentation notification; use placement methods for input.
 signal packet_applied(packet: ARFramePacket)
+## The backend state changed. Forwarded after the native operation finishes; handlers may call [method reset].
 signal session_state_changed(state: PocketAR.SessionState)
+## The tracking reason changed. Deferred like [signal session_state_changed].
 signal tracking_reason_changed(reason: PocketAR.TrackingReason)
+## The session identity changed. Discard old plane identities and clear or rebuild placements.
 signal session_generation_changed(generation: int)
+## The current plane snapshot/tracker set changed. Placement still uses the last presented packet.
 signal planes_changed()
 
-enum Composition { IN_SCENE, ISOLATED_CAMERA }
+## How camera pixels and virtual objects are combined.
+enum Composition {
+	## Camera and objects share scene colour, grading and screen reads. Enable material debanding.
+	IN_SCENE,
+	## SDR camera below an HDR virtual scene. Camera pixels bypass the game's Environment effects.
+	ISOLATED_CAMERA,
+}
 
+## Which AR session drives the view. Startup-only: set before adding the view to the tree.
+enum Backend {
+	## Simulated desktop camera without real planes.
+	SYNTHETIC,
+	## ARCore on Android.
+	ARCORE,
+	## ARKit on iOS.
+	ARKIT,
+	## Recorded replay; requires a loaded [ScriptedARInterface] assigned to [member interface] before startup.
+	SCRIPTED,
+}
+
+## Startup-only composition. Changes after _ready report an error and retain the selected mode.
 @export var composition: Composition = Composition.IN_SCENE:
 	set(value):
 		if _composition_locked and value != composition:
 			push_error("ARView.composition cannot change after _ready")
 			return
 		composition = value
+## Display rotation for simulated backends: clockwise quarter turns, or -1 for aspect-based automatic rotation.
+## Native backends use the device's physical orientation.
 @export_range(-1, 3) var orientation_quarter_turns: int = -1
-@export_enum("Synthetic", "ARCore", "ARKit", "Scripted") var backend: int = 0
+## Startup-only session backend; see [enum Backend].
+@export var backend: Backend = Backend.SYNTHETIC
+## Handle unconsumed presses inside the view and emit [signal screen_pressed]. HUD Controls receive input first.
+## Touch-emulated mouse events are ignored. False by default.
 @export var handle_presses: bool = false
+## Game environment. Live settings are copied before drawing; background mode and colour are ignored.
+## The supplied resource is not modified. Camera pixels are affected only in IN_SCENE mode.
 @export var environment: Environment
+## Plane discovery mode, changeable while running and retained across reset.
+## Disabling discovery preserves existing planes; their refinement differs by backend. This does not create anchors.
 @export var plane_finding_mode: PocketAR.PlaneFindingMode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL:
 	set(value):
 		if value not in [PocketAR.PLANE_FINDING_DISABLED, PocketAR.PLANE_FINDING_HORIZONTAL, PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL]:
@@ -31,18 +75,31 @@ enum Composition { IN_SCENE, ISOLATED_CAMERA }
 	get:
 		return int(interface.call("get_plane_finding_mode")) if interface != null else _plane_finding_mode
 
+## Internal rendering viewport. Use [member world_3d] and [member scene_root] for game content.
 @onready var virtual_scene: SubViewport = $VirtualScene
+## XR camera. Set near/far clipping distances in metres after ready; its pose and projection belong to the backend.
 @onready var camera: XRCamera3D = $VirtualScene/XROrigin3D/XRCamera3D
+## Parent for virtual 3D content; available after ready. Keep this node's transform at identity.
 @onready var scene_root: Node3D = $VirtualScene/XROrigin3D/SceneRoot
+## Parent for ordinary HUD Controls above the AR scene; available after ready.
 @onready var hud: Control = $HUD/UI
+## Internal environment copy. Set [member environment] instead.
 @onready var world_environment: WorldEnvironment = $VirtualScene/WorldEnvironment
+## Internal camera canvas; do not replace its material.
 @onready var background: ColorRect = $CameraBackground
+## Internal viewport composite; do not replace its material.
 @onready var composite: TextureRect = $SceneComposite
 
+## Advanced backend access for platform controls and replay. Do not replace a running interface.
+## ARView owns initialization, display geometry, packet application and presentation.
 var interface: XRInterfaceExtension
+## Internal last material packet; use [signal packet_applied] or placement methods.
 var applied_packet: ARFramePacket
+## Internal presentation state.
 var waiting_for_packet: bool = true
+## Internal camera material.
 var camera_material: ShaderMaterial
+## Internal in-scene camera mesh.
 var camera_quad: MeshInstance3D
 var _composition_locked: bool = false
 var _environment_properties: Array[StringName] = []
@@ -53,18 +110,22 @@ var _geometry_clip_range := Vector2.ZERO
 var _camera_projection := Projection()
 var _camera_clip_range := Vector2.ZERO
 var _plane_finding_mode: PocketAR.PlaneFindingMode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
+## Current backend state, or PAUSED before a backend exists. Read immediately; notifications are deferred.
 var session_state: PocketAR.SessionState:
 	get:
 		return int(interface.call("get_session_state")) if interface != null else PocketAR.PAUSED
+## Current backend tracking reason, or NONE before a backend exists. NONE alone does not imply tracking.
 var tracking_reason: PocketAR.TrackingReason:
 	get:
 		return int(interface.call("get_tracking_reason")) if interface != null else PocketAR.NONE
+## Process-wide unique session identity, or zero before a backend exists. Reset invalidates old identities.
 var session_generation: int:
 	get:
 		return int(interface.call("get_session_generation")) if interface != null else 0
 var _session_state: PocketAR.SessionState = PocketAR.PAUSED
 var _tracking_reason: PocketAR.TrackingReason = PocketAR.NONE
 var _session_generation: int = 0
+## Active private AR world for physics queries or a camera sharing the scene. Available after ready.
 var world_3d: World3D:
 	get:
 		return virtual_scene.find_world_3d()
@@ -98,13 +159,13 @@ func _ready() -> void:
 	background.hide()
 	composite.hide()
 	if interface == null:
-		if backend in [1, 2]:
-			var native_class: String = "ARCoreInterface" if backend == 1 else "ARKitInterface"
+		if backend in [Backend.ARCORE, Backend.ARKIT]:
+			var native_class: String = "ARCoreInterface" if backend == Backend.ARCORE else "ARKitInterface"
 			if not ClassDB.class_exists(native_class):
 				push_error("%s is unavailable on this platform" % native_class)
 				return
 			interface = ClassDB.instantiate(native_class) as XRInterfaceExtension
-		elif backend == 3:
+		elif backend == Backend.SCRIPTED:
 			push_error("The Scripted backend requires a supplied interface")
 			return
 		else:
@@ -143,6 +204,8 @@ func _process(_delta: float) -> void:
 	_update_geometry()
 
 
+## Reset an initialized session, clear presentation and planes, and change the generation.
+## Does nothing before initialization. Game-owned content must be cleared or rebuilt by the game.
 func reset() -> void:
 	if interface != null and interface.is_initialized():
 		interface.call("reset")
@@ -274,6 +337,8 @@ func _mark_presented() -> void:
 	interface.call("mark_presented")
 
 
+## Convert view-local pixels using the presented packet. Returns origin (world near-plane point in metres),
+## direction (unit world vector), frame_id and session_generation, or {} without valid presented tracking.
 func screen_to_ray(screen_point: Vector2) -> Dictionary:
 	var packet: ARFramePacket = _presented_packet()
 	if packet == null:
@@ -281,6 +346,9 @@ func screen_to_ray(screen_point: Vector2) -> Dictionary:
 	return PocketAR.screen_to_ray(packet, size, screen_point)
 
 
+## Intersect presented, tracking, unsubsumed plane polygons from view-local pixels, nearest first.
+## Only front faces (+Y normal) hit. [param alignments] is a PocketAR.AlignmentMask bitmask,
+## not an ARPlaneTracker.Alignment ordinal. Returns [code][][/code] without valid presentation or a matching hit.
 func raycast(screen_point: Vector2, alignments: int = PocketAR.ALIGNMENT_MASK_ALL) -> Array[ARRaycastHit]:
 	var packet: ARFramePacket = _presented_packet()
 	if packet == null:
@@ -302,6 +370,9 @@ func _presented_packet() -> ARFramePacket:
 	return packet
 
 
+## Project a world point in metres to view-local pixels using the presented packet.
+## Returns Vector2.INF without valid presented tracking, for non-finite input or behind-camera points.
+## Off-screen points can return coordinates outside the view; this does not test visibility or occlusion.
 func world_to_screen(world_point: Vector3) -> Vector2:
 	var packet: ARFramePacket = _presented_packet()
 	if packet == null or not world_point.is_finite():
@@ -313,6 +384,7 @@ func world_to_screen(world_point: Vector3) -> Vector2:
 	return Vector2(clip.x / clip.w + 1.0, 1.0 - clip.y / clip.w) * size * 0.5
 
 
+## Convert viewport/canvas input coordinates, such as InputEventScreenTouch.position, to view-local pixels.
 func view_point(event_position: Vector2) -> Vector2:
 	return get_global_transform_with_canvas().affine_inverse() * event_position
 

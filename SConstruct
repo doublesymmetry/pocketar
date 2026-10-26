@@ -15,6 +15,8 @@ if ARGUMENTS["platform"] == "ios":
 env = SConscript("godot-cpp/SConstruct", {"api_version": "4.7"})
 env.Append(CPPPATH=["src"])
 sources = Glob("src/*.cpp") + Glob("src/core/*.cpp")
+if env["target"] in ("editor", "template_debug"):
+    sources += env.GodotCPPDocData("build/doc_data.gen.cpp", source=Glob("doc_classes/*.xml"))
 platform = env["platform"]
 if platform == "android":
     env.Append(LINKFLAGS=["-static-libstdc++", "-Wl,-z,max-page-size=16384"],

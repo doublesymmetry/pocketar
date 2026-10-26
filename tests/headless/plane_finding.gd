@@ -19,7 +19,7 @@ func _run() -> void:
 	var interface := ScriptedARInterface.new()
 	var fixture: String = get_script().resource_path.get_base_dir().path_join("plane_finding.jsonl")
 	_check(interface.load_fixture(fixture) == OK, "plane fixture loads")
-	view.backend = 3
+	view.backend = ARView.Backend.SCRIPTED
 	view.interface = interface
 	root.add_child(view)
 	var first: ARFramePacket = interface.get_current_packet()
@@ -70,7 +70,7 @@ func _run() -> void:
 	view = scene.instantiate() as ARView
 	interface = ScriptedARInterface.new()
 	_check(interface.load_fixture(fixture) == OK, "fixture reloads")
-	view.backend = 3
+	view.backend = ARView.Backend.SCRIPTED
 	view.interface = interface
 	view.plane_finding_mode = PocketAR.PLANE_FINDING_DISABLED
 	root.add_child(view)

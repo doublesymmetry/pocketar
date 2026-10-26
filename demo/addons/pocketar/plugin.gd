@@ -1,5 +1,6 @@
 @tool
 extends EditorPlugin
+## Internal registration of PocketAR's export plugin. Enable PocketAR in Project Settings > Plugins.
 
 const ExportPlugin := preload("res://addons/pocketar/export_plugin.gd")
 var exporter: EditorExportPlugin

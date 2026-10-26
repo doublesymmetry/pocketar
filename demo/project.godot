@@ -33,4 +33,4 @@ textures/default_filters/use_nearest_mipmap_filter=false
 textures/vram_compression/import_etc2_astc=true
 viewport/hdr_2d=false
 driver/threads/thread_model=1
-anti_aliasing/quality/use_debanding=false
+anti_aliasing/quality/use_debanding=true

@@ -491,7 +491,7 @@ fallback; ordinary CPU runs report `gpu-vs-cpu INFO`.
 
 ## ARKit backend and iPhone diagnostics
 
-`ARKitInterface` (`PocketARKit`) is the iOS Metal backend. `ARView.backend = 2`
+`ARKitInterface` (`PocketARKit`) is the iOS Metal backend. `ARView.backend = ARView.Backend.ARKIT`
 selects it; the AR demo selects it on iOS. One primary monoscopic camera publishes
 `head` / `default`. All ARKit/UIKit access, imports and texture changes happen on
 the main thread in Safe rendering mode. Other rendering drivers are unsupported.
@@ -626,6 +626,31 @@ the certified preset.
 
 Initializing and Relocalizing report `XR_UNKNOWN_TRACKING`; excessive motion
 reports `XR_EXCESSIVE_MOTION`.
+
+## Class reference and diagnostics
+
+The game API contract is in `docs/api.md`; onboarding and public-engine setup
+are in `README.md`. Native class help lives in `doc_classes/*.xml` and is embedded
+by `GodotCPPDocData` only for editor/template_debug targets. Generated C++ stays
+under `build/`. ARView and the addon scripts use `##` comments for editor help.
+Generate native signatures with `godot --headless --path demo --doctool <scratch-dir>
+--gdextension-docs`; this lists only classes registered on the running platform.
+Keep mobile-only XML when refreshing docs on macOS.
+
+ARCore and ARKit default to `set_diagnostics_enabled(false)`. Enable it on the
+interface for projection, pose and UV oracles, CPU image layout/luma sampling and
+plane/point-cloud reprojection checks. Native device harnesses enable it;
+ordinary demo runs leave it off. Disabling collection preserves previous samples;
+format/lifetime/error guards and path counters remain active. ARCore GPU readback
+requires the separate `set_gpu_validation_enabled(true)` opt-in.
+Timing percentiles cover the latest 512 observations per series, about 17 seconds
+at 30 samples per second. Statistics sampling times are collected only with
+diagnostics enabled.
+
+The demo enables material debanding. The desktop harness allows eight byte levels
+for dithered in-scene camera landmarks and MSAA edges, retaining the stricter
+undithered/isolated bounds. `camera-precision` measures pointwise and column-mean
+error with material and viewport dithering independently.
 
 ## Camera upload settings
 

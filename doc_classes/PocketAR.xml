@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="PocketAR" inherits="Object" api_type="extension" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Shared AR session enums and explicit-packet geometry helpers.
+	</brief_description>
+	<description>
+		Use the PocketAR singleton. Games normally use ARView for session controls and presented-frame placement. The geometry helpers are advanced: the caller chooses the packet and is responsible for generation and presentation checks. Camera axes are +X right, +Y up, -Z forward; world units are metres.
+	</description>
+	<methods>
+		<method name="get_backend" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the primary XR backend name: none, synthetic, scripted, arcore, arkit, or unknown for another provider. ARView.backend instead uses the ARView.Backend enum.
+			</description>
+		</method>
+		<method name="get_version" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the PocketAR library version string.
+			</description>
+		</method>
+		<method name="raycast_planes" qualifiers="const">
+			<return type="ARRaycastHit[]" />
+			<param index="0" name="packet" type="ARFramePacket" />
+			<param index="1" name="ray" type="Dictionary" />
+			<description>
+				Advanced explicit-packet intersection using ray.origin and ray.direction in world space. Returns copied hits nearest first, or [code][][/code] for no hit, an invalid ray or a null/untracked packet. Intersects tracking, unsubsumed polygon front faces. Does not validate ray IDs against the packet or the current session.
+			</description>
+		</method>
+		<method name="screen_to_ray" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="packet" type="ARFramePacket" />
+			<param index="1" name="viewport_size" type="Vector2" />
+			<param index="2" name="screen_point" type="Vector2" />
+			<description>
+				Advanced explicit-packet ray from top-left-origin viewport pixels. Returns origin (world near-plane point in metres), direction (unit world vector), frame_id and session_generation. Returns {} for a null/untracked packet or nonpositive viewport size. Does not check whether the packet is presented or belongs to the current generation.
+			</description>
+		</method>
+	</methods>
+	<constants>
+		<constant name="UNSUPPORTED" value="0" enum="SessionState">
+			The device or required renderer/AR configuration is unsupported.
+		</constant>
+		<constant name="CHECKING" value="1" enum="SessionState">
+			Checking AR service availability.
+		</constant>
+		<constant name="NEEDS_INSTALL" value="2" enum="SessionState">
+			AR service installation or an update is required.
+		</constant>
+		<constant name="INSTALLING" value="3" enum="SessionState">
+			AR service installation is in progress.
+		</constant>
+		<constant name="PERMISSION_DENIED" value="4" enum="SessionState">
+			Camera permission is denied. The game must handle permission recovery.
+		</constant>
+		<constant name="READY" value="5" enum="SessionState">
+			AR prerequisites are ready; this does not guarantee a camera pose.
+		</constant>
+		<constant name="INITIALIZING" value="6" enum="SessionState">
+			The session is starting or has limited/unavailable tracking.
+		</constant>
+		<constant name="TRACKING" value="7" enum="SessionState">
+			The session is tracking. Inspect individual plane states before using their geometry.
+		</constant>
+		<constant name="PAUSED" value="8" enum="SessionState">
+			The session is suspended, interrupted or stopped.
+		</constant>
+		<constant name="FAILED" value="9" enum="SessionState">
+			The session failed. Advanced native diagnostics can report the platform error.
+		</constant>
+		<constant name="NONE" value="0" enum="TrackingReason">
+			No failure reason, including during some initialization states. Does not itself imply tracking.
+		</constant>
+		<constant name="BAD_STATE" value="1" enum="TrackingReason">
+			Native bad state, world-tracking failure or an unclassified native tracking reason.
+		</constant>
+		<constant name="INSUFFICIENT_LIGHT" value="2" enum="TrackingReason">
+			ARCore reports insufficient light. ARKit does not emit this reason.
+		</constant>
+		<constant name="EXCESSIVE_MOTION" value="3" enum="TrackingReason">
+			Device motion prevents reliable tracking.
+		</constant>
+		<constant name="INSUFFICIENT_FEATURES" value="4" enum="TrackingReason">
+			Too few visible features for reliable tracking.
+		</constant>
+		<constant name="CAMERA_UNAVAILABLE" value="5" enum="TrackingReason">
+			The camera cannot be used, including ARKit interruption.
+		</constant>
+		<constant name="PLANE_FINDING_DISABLED" value="0" enum="PlaneFindingMode">
+			Disable discovery while retaining existing planes. Refinement behavior is backend-specific; this does not create anchors.
+		</constant>
+		<constant name="PLANE_FINDING_HORIZONTAL" value="1" enum="PlaneFindingMode">
+			Discover horizontal planes, both upward and downward facing.
+		</constant>
+		<constant name="PLANE_FINDING_HORIZONTAL_AND_VERTICAL" value="3" enum="PlaneFindingMode">
+			Discover horizontal and vertical planes. Default mode.
+		</constant>
+		<constant name="ALIGNMENT_MASK_HORIZONTAL_UPWARD" value="1" enum="AlignmentMask">
+			Raycast mask bit for upward-facing horizontal planes.
+		</constant>
+		<constant name="ALIGNMENT_MASK_HORIZONTAL_DOWNWARD" value="2" enum="AlignmentMask">
+			Raycast mask bit for downward-facing horizontal planes.
+		</constant>
+		<constant name="ALIGNMENT_MASK_VERTICAL" value="4" enum="AlignmentMask">
+			Raycast mask bit for vertical planes.
+		</constant>
+		<constant name="ALIGNMENT_MASK_ALL" value="7" enum="AlignmentMask">
+			Raycast mask including all alignments.
+		</constant>
+	</constants>
+</class>

@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="ARCoreInterface" inherits="XRInterfaceExtension" api_type="extension" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Advanced Android ARCore backend owned by ARView.
+	</brief_description>
+	<description>
+		Available only on Android arm64/API 29+ with Mobile/Vulkan and an ARCore-supported device. Access through ARView.interface; shared scripts should use ClassDB or dynamic calls because this class is absent on desktop/iOS. All session calls belong on the main thread in Safe rendering mode. ARView owns initialization, lifecycle and presentation.
+		Camera-config/path setters are advanced user controls; changing them can reset the session and invalidate old identities. Diagnostics, native queries, datasets and harness controls are outside the stable game API. Stock Godot 4.7.2 uses CPU uploads; engines providing ExternalTexture.submit_hardware_buffer are detected automatically. Do not open CameraServer feeds during an AR session.
+	</description>
+	<methods>
+		<method name="application_pause">
+			<return type="void" />
+			<description>
+				Internal lifecycle protocol used by ARView/platform callbacks and test drivers. Prefer normal application lifecycle for a running view.
+			</description>
+		</method>
+		<method name="application_resume">
+			<return type="void" />
+			<description>
+				Internal lifecycle protocol used by ARView/platform callbacks and test drivers. Prefer normal application lifecycle for a running view.
+			</description>
+		</method>
+		<method name="clear_debug_plane">
+			<return type="void" />
+			<description>
+				Internal debug/editor-only harness control. Requests removal of the injected plane.
+			</description>
+		</method>
+		<method name="get_current_packet" qualifiers="const">
+			<return type="ARFramePacket" />
+			<description>
+				Internal ARView protocol. Returns the latest acquired packet, or null before acquisition/after clearing. This is not necessarily the presented frame.
+			</description>
+		</method>
+		<method name="get_dataset_diagnostics" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Advanced platform-specific recording/playback status and counters, including completion/errors. No stable dictionary schema is promised.
+			</description>
+		</method>
+		<method name="get_diagnostics" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Advanced diagnostics dictionary with counters, configuration and collected samples. Keys are platform-specific and outside the stable game API.
+			</description>
+		</method>
+		<method name="get_plane_finding_mode" qualifiers="const">
+			<return type="int" enum="PocketAR.PlaneFindingMode" />
+			<description>
+				Returns the selected [enum PocketAR.PlaneFindingMode].
+			</description>
+		</method>
+		<method name="get_playback_inputs">
+			<return type="Array" />
+			<description>
+				Drains recorded custom-input dictionaries for application replay; [code][][/code] when none remain. Each recorded frame is delivered once even when ARCore repeats its track data.
+			</description>
+		</method>
+		<method name="get_presented_packet" qualifiers="const">
+			<return type="ARFramePacket" />
+			<description>
+				Internal ARView protocol. Returns the last packet marked after draw, or null before presentation/after clearing. A retained native texture is not an image archive.
+			</description>
+		</method>
+		<method name="get_session_generation" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the current process-wide unique session identity. Old plane and query identities cannot be reused after reset.
+			</description>
+		</method>
+		<method name="get_session_state" qualifiers="const">
+			<return type="int" enum="PocketAR.SessionState" />
+			<description>
+				Returns the current [enum PocketAR.SessionState]. ARView.session_state is the game facade; notifications are deferred.
+			</description>
+		</method>
+		<method name="get_tracking_reason" qualifiers="const">
+			<return type="int" enum="PocketAR.TrackingReason" />
+			<description>
+				Returns the current [enum PocketAR.TrackingReason]. NONE alone does not guarantee tracking.
+			</description>
+		</method>
+		<method name="live_hit_test">
+			<return type="Array" />
+			<param index="0" name="view_pixels" type="Vector2" />
+			<description>
+				Advanced current-native-frame query in view-local pixels. Returns [code][][/code] when unavailable or without a hit. Query IDs expire at the next native update. Results are platform-specific dictionaries, not copied [ARRaycastHit] placement results; prefer ARView.raycast for input.
+			</description>
+		</method>
+		<method name="live_hit_test_ray">
+			<return type="Array" />
+			<param index="0" name="origin" type="Vector3" />
+			<param index="1" name="direction" type="Vector3" />
+			<description>
+				Advanced current-native-frame query from a finite world origin in metres and a nonzero world direction. Returns [code][][/code] when unavailable or without hits. Query IDs expire on the next native update; results are platform-specific dictionaries.
+			</description>
+		</method>
+		<method name="mark_applied">
+			<return type="void" />
+			<param index="0" name="packet" type="ARFramePacket" />
+			<description>
+				Internal ARView protocol. Protects the packet still used by the camera material, or clears that protection with null. Do not call on a view-owned interface.
+			</description>
+		</method>
+		<method name="mark_presented">
+			<return type="void" />
+			<description>
+				Internal ARView protocol, called after draw to advance presentation. Do not call on a view-owned interface.
+			</description>
+		</method>
+		<method name="record_input">
+			<return type="Dictionary" />
+			<param index="0" name="payload" type="PackedByteArray" />
+			<description>
+				Records opaque application-owned input bytes on the fixed version-1 track. Maximum 65536 bytes, 128 queued inputs, at most eight new-frame retries for ILLEGAL_STATE. Returns a platform status dictionary.
+			</description>
+		</method>
+		<method name="reset">
+			<return type="void" />
+			<description>
+				Clears presentation and planes and changes session generation. Retains the selected plane-finding mode. Prefer ARView.reset for a running view.
+			</description>
+		</method>
+		<method name="set_camera_config_index">
+			<return type="void" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Advanced camera selection. Use a configuration index listed in get_diagnostics(), or -1 for automatic selection. Changing it resets an active session and changes generation.
+			</description>
+		</method>
+		<method name="set_camera_path">
+			<return type="void" />
+			<param index="0" name="path" type="String" />
+			<description>
+				Advanced path selection: auto (default) tries supported hardware-buffer submission and otherwise uses CPU; cpu forces CPU uploads. Changing the value resets an active session. GPU presentation starts only after the first successful completion.
+			</description>
+		</method>
+		<method name="set_debug_plane">
+			<return type="int" />
+			<param index="0" name="transform" type="Transform3D" />
+			<param index="1" name="extents" type="Vector2" />
+			<description>
+				Internal debug/editor-only harness control. Injects a plane at a world transform with full X/Z extents in metres and returns its ID. Not native plane discovery.
+			</description>
+		</method>
+		<method name="set_diagnostics_enabled">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				Advanced diagnostics, false by default. Enables projection/pose/UV checks and image/plane samples. Disabling preserves accumulated samples; error guards and path counters remain active. Timing percentiles cover the latest 512 observations per series. GPU readback has a separate opt-in.
+			</description>
+		</method>
+		<method name="set_display_geometry">
+			<return type="void" />
+			<param index="0" name="size" type="Vector2i" />
+			<param index="1" name="turns" type="int" />
+			<param index="2" name="near" type="float" />
+			<param index="3" name="far" type="float" />
+			<description>
+				Internal ARView protocol. Sets viewport pixels, quarter-turn orientation and near/far distances in metres. Native orientation is read from the device. Do not call on a view-owned interface.
+			</description>
+		</method>
+		<method name="set_gpu_validation_enabled">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				Internal validation opt-in for CPU comparison/readback of the GPU camera path. Default false; readback adds stalls and is unsuitable for throughput measurements.
+			</description>
+		</method>
+		<method name="set_plane_finding_mode">
+			<return type="void" />
+			<param index="0" name="mode" type="int" enum="PocketAR.PlaneFindingMode" />
+			<description>
+				Selects [enum PocketAR.PlaneFindingMode] before or during the session, retained across pause/reset. Disabling retains existing planes; native refinement behavior differs by platform. Prefer ARView.plane_finding_mode.
+			</description>
+		</method>
+		<method name="set_point_cloud_enabled">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				Advanced diagnostic acquisition, false by default. Copies and releases native point-cloud data in the same tick. There is no public point-cloud getter; reprojection sampling also requires diagnostics enabled.
+			</description>
+		</method>
+		<method name="start_playback">
+			<return type="void" />
+			<param index="0" name="file_uri" type="String" />
+			<description>
+				Starts Android dataset playback from a private file:// URI in a fresh session generation. Returns void; inspect session state and get_dataset_diagnostics() for errors/end. Restarting the same URI starts another fresh session.
+			</description>
+		</method>
+		<method name="start_recording">
+			<return type="Dictionary" />
+			<param index="0" name="file_uri" type="String" />
+			<description>
+				Advanced Android dataset recording to a percent-encoded file:// URI in private external storage, obtained through PocketARPlugin.getExternalFilesDir(). Returns a platform status dictionary. Recording stops on pause; datasets contain room video and device information.
+			</description>
+		</method>
+		<method name="stop_recording">
+			<return type="Dictionary" />
+			<description>
+				Stops Android dataset recording and returns a platform status dictionary.
+			</description>
+		</method>
+	</methods>
+	<signals>
+		<signal name="planes_changed">
+			<description>
+				Deferred notification that the current plane snapshot/tracker set changed. This is not a presentation notification.
+			</description>
+		</signal>
+		<signal name="session_generation_changed">
+			<param index="0" name="generation" type="int" />
+			<description>
+				Deferred notification that the session identity changed. Discard old plane/query identities and clear or rebuild placements.
+			</description>
+		</signal>
+		<signal name="session_state_changed">
+			<param index="0" name="state" type="int" />
+			<description>
+				Current [enum PocketAR.SessionState] notification, deferred until the native operation finishes. Emitted on changes and initial startup where applicable; handlers may reset safely.
+			</description>
+		</signal>
+		<signal name="tracking_reason_changed">
+			<param index="0" name="reason" type="int" />
+			<description>
+				Emitted when the current [enum PocketAR.TrackingReason] changes, deferred until the native operation finishes.
+			</description>
+		</signal>
+	</signals>
+</class>

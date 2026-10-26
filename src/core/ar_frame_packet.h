@@ -16,7 +16,7 @@ class ScriptedARInterface;
 class ARCoreInterface;
 class ARKitInterface;
 
-// Copied values outlive presentation; native camera textures are valid only while current or presented.
+// Values are copied; native texture Refs do not archive images, and the GPU texture can change before presentation.
 class ARFramePacket : public RefCounted {
 	GDCLASS(ARFramePacket, RefCounted)
 	friend class SimulatedARInterface;
