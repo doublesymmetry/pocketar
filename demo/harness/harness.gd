@@ -167,7 +167,9 @@ func _save(image: Image, name: String) -> void:
 
 func _loaded() -> bool:
 	detail = "%s backend=%s renderer=%s driver=%s" % [PocketAR.get_version(), PocketAR.get_backend(), RenderingServer.get_current_rendering_method(), RenderingServer.get_current_rendering_driver_name()]
-	return PocketAR.get_version() == "0.0.1-dev" and PocketAR.get_backend() == "synthetic" and RenderingServer.get_current_rendering_method() == "mobile"
+	var plugin := ConfigFile.new()
+	plugin.load("res://addons/pocketar/plugin.cfg")
+	return PocketAR.get_version() == plugin.get_value("plugin", "version") and PocketAR.get_backend() == "synthetic" and RenderingServer.get_current_rendering_method() == "mobile"
 
 
 func _make_button() -> void:

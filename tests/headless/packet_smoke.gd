@@ -16,7 +16,9 @@ func _check(condition: bool, message: String) -> void:
 
 
 func _run() -> void:
-	_check(PocketAR.get_version() == "0.0.1-dev", "version")
+	var plugin := ConfigFile.new()
+	plugin.load("res://addons/pocketar/plugin.cfg")
+	_check(PocketAR.get_version() == plugin.get_value("plugin", "version"), "version")
 	_check(PocketAR.get_backend() == "none", "no backend before initialization")
 	interface = SyntheticARInterface.new()
 	interface.set_intrinsics(520, 510, 301, 227, Vector2i(640, 480))
