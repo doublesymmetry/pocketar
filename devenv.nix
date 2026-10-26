@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, config, ... }:
 let
   # Godot master plus PocketAR's engine patches (doublesymmetry/godot, PATCHES.md).
   godot = pkgs.callPackage ./nix/godot-pocketar.nix { };
@@ -18,6 +18,9 @@ in
     pkgs.ripgrep
     pkgs.actionlint
   ];
+
+  # Gradle rejects two SDK locations, and some hosts export their own ANDROID_SDK_ROOT.
+  env.ANDROID_SDK_ROOT = config.env.ANDROID_HOME;
 
   # Godot 4.7 builds Android with JDK 17; the android module enables Java with a newer default.
   languages.java.jdk.package = pkgs.jdk17;
