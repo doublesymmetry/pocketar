@@ -20,7 +20,7 @@ public:
 	enum PlaneFindingMode { PLANE_FINDING_DISABLED = 0, PLANE_FINDING_HORIZONTAL = 1, PLANE_FINDING_HORIZONTAL_AND_VERTICAL = 3 };
 	enum CameraQuality { HIGHEST = pocketar::HIGHEST, BALANCED = pocketar::BALANCED, LOWEST = pocketar::LOWEST };
 	enum AlignmentMask { ALIGNMENT_MASK_HORIZONTAL_UPWARD = 1, ALIGNMENT_MASK_HORIZONTAL_DOWNWARD = 2, ALIGNMENT_MASK_VERTICAL = 4, ALIGNMENT_MASK_ALL = 7 };
-	String get_version() const { return "0.0.1-dev"; }
+	String get_version() const { return "0.0.1"; }
 	String get_backend() const;
 	Dictionary screen_to_ray(const Ref<ARFramePacket> &p_packet, const Vector2 &p_viewport_size, const Vector2 &p_screen_point) const;
 	TypedArray<ARRaycastHit> raycast_planes(const Ref<ARFramePacket> &p_packet, const Dictionary &p_ray) const;

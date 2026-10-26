@@ -692,7 +692,7 @@ func _resize() -> bool:
 	var initial_size: Vector2i = DisplayServer.window_get_size()
 	for cycle: int in range(2):
 		for portrait: bool in [true, false]:
-			var requested := Vector2i(720, 960) if portrait else Vector2i(960, 720)
+			var requested := Vector2i(480, 640) if portrait else Vector2i(640, 480)
 			if mobile:
 				DisplayServer.screen_set_orientation(DisplayServer.SCREEN_PORTRAIT if portrait else DisplayServer.SCREEN_LANDSCAPE)
 			else:
