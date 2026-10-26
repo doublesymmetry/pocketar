@@ -45,6 +45,13 @@ var waiting_for_packet: bool = true
 var camera_material: ShaderMaterial
 var camera_quad: MeshInstance3D
 var _composition_locked: bool = false
+var _environment_properties: Array[StringName] = []
+var _geometry_interface_id: int = 0
+var _geometry_size := Vector2i.ZERO
+var _geometry_turns: int = -1
+var _geometry_clip_range := Vector2.ZERO
+var _camera_projection := Projection()
+var _camera_clip_range := Vector2.ZERO
 var _plane_finding_mode: PocketAR.PlaneFindingMode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 var session_state: PocketAR.SessionState:
 	get:
@@ -82,6 +89,10 @@ func _ready() -> void:
 		camera_quad.hide()
 		camera.add_child(camera_quad)
 	world_environment.environment = Environment.new()
+	for property: Dictionary in world_environment.environment.get_property_list():
+		var name: StringName = property.name
+		if int(property.usage) & PROPERTY_USAGE_STORAGE and name not in [&"background_mode", &"background_color"]:
+			_environment_properties.append(name)
 	_sync_environment()
 	composite.texture = virtual_scene.get_texture()
 	background.hide()
@@ -172,7 +183,14 @@ func _update_geometry() -> void:
 	var turns: int = orientation_quarter_turns
 	if turns < 0:
 		turns = 1 if view_size.y > view_size.x else 0
+	var clip_range := Vector2(camera.near, camera.far)
+	if _geometry_interface_id == interface.get_instance_id() and _geometry_size == view_size and _geometry_turns == turns and _geometry_clip_range == clip_range:
+		return
 	interface.call("set_display_geometry", view_size, turns, camera.near, camera.far)
+	_geometry_interface_id = interface.get_instance_id()
+	_geometry_size = view_size
+	_geometry_turns = turns
+	_geometry_clip_range = clip_range
 
 
 func _apply_packet() -> void:
@@ -197,8 +215,10 @@ func _apply_packet() -> void:
 	if packet == applied_packet:
 		_check_camera_material(shader)
 		return
-	virtual_scene.size = Vector2i(packet.viewport_size)
-	if camera_quad != null:
+	if virtual_scene.size != Vector2i(packet.viewport_size):
+		virtual_scene.size = Vector2i(packet.viewport_size)
+	var clip_range := Vector2(camera.near, camera.far)
+	if camera_quad != null and (_camera_projection != packet.projection or _camera_clip_range != clip_range):
 		# POSITION bypasses projection, but frustum culling still tests the mesh's AABB.
 		var centre: Vector4 = packet.projection.inverse() * Vector4(0, 0, -0.99, 1)
 		var point := Vector3(centre.x, centre.y, centre.z) / centre.w
@@ -207,6 +227,8 @@ func _apply_packet() -> void:
 			width = minf(width, absf(packet.projection.get_projection_plane(plane).distance_to(point)) * 0.5)
 		var extent := Vector3.ONE * width
 		camera_quad.custom_aabb = AABB(point - extent * 0.5, extent)
+		_camera_projection = packet.projection
+		_camera_clip_range = clip_range
 	shader.set_shader_parameter("y_texture", packet.y_texture)
 	shader.set_shader_parameter("cbcr_texture", packet.cbcr_texture)
 	shader.set_shader_parameter("rgb_texture", packet.rgb_texture)
@@ -242,10 +264,7 @@ func _sync_environment() -> void:
 	target.background_mode = Environment.BG_CLEAR_COLOR
 	target.background_color = Color(0, 0, 0, 0)
 	# Environment setters do not emit changed, so copy live settings before each draw.
-	for property: Dictionary in environment.get_property_list():
-		var name: StringName = property.name
-		if not (int(property.usage) & PROPERTY_USAGE_STORAGE) or name in [&"background_mode", &"background_color"]:
-			continue
+	for name: StringName in _environment_properties:
 		var value: Variant = environment.get(name)
 		if target.get(name) != value:
 			target.set(name, value)

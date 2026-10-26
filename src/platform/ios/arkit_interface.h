@@ -33,6 +33,7 @@ class ARKitInterface : public XRInterfaceExtension {
 	bool initialized = false;
 	bool suspended = false;
 	bool geometry_dirty = true;
+	bool diagnostics_enabled = false;
 	Vector2i viewport_size = Vector2i(1, 1);
 	double near_plane = 0.05, far_plane = 100.0;
 	Transform3D last_good_pose;
@@ -65,6 +66,7 @@ public:
 	PocketAR::TrackingReason get_tracking_reason() const { return reason; }
 	int64_t get_session_generation() const { return generation; }
 	Dictionary get_diagnostics() const;
+	void set_diagnostics_enabled(bool p_enabled);
 	Dictionary get_native_plane_identifiers() const;
 	void reset();
 	void set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode);

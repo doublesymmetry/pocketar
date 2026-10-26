@@ -111,6 +111,7 @@ void ARKitInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_tracking_reason"), &ARKitInterface::get_tracking_reason);
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &ARKitInterface::get_session_generation);
 	ClassDB::bind_method(D_METHOD("get_diagnostics"), &ARKitInterface::get_diagnostics);
+	ClassDB::bind_method(D_METHOD("set_diagnostics_enabled", "enabled"), &ARKitInterface::set_diagnostics_enabled);
 	ClassDB::bind_method(D_METHOD("get_native_plane_identifiers"), &ARKitInterface::get_native_plane_identifiers);
 	ClassDB::bind_method(D_METHOD("reset"), &ARKitInterface::reset);
 	ClassDB::bind_method(D_METHOD("set_plane_finding_mode", "mode"), &ARKitInterface::set_plane_finding_mode);
@@ -177,6 +178,7 @@ bool ARKitInterface::_initialize() {
 	textures = arkit_texture_pool();
 	if (textures.is_null()) { diagnostics["last_error"] = "Metal retain probe or CoreVideo texture cache failed"; set_state(PocketAR::UNSUPPORTED); return false; }
 	for (const char *key : { "new_frame_count", "packets_published", "packets_presented", "repeated_updates", "texture_refusals", "timestamp_regressions", "projection_aspect_mismatch_count", "pause_count", "resume_count", "reset_count", "retired_tracker_count", "orientation_transition_drops" }) diagnostics[key] = int64_t(0);
+	diagnostics["diagnostic_samples"] = int64_t(0);
 	diagnostics["projection_form_valid"] = true;
 	diagnostics["display_transform_valid"] = true;
 	diagnostics["native_depth_zero_to_one"] = true;
@@ -529,28 +531,32 @@ void ARKitInterface::_process() {
 		packet->projection = arkit_projection_depth(native, near_plane, far_plane);
 		const CGAffineTransform uv = CGAffineTransformInvert([frame displayTransformForOrientation:orientation viewportSize:size]);
 		packet->display_transform = Transform2D(uv.a, uv.b, uv.c, uv.d, uv.tx, uv.ty);
-		const Projection oracle = arkit_intrinsics_projection(packet->intrinsics, viewport_size, turns, near_plane, far_plane);
-		const double projection_error = arkit_projection_residual_px(native, oracle, viewport_size);
-		double pose_error = 0, uv_error = 0;
-		const Transform3D apple_pose = from_simd(simd_inverse([camera viewMatrixForOrientation:orientation]));
-		if (packet->tracking_valid) {
-			pose_error = apple_pose.origin.distance_to(packet->camera_transform.origin);
-			for (int c = 0; c < 3; ++c) pose_error = std::max(pose_error, double(apple_pose.basis.get_column(c).distance_to(packet->camera_transform.basis.get_column(c))));
-		}
-		const Transform2D uv_oracle = display_transform_for_view(packet->image_size, viewport_size, turns);
 		bool uv_valid = packet->display_transform.is_finite() && std::abs(packet->display_transform.determinant()) > 1e-9;
 		for (const Vector2 &corner : { Vector2(), Vector2(1, 0), Vector2(0, 1), Vector2(1, 1) }) {
 			const Vector2 image_uv = packet->display_transform.xform(corner);
 			uv_valid = uv_valid && image_uv.x >= -1e-5 && image_uv.x <= 1.00001 && image_uv.y >= -1e-5 && image_uv.y <= 1.00001;
-			uv_error = std::max(uv_error, double(((image_uv - uv_oracle.xform(corner)) * Vector2(packet->image_size)).length()));
 		}
 		const bool projection_valid = native[0][0] > 0 && native[1][1] > 0 && std::isfinite(native[1][1] / native[0][0]) && std::abs(native[0][1]) < 1e-5 && std::abs(native[1][0]) < 1e-5 && std::abs(native[2][3] + 1) < 1e-5 && std::abs(native[3][3]) < 1e-5;
 		diagnostics["projection_form_valid"] = bool(diagnostics["projection_form_valid"]) && projection_valid;
 		diagnostics["display_transform_valid"] = bool(diagnostics["display_transform_valid"]) && uv_valid;
-		diagnostics["native_depth_zero_to_one"] = bool(diagnostics["native_depth_zero_to_one"]) && std::abs(native[2][2] - 100.0 / (0.1 - 100)) < 1e-5 && std::abs(native[3][2] - 10.0 / (0.1 - 100)) < 1e-5;
-		diagnostics["projection_core_error_px"] = std::max(double(diagnostics["projection_core_error_px"]), projection_error);
-		diagnostics["pose_error"] = std::max(double(diagnostics["pose_error"]), pose_error);
-		diagnostics["display_transform_error_px"] = std::max(double(diagnostics["display_transform_error_px"]), uv_error);
+		if (diagnostics_enabled) {
+			const Projection oracle = arkit_intrinsics_projection(packet->intrinsics, viewport_size, turns, near_plane, far_plane);
+			const double projection_error = arkit_projection_residual_px(native, oracle, viewport_size);
+			double pose_error = 0, uv_error = 0;
+			const Transform3D apple_pose = from_simd(simd_inverse([camera viewMatrixForOrientation:orientation]));
+			if (packet->tracking_valid) {
+				pose_error = apple_pose.origin.distance_to(packet->camera_transform.origin);
+				for (int c = 0; c < 3; ++c) pose_error = std::max(pose_error, double(apple_pose.basis.get_column(c).distance_to(packet->camera_transform.basis.get_column(c))));
+			}
+			const Transform2D uv_oracle = display_transform_for_view(packet->image_size, viewport_size, turns);
+			for (const Vector2 &corner : { Vector2(), Vector2(1, 0), Vector2(0, 1), Vector2(1, 1) }) {
+				uv_error = std::max(uv_error, double(((packet->display_transform.xform(corner) - uv_oracle.xform(corner)) * Vector2(packet->image_size)).length()));
+			}
+			diagnostics["native_depth_zero_to_one"] = bool(diagnostics["native_depth_zero_to_one"]) && std::abs(native[2][2] - 100.0 / (0.1 - 100)) < 1e-5 && std::abs(native[3][2] - 10.0 / (0.1 - 100)) < 1e-5;
+			diagnostics["projection_core_error_px"] = std::max(double(diagnostics["projection_core_error_px"]), projection_error);
+			diagnostics["pose_error"] = std::max(double(diagnostics["pose_error"]), pose_error);
+			diagnostics["display_transform_error_px"] = std::max(double(diagnostics["display_transform_error_px"]), uv_error);
+		}
 		Array orientations_seen = diagnostics["orientations_seen"];
 		if (!orientations_seen.has(turns)) orientations_seen.append(turns);
 		PocketAR::TrackingReason next_reason = PocketAR::NONE;
@@ -577,14 +583,17 @@ void ARKitInterface::_process() {
 		geometry_dirty = false;
 		current_packet = packet;
 		textures->set_active_packets(current_packet, presented_packet, applied_packet);
-		for (const Vector2 &clip_range : { Vector2(0.07, 17), Vector2(0.23, 131) }) {
-			const PackedFloat64Array values = _get_projection_for_view(0, double(viewport_size.x) / viewport_size.y, clip_range.x, clip_range.y);
-			Projection clipped;
-			for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r) clipped[c][r] = values[c * 4 + r];
-			const Vector4 n = clipped.xform(Vector4(0, 0, -clip_range.x, 1));
-			const Vector4 f = clipped.xform(Vector4(0, 0, -clip_range.y, 1));
-			const double error = std::max(std::abs(double(n.z / n.w + 1)), std::abs(double(f.z / f.w - 1)));
-			diagnostics["projection_near_far_error"] = std::max(double(diagnostics["projection_near_far_error"]), error);
+		if (diagnostics_enabled) {
+			for (const Vector2 &clip_range : { Vector2(0.07, 17), Vector2(0.23, 131) }) {
+				const PackedFloat64Array values = _get_projection_for_view(0, double(viewport_size.x) / viewport_size.y, clip_range.x, clip_range.y);
+				Projection clipped;
+				for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r) clipped[c][r] = values[c * 4 + r];
+				const Vector4 n = clipped.xform(Vector4(0, 0, -clip_range.x, 1));
+				const Vector4 f = clipped.xform(Vector4(0, 0, -clip_range.y, 1));
+				const double error = std::max(std::abs(double(n.z / n.w + 1)), std::abs(double(f.z / f.w - 1)));
+				diagnostics["projection_near_far_error"] = std::max(double(diagnostics["projection_near_far_error"]), error);
+			}
+			increment("diagnostic_samples");
 		}
 		increment("packets_published");
 		if (changed_planes) call_deferred("emit_signal", "planes_changed");
@@ -672,8 +681,14 @@ Dictionary ARKitInterface::get_native_plane_identifiers() const {
 	return identifiers;
 }
 
+void ARKitInterface::set_diagnostics_enabled(bool p_enabled) {
+	ERR_FAIL_COND(initialized && !on_owner_thread());
+	diagnostics_enabled = p_enabled;
+}
+
 Dictionary ARKitInterface::get_diagnostics() const {
 	Dictionary result = diagnostics.duplicate(true);
+	result["diagnostics_enabled"] = diagnostics_enabled;
 	result["plane_finding_mode"] = int(plane_finding_mode);
 	ARWorldTrackingConfiguration *config = (ARWorldTrackingConfiguration *)impl->session.configuration;
 	if (config) result["effective_plane_finding_mode"] = int(config.planeDetection);

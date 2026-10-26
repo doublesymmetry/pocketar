@@ -104,6 +104,19 @@ func _check_mode(mode: ARView.Composition) -> void:
 	var source := PacketSource.new()
 	source.view = view
 	view.interface = source
+	view.call("_update_geometry")
+	view.call("_update_geometry")
+	_check(source.geometry_updates == 1, "unchanged display geometry is sent once to a new interface")
+	view.camera.near = 0.2
+	view.call("_update_geometry")
+	view.camera.far = 31.0
+	view.call("_update_geometry")
+	view.orientation_quarter_turns = 2
+	view.call("_update_geometry")
+	view.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	view.size += Vector2(1, 1)
+	view.call("_update_geometry")
+	_check(source.geometry_updates == 5, "clip range, orientation and resize each update display geometry")
 	view.call("_apply_packet")
 	source.packet = ARFramePacket.new()
 	source.checked_after_applied = false
@@ -126,6 +139,11 @@ class PacketSource extends XRInterfaceExtension:
 	var packet: ARFramePacket
 	var applied: ARFramePacket
 	var checked_after_applied: bool = false
+	var geometry_updates: int = 0
+
+
+	func set_display_geometry(_size: Vector2i, _turns: int, _near: float, _far: float) -> void:
+		geometry_updates += 1
 
 
 	func _is_initialized() -> bool:

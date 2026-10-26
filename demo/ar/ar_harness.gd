@@ -56,6 +56,7 @@ func _ready() -> void:
 		_step("arcore-session", "FAIL", "ARCoreInterface is unavailable")
 		_finish()
 		return
+	view.interface.call("set_diagnostics_enabled", true)
 	Engine.max_fps = 60
 	_log_device_diagnostics("start")
 	var device_timer := Timer.new()

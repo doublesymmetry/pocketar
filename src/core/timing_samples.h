@@ -5,7 +5,7 @@
 
 namespace godot {
 inline void sample_timing(std::vector<double> &r_values, size_t &r_cursor, double p_value) {
-	if (r_values.size() < 131072) r_values.push_back(p_value);
+	if (r_values.size() < 512) r_values.push_back(p_value);
 	else { r_values[r_cursor] = p_value; r_cursor = (r_cursor + 1) % r_values.size(); }
 }
 

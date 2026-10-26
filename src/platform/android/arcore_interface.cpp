@@ -34,6 +34,7 @@ void ARCoreInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_tracking_reason"), &ARCoreInterface::get_tracking_reason);
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &ARCoreInterface::get_session_generation);
 	ClassDB::bind_method(D_METHOD("get_diagnostics"), &ARCoreInterface::get_diagnostics);
+	ClassDB::bind_method(D_METHOD("set_diagnostics_enabled", "enabled"), &ARCoreInterface::set_diagnostics_enabled);
 	ClassDB::bind_method(D_METHOD("reset"), &ARCoreInterface::reset);
 	ClassDB::bind_method(D_METHOD("set_plane_finding_mode", "mode"), &ARCoreInterface::set_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("get_plane_finding_mode"), &ARCoreInterface::get_plane_finding_mode);
@@ -111,7 +112,6 @@ bool ARCoreInterface::_initialize() {
 	diagnostics["projection_form_valid"] = true;
 	diagnostics["display_transform_valid"] = true;
 	diagnostics["last_error"] = "";
-	diagnostics["mean_y"] = 0.0;
 	detect_gpu_camera();
 	std::string error;
 	if (!api.load(error)) {
@@ -510,8 +510,14 @@ ARCoreInterface::TextureSlot *ARCoreInterface::find_texture_slot() {
 	}
 	return nullptr;
 }
+void ARCoreInterface::set_diagnostics_enabled(bool p_enabled) {
+	ERR_FAIL_COND(initialized && !on_owner_thread());
+	diagnostics_enabled = p_enabled;
+}
+
 Dictionary ARCoreInterface::get_diagnostics() const {
 	Dictionary result = diagnostics.duplicate(true);
+	result["diagnostics_enabled"] = diagnostics_enabled;
 	result["plane_finding_mode"] = int(plane_finding_mode);
 	result["extras"] = extras.diagnostics();
 	Dictionary measured = timings.duplicate(true);

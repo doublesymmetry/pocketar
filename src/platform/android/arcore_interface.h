@@ -63,6 +63,7 @@ private:
 	bool running = false;
 	bool application_suspended = false;
 	bool geometry_dirty = true;
+	bool diagnostics_enabled = false;
 	int camera_config_index = -1;
 	String camera_path = "auto";
 	Ref<Texture2D> gpu_texture;
@@ -155,6 +156,7 @@ public:
 	PocketAR::TrackingReason get_tracking_reason() const { return reason; }
 	int64_t get_session_generation() const { return generation; }
 	Dictionary get_diagnostics() const;
+	void set_diagnostics_enabled(bool p_enabled);
 	void reset();
 	void set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode);
 	PocketAR::PlaneFindingMode get_plane_finding_mode() const { return plane_finding_mode; }

@@ -10,6 +10,7 @@
 
 static ARCoreBridgeState bridge;
 static int create_calls = 0;
+static int projection_calls = 0;
 static bool camera_acquired = false;
 struct ArConfig_ {
 	ArPlaneFindingMode planes = AR_PLANE_FINDING_MODE_HORIZONTAL;
@@ -161,6 +162,55 @@ class ARCoreSessionFixture : public RefCounted {
 		check(completion.is_valid(), "completion validity does not depend on the freed interface");
 		completion.call(completed);
 	}
+	void check_frame_diagnostics() {
+		Ref<ARCoreInterface> camera;
+		camera.instantiate();
+		camera->owner_thread = std::this_thread::get_id();
+		camera->initialized = true;
+		camera->head.instantiate();
+		camera->texture_slots.resize(3);
+		camera->session = reinterpret_cast<ArSession *>(1);
+		camera->frame = reinterpret_cast<ArFrame *>(1);
+		camera->extras.setup(camera->session, camera->generation);
+		auto &api = arcore_api();
+		api.ArSession_getAllTrackables = no_op;
+		api.ArTrackableList_getSize = [](const ArSession *, const ArTrackableList *, int32_t *r_count) { *r_count = 0; };
+		api.ArFrame_acquireCameraImage = [](ArSession *, ArFrame *, ArImage **r_image) { *r_image = reinterpret_cast<ArImage *>(1); return AR_SUCCESS; };
+		api.ArImage_getTimestamp = [](const ArSession *, const ArImage *, int64_t *r_timestamp) { *r_timestamp = 1000; };
+		api.ArImage_getWidth = [](const ArSession *, const ArImage *, int32_t *r_value) { *r_value = 2; };
+		api.ArImage_getHeight = api.ArImage_getWidth;
+		api.ArImage_getNumberOfPlanes = [](const ArSession *, const ArImage *, int32_t *r_count) { *r_count = 3; };
+		api.ArImage_getFormat = [](const ArSession *, const ArImage *, ArImageFormat *r_format) { *r_format = AR_IMAGE_FORMAT_YUV_420_888; };
+		api.ArImage_getPlaneData = [](const ArSession *, const ArImage *, int32_t, const uint8_t **r_data, int32_t *r_length) {
+			static const uint8_t pixels[] = { 128, 128, 128, 128 };
+			*r_data = pixels; *r_length = 4;
+		};
+		api.ArImage_getPlaneRowStride = [](const ArSession *, const ArImage *, int32_t p_plane, int32_t *r_stride) { *r_stride = p_plane == 0 ? 2 : 1; };
+		api.ArImage_getPlanePixelStride = [](const ArSession *, const ArImage *, int32_t, int32_t *r_stride) { *r_stride = 1; };
+		api.ArImage_release = no_op;
+		projection_calls = 0;
+		camera->build_packet(1000);
+		const Ref<ARFramePacket> first = camera->current_packet;
+		check(first.is_valid() && first->y_texture.is_valid(), "ordinary frames still publish camera textures");
+		check(!bool(camera->get_diagnostics().get("diagnostics_enabled", true)), "frame diagnostics default off");
+		check(projection_calls == 1 && !camera->diagnostics.has("image_plane_layout") && !camera->diagnostics.has("mean_y"), "ordinary frames skip oracle projections, stride dictionaries and luma sampling");
+		camera->call("set_diagnostics_enabled", true);
+		camera->diagnostics["projection_form_valid"] = true;
+		camera->build_packet(1000);
+		check(bool(camera->get_diagnostics().get("diagnostics_enabled", false)), "frame diagnostics explicitly enabled");
+		check(projection_calls == 4 && bool(camera->diagnostics["projection_form_valid"]) && int64_t(camera->diagnostics["projection_form_samples"]) == 1, "enabled projection oracle passes");
+		check(Array(camera->diagnostics.get("image_plane_layout", Array())).size() == 3 && double(camera->diagnostics.get("mean_y", 0)) == 128, "enabled diagnostics sample CPU image layout and luma");
+		check(first != camera->current_packet && first->projection == camera->current_packet->projection, "diagnostics preserve retained packet calibration");
+		camera->call("set_diagnostics_enabled", false);
+		camera->build_packet(1000);
+		check(projection_calls == 5 && int64_t(camera->diagnostics["projection_form_samples"]) == 1, "disabling diagnostics stops oracle collection");
+		api.ArImage_getFormat = [](const ArSession *, const ArImage *, ArImageFormat *r_format) { *r_format = AR_IMAGE_FORMAT_INVALID; };
+		camera->build_packet(1000);
+		check(camera->get_session_state() == PocketAR::FAILED, "image format guard stays active with diagnostics off");
+		camera->session = nullptr;
+		camera->frame = nullptr;
+		camera->_uninitialize();
+	}
 
 #ifdef DEBUG_ENABLED
 	Ref<ARCoreInterface> debug_session;
@@ -175,6 +225,7 @@ class ARCoreSessionFixture : public RefCounted {
 		debug->session = reinterpret_cast<ArSession *>(1);
 		debug->frame = reinterpret_cast<ArFrame *>(1);
 		debug->gpu_active = true;
+		debug->call("set_diagnostics_enabled", true);
 		debug->extras.setup(debug->session, debug->generation);
 		debug->connect("planes_changed", callable_mp(this, &ARCoreSessionFixture::debug_planes_changed));
 		auto &api = arcore_api();
@@ -205,8 +256,10 @@ class ARCoreSessionFixture : public RefCounted {
 		check(debug->planes.size() == 1 && int64_t(debug->get_diagnostics()["plane_count"]) == 1, "debug plane does not enter native map or count");
 		check(debug->extras.native_planes.size() == 1 && !debug->extras.native_planes.count(id), "debug plane does not enter extras native query map");
 		check(debug->extras.recording_status == AR_RECORDING_NONE && debug->extras.playback_inputs.is_empty(), "debug injection does not start recording or inject playback inputs");
+		debug->call("set_diagnostics_enabled", false);
 		debug->build_packet(2000);
 		check(first->planes == debug->current_packet->planes, "unchanged merged native packet geometry");
+		check(int64_t(debug->diagnostics["plane_reprojection_samples"]) == 2, "ordinary GPU frames copy planes without reprojecting vertices");
 		api.ArCamera_getTrackingState = [](const ArSession *, const ArCamera *, ArTrackingState *r_state) { *r_state = AR_TRACKING_STATE_PAUSED; };
 		api.ArTrackableList_getSize = [](const ArSession *, const ArTrackableList *, int32_t *r_count) { *r_count = 0; };
 		api.ArTrackable_getTrackingState = [](const ArSession *, const ArTrackable *, ArTrackingState *r_state) { *r_state = AR_TRACKING_STATE_STOPPED; };
@@ -374,6 +427,7 @@ public:
 		arcore_api().ArCamera_getPose = arcore_api().ArCamera_getDisplayOrientedPose;
 		arcore_api().ArPose_getPoseRaw = [](const ArSession *, const ArPose *, float *r_pose) { std::fill_n(r_pose, 7, 0.0f); r_pose[3] = 1.0f; };
 		arcore_api().ArCamera_getProjectionMatrix = [](const ArSession *, const ArCamera *, float p_near, float p_far, float *r_matrix) {
+			++projection_calls;
 			std::fill_n(r_matrix, 16, 0.0f);
 			r_matrix[0] = r_matrix[5] = 1.0f; r_matrix[11] = -1.0f;
 			r_matrix[10] = -(p_far + p_near) / (p_far - p_near);
@@ -395,6 +449,7 @@ public:
 		check(events.is_empty(), "reset, lifecycle, plane and frame notifications are all deferred");
 		operation_active = false;
 		check_gpu_completion_lifetime();
+		check_frame_diagnostics();
 #ifdef DEBUG_ENABLED
 		check_debug_plane();
 #endif
