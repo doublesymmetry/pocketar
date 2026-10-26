@@ -119,6 +119,17 @@ initialization. ARKit limited poses may be valid while plane tracking is paused;
 ARCore valid poses require native tracking. Consult packet `tracking_valid`
 when working directly with packets.
 
+On Android, initializing an ARCore interface (including through ARView) requests
+ARCore installation and camera permission. Loading the addon and resuming the
+app before that request do not prompt. `PocketARPlugin.requestSession()` is an
+Android-only explicit setup/retry call, obtained through `Engine.get_singleton()`.
+It can run before a view exists; state becomes observable through the view once
+created. Denial remains `PERMISSION_DENIED` or `NEEDS_INSTALL` until prerequisites
+change or the game requests a retry. `reset()` resets the native session; it
+does not retry Android permission or installation prompts. Repeated camera
+denials may require Android app settings. Tracking reasons describe pose quality,
+so use session state for setup errors.
+
 `plane_finding_mode` accepts disabled, horizontal (both upward/downward) or
 horizontal-and-vertical. It persists across reset/pause. Disabling discovery
 preserves existing planes: ARKit stops discovery/refinement, ARCore continues

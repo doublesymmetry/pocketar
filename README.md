@@ -70,6 +70,10 @@ templates. When using the repository's shell, `stock godot` selects Godot 4.7.2.
 
 ## Add an AR scene
 
+Run [the tap-to-place sample](samples/tap_to_place/README.md) for a small project
+with a Start AR button, session messages, placement, reset and plane display.
+It also supports placement against a scripted fixture on desktop.
+
 Attach this script to a full-rect `Control` in your main scene. Instantiate the
 packed scene; `ARView.new()` alone does not create its required children.
 
@@ -145,9 +149,15 @@ For Android:
 - Enable the camera permission (`permissions/camera`). The AAR declares CAMERA
   and the plugin requests runtime permission and ARCore installation.
 - Leave `pocketar/ar_required=false` for AR Optional, or enable it to require
-  ARCore hardware and set required manifest metadata. Optional does not defer
-  setup: the current Android plugin can prompt for ARCore/camera permission at
-  app startup, before a view is created. Handle denied/unavailable states.
+  ARCore hardware and set required manifest metadata. Availability checking at
+  app startup is prompt-free. Installation and camera permission are requested
+  when an ARCore ARView starts, so create the view when the player enters AR.
+- To request setup before creating a view, or retry after denial, call
+  `Engine.get_singleton("PocketARPlugin").requestSession()` on Android.
+  Later resumes continue setup only after AR was requested; resumes do not
+  retry denied permission prompts. Show `PERMISSION_DENIED` or `NEEDS_INSTALL`
+  through the session state and offer a retry button. Android may require the
+  player to enable Camera in app settings after repeated denials.
 
 For iOS:
 

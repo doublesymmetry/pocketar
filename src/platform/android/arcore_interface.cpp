@@ -1,6 +1,7 @@
 #include "arcore_interface.h"
 #include "core/ar_ids.h"
 #include "yuv_repack.h"
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/rendering_device.hpp>
@@ -96,6 +97,8 @@ bool ARCoreInterface::_initialize() {
 	if (initialized) return true;
 	ERR_FAIL_COND_V_MSG(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id() || !RenderingServer::get_singleton()->is_on_render_thread(), false, "ARCore requires Safe rendering thread mode on the main thread.");
 	ERR_FAIL_COND_V_MSG(XRServer::get_singleton()->get_primary_interface().is_valid(), false, "Only one ARView may own the primary XR interface.");
+	Object *plugin = Engine::get_singleton()->get_singleton("PocketARPlugin");
+	ERR_FAIL_NULL_V_MSG(plugin, false, "ARCore requires the PocketAR Android plugin.");
 	owner_thread = std::this_thread::get_id();
 	RenderingDevice *rd = RenderingServer::get_singleton()->get_rendering_device();
 	ERR_FAIL_NULL_V_MSG(rd, false, "ARCore CPU upload requires the Mobile/Vulkan renderer.");
@@ -132,6 +135,7 @@ bool ARCoreInterface::_initialize() {
 	reset_tick = tick_usec();
 	set_primary(true);
 	arcore_bridge_set_owner(this);
+	plugin->call("requestSession");
 	call_deferred("emit_signal", "session_state_changed", int(state));
 	call_deferred("emit_signal", "session_generation_changed", generation);
 	bridge_changed();

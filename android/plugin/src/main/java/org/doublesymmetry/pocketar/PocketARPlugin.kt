@@ -54,6 +54,8 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
     private var installRequested = false
     private var permissionRequested = false
     private var permissionPending = false
+    private var setupState = CHECKING
+    private val sessionRequest = PocketARSessionRequest(::prepareSession)
     private var waitingForSurface = false
     private var availability: ArCoreApk.Availability? = null
     private var displayManager: DisplayManager? = null
@@ -91,12 +93,7 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
         initialized = true
         displayManager = host.getSystemService(DisplayManager::class.java)
         publishStatus(CHECKING, "Checking ARCore availability")
-        ArCoreApk.getInstance().checkAvailabilityAsync(host.applicationContext) { result ->
-            if (initialized) {
-                availability = result
-                if (resumed) prepareSession()
-            }
-        }
+        checkAvailability()
         return null
     }
 
@@ -109,11 +106,12 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
             displayListening = true
         }
         updateDisplayGeometry()
-        prepareSession()
+        sessionRequest.resume()
     }
 
     override fun onMainPause() {
         resumed = false
+        sessionRequest.pause()
         ++lifecycleGeneration
         stopDisplayListener()
         if (!initialized) return
@@ -129,6 +127,7 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
 
     override fun onMainDestroy() {
         resumed = false
+        sessionRequest.pause()
         ++lifecycleGeneration
         stopDisplayListener()
         if (initialized) runOnRenderThread { nativeShutdown() }
@@ -148,8 +147,30 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
         displayListening = false
     }
 
-    private fun prepareSession() {
+    @UsedByGodot
+    fun requestSession() {
+        runOnHostThread {
+            sessionRequest.request()
+            if (availability?.isSupported == false) checkAvailability()
+        }
+    }
+
+    private fun checkAvailability() {
+        ArCoreApk.getInstance().checkAvailabilityAsync(context) { result ->
+            if (initialized) {
+                availability = result
+                sessionRequest.prepareIfRequested()
+            }
+        }
+    }
+
+    private fun prepareSession(retry: Boolean) {
         if (!initialized || !resumed) return
+        if (permissionPending) return
+        if (retry && setupState in listOf(NEEDS_INSTALL, PERMISSION_DENIED, FAILED)) {
+            installRequested = false
+            permissionRequested = false
+        }
         val host = activity ?: return
         val support = availability ?: return
         if (!support.isSupported) {
@@ -157,7 +178,6 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
             publishStatus(state, "ARCore availability: $support")
             return
         }
-        if (permissionPending) return
         try {
             when (ArCoreApk.getInstance().requestInstall(host, !installRequested)) {
                 ArCoreApk.InstallStatus.INSTALL_REQUESTED -> {
@@ -198,6 +218,7 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
             return
         }
         waitingForSurface = false
+        setupState = READY
         val generation = lifecycleGeneration
         runOnRenderThread {
             if (generation != lifecycleGeneration || !resumed || !initialized) return@runOnRenderThread
@@ -214,10 +235,11 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
             publishStatus(PERMISSION_DENIED, "Camera permission was denied")
             return
         }
-        prepareSession()
+        sessionRequest.prepareIfRequested()
     }
 
     private fun publishStatus(state: Int, detail: String) {
+        setupState = state
         val version = installedApkVersion()
         Log.i(TAG, "state=$state apk=$version sdk=1.56.0 $detail")
         runOnRenderThread { nativeStatus(state, version) }
@@ -264,7 +286,7 @@ class PocketARPlugin(godot: Godot) : GodotPlugin(godot), DisplayManager.DisplayL
         surfaceSize = SurfaceSize(width, height)
         runOnHostThread {
             updateDisplayGeometry()
-            if (waitingForSurface) prepareSession()
+            if (waitingForSurface) sessionRequest.prepareIfRequested()
         }
     }
 

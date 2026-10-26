@@ -58,7 +58,7 @@ avoid the shell builtin with the same name.
 | Headless packet, facade, scripted, arguments, exporter and thread tests | `tools/test-headless.sh` |
 | ARCore native lifecycle/status, GPU completion lifetime and query/recording fixtures | `TMPDIR=/tmp tools/test-arcore.sh` |
 | All Python tool tests | `python3 -m unittest discover -s tests/tools` |
-| Kotlin launch argument tests | `cd android && ./gradlew :plugin:testDebugUnitTest` |
+| Kotlin launch argument and AR request tests | `cd android && ./gradlew :plugin:testDebugUnitTest` |
 | Generate landscape fixture | `python3 tools/fixtures.py --output demo/harness/fixtures/table.jsonl --loss-at 1 --reset-at 1.5 --pause-at 1.75 --tap-at 0.6 --drag-to 0.1 -0.7 -2 --plane-examples` |
 | Generate portrait fixture | Use the preceding command with `--output demo/harness/fixtures/table-portrait.jsonl --view-size 1080 1920` |
 
@@ -92,6 +92,7 @@ settings/cache or reading system certificates are separate from script errors.
 - `demo/addons/pocketar/`: ARView, shaders, extension descriptor, plane visualizer and editor export plugin.
 - `demo/addons/pocketar/bin/`: generated libraries, XCFrameworks and AARs; ignored by Git.
 - `demo/harness/`: rendering assertions and scripted replay fixtures.
+- `samples/tap_to_place/`: standalone game example, with relative symlinks to the addon and desktop table fixture.
 - `android/`: Godot v2 Kotlin plugin and AAR Gradle project.
 - `tests/native/`: standalone C++ numerical, resource and fixture parser tests.
 - `tests/headless/`: GDScript suites and mocked native ARCore fixtures.
@@ -313,8 +314,14 @@ native interface name is `PocketARCore`. The Kotlin singleton is
 `PocketARPlugin`; `PocketAR` remains the shared native raycast API.
 
 ARCore uses SDK 1.56.0, requires Google Play Services for AR 1.48 or newer, and logs
-its installed APK version. Kotlin checks availability and installation on Android's
-UI thread and requests CAMERA permission. Native code starts only after the JNI
+its installed APK version. Kotlin checks availability asynchronously without prompts
+at startup. ARCoreInterface initialization calls `PocketARPlugin.requestSession()`;
+games can also call it explicitly for setup or retry. Installation and CAMERA
+permission requests run on Android's UI thread only after that request, including
+on subsequent resumes. Denials expose NEEDS_INSTALL or PERMISSION_DENIED; resuming
+alone does not retry denied prompts. `reset()` only resets the native session.
+The tap-to-place sample creates its ARView from Start AR and offers Retry setup;
+repeated camera denials may require app settings. Native code starts only after the JNI
 bridge reports installation and permission. CAMERA permission denial is exposed,
 including denial after an app-settings change. The demo exports as AR Optional;
 set the Android export option `pocketar/ar_required` to add the AR hardware
