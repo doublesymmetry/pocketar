@@ -33,10 +33,12 @@ func _run() -> void:
 	var scene: PackedScene = load("res://addons/pocketar/ar_view.tscn") as PackedScene
 	var view: ARView = scene.instantiate() as ARView
 	var interface := ScriptedARInterface.new()
+	interface.set_plane_finding_mode(PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL)
 	var fixture: String = get_script().resource_path.get_base_dir().path_join("debug_plane.jsonl")
 	_check(interface.load_fixture(fixture) == OK, "plane-free fixture loads")
-	view.backend = 3
+	view.backend = ARView.Backend.SCRIPTED
 	view.interface = interface
+	view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 	root.add_child(view)
 	var visualizer := ARPlaneVisualizer.new()
 	visualizer.ar_view = view
@@ -170,6 +172,7 @@ func _run() -> void:
 	view.free()
 	_check(_tracker(generation, teardown_id) == null, "uninitialize removes tracker synchronously")
 	var mixed := ScriptedARInterface.new()
+	mixed.set_plane_finding_mode(PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL)
 	_check(mixed.load_fixture(fixture.get_base_dir().path_join("plane_finding.jsonl")) == OK, "mixed fixture loads")
 	XRServer.add_interface(mixed)
 	_check(mixed.initialize(), "mixed fixture initializes")

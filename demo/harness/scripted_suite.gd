@@ -46,8 +46,9 @@ func _run_once(host: Node, fixture: String, composition: ARView.Composition) -> 
 	await _flush_notifications(host)
 	var view: ARView = AR_VIEW.instantiate() as ARView
 	view.composition = composition
-	view.backend = 3
+	view.backend = ARView.Backend.SCRIPTED
 	view.interface = scripted
+	view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 	view.handle_presses = true
 	view.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 	view.size = target_size

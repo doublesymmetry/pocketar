@@ -1,5 +1,8 @@
 @tool
 extends EditorExportPlugin
+## Internal export integration. The user-facing pocketar/ar_required option defaults to false.
+## Android exports use Gradle, the matching PocketAR AAR and the ARCore Maven dependency.
+## iOS exports require a camera usage description and a deployment target of at least 16.0.
 
 const AR_REQUIRED_OPTION: String = "pocketar/ar_required"
 const IOS_VERSION_ERROR: String = "PocketAR requires application/min_ios_version 16.0 or newer."

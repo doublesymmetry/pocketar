@@ -1,6 +1,7 @@
 #include "arcore_interface.h"
 #include "core/ar_ids.h"
 #include "yuv_repack.h"
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/rendering_device.hpp>
@@ -34,9 +35,12 @@ void ARCoreInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_tracking_reason"), &ARCoreInterface::get_tracking_reason);
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &ARCoreInterface::get_session_generation);
 	ClassDB::bind_method(D_METHOD("get_diagnostics"), &ARCoreInterface::get_diagnostics);
+	ClassDB::bind_method(D_METHOD("set_diagnostics_enabled", "enabled"), &ARCoreInterface::set_diagnostics_enabled);
 	ClassDB::bind_method(D_METHOD("reset"), &ARCoreInterface::reset);
 	ClassDB::bind_method(D_METHOD("set_plane_finding_mode", "mode"), &ARCoreInterface::set_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("get_plane_finding_mode"), &ARCoreInterface::get_plane_finding_mode);
+	ClassDB::bind_method(D_METHOD("set_suspended", "suspended"), &ARCoreInterface::set_suspended);
+	ClassDB::bind_method(D_METHOD("set_camera_quality", "quality"), &ARCoreInterface::set_camera_quality);
 	ClassDB::bind_method(D_METHOD("set_camera_config_index", "index"), &ARCoreInterface::set_camera_config_index);
 	ClassDB::bind_method(D_METHOD("set_camera_path", "path"), &ARCoreInterface::set_camera_path);
 	ClassDB::bind_method(D_METHOD("set_gpu_validation_enabled", "enabled"), &ARCoreInterface::set_gpu_validation_enabled);
@@ -95,12 +99,14 @@ bool ARCoreInterface::_initialize() {
 	if (initialized) return true;
 	ERR_FAIL_COND_V_MSG(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id() || !RenderingServer::get_singleton()->is_on_render_thread(), false, "ARCore requires Safe rendering thread mode on the main thread.");
 	ERR_FAIL_COND_V_MSG(XRServer::get_singleton()->get_primary_interface().is_valid(), false, "Only one ARView may own the primary XR interface.");
+	Object *plugin = Engine::get_singleton()->get_singleton("PocketARPlugin");
+	ERR_FAIL_NULL_V_MSG(plugin, false, "ARCore requires the PocketAR Android plugin.");
 	owner_thread = std::this_thread::get_id();
 	RenderingDevice *rd = RenderingServer::get_singleton()->get_rendering_device();
 	ERR_FAIL_NULL_V_MSG(rd, false, "ARCore CPU upload requires the Mobile/Vulkan renderer.");
 	frame_delay = rd->get_frame_delay();
 	texture_slots.resize(frame_delay + 3);
-	for (const char *key : {"successful_updates", "egl_context_violations", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "image_timestamp_far_count", "timestamp_regressions", "projection_form_samples", "display_transform_samples", "packets_published", "packets_presented", "textures_updated", "pause_count", "resume_count", "reset_count", "stale_tracker_count", "image_resource_exhausted", "image_deadline_exceeded"}) diagnostics[key] = int64_t(0);
+	for (const char *key : {"successful_updates", "egl_context_violations", "plane_updates", "plane_geometry_rebuilds", "new_frame_count", "camera_image_count", "image_not_yet_available", "image_timestamp_mismatches", "image_timestamp_far_count", "timestamp_regressions", "projection_form_samples", "display_transform_samples", "packets_published", "packets_presented", "textures_updated", "pause_count", "resume_count", "reset_count", "stale_tracker_count", "image_resource_exhausted", "image_deadline_exceeded"}) diagnostics[key] = int64_t(0);
 	for (const char *key : {"image_timestamp_delta_min_ns", "image_timestamp_delta_max_ns", "image_timestamp_delta_mean_ns"}) diagnostics.erase(key);
 	diagnostics["arcore_sdk_version"] = "1.56.0";
 	diagnostics["renderer"] = String(ProjectSettings::get_singleton()->get_setting_with_override("rendering/renderer/rendering_method")) + "/" + rd->get_device_name();
@@ -111,7 +117,6 @@ bool ARCoreInterface::_initialize() {
 	diagnostics["projection_form_valid"] = true;
 	diagnostics["display_transform_valid"] = true;
 	diagnostics["last_error"] = "";
-	diagnostics["mean_y"] = 0.0;
 	detect_gpu_camera();
 	std::string error;
 	if (!api.load(error)) {
@@ -132,6 +137,7 @@ bool ARCoreInterface::_initialize() {
 	reset_tick = tick_usec();
 	set_primary(true);
 	arcore_bridge_set_owner(this);
+	plugin->call("requestSession");
 	call_deferred("emit_signal", "session_state_changed", int(state));
 	call_deferred("emit_signal", "session_generation_changed", generation);
 	bridge_changed();
@@ -164,6 +170,11 @@ void ARCoreInterface::bridge_changed() {
 	diagnostics["arcore_apk_version"] = String(bridge.apk_version.c_str());
 	const bool new_status = bridge_history_size < bridge.state_history.size();
 	for (; bridge_history_size < bridge.state_history.size(); ++bridge_history_size) state_history.append(bridge.state_history[bridge_history_size]);
+	if (suspended) {
+		pause_session();
+		set_state(PocketAR::PAUSED);
+		return;
+	}
 	if (new_status && bridge.state == PocketAR::READY && state != PocketAR::TRACKING && state != PocketAR::INITIALIZING) set_state(application_suspended ? PocketAR::PAUSED : PocketAR::READY);
 	if (!bridge.resumed || application_suspended || bridge.state != PocketAR::READY) {
 		pause_session();
@@ -204,22 +215,16 @@ bool ARCoreInterface::choose_camera_config() {
 	int32_t count = 0;
 	api.ArCameraConfigList_getSize(session, list, &count);
 	Array available;
-	int selected = -1;
-	int64_t best_area = -1, best_gpu_area = INT64_MAX;
+	std::vector<pocketar::CameraFormat> formats;
 	for (int i = 0; i < count; ++i) {
 		api.ArCameraConfigList_getItem(session, list, i, candidate);
 		Dictionary item = camera_config_values(api, session, candidate);
 		item["index"] = i;
 		const int w = item["cpu_width"], h = item["cpu_height"], tw = item["texture_width"], th = item["texture_height"];
 		available.append(item);
-		const int64_t area = int64_t(w) * h, texture_area = int64_t(tw) * th;
-		const bool aspect_matches = int64_t(w) * th == int64_t(tw) * h;
-		const bool prefer_gpu = gpu_texture.is_valid();
-		if ((prefer_gpu && (selected < 0 || texture_area > best_gpu_area || (texture_area == best_gpu_area && area < best_area))) ||
-			(!prefer_gpu && aspect_matches && (area > best_area || (area == best_area && texture_area < best_gpu_area)))) {
-			selected = i; best_area = area; best_gpu_area = texture_area;
-		}
+		formats.push_back({ w, h, tw, th, int(item["fps_max"]) });
 	}
+	int selected = pocketar::select_android_format(formats, pocketar::CameraQuality(camera_quality), gpu_texture.is_valid());
 	if (camera_config_index >= 0) selected = camera_config_index < count ? camera_config_index : -1;
 	diagnostics["config_list"] = available;
 	ArStatus status = AR_ERROR_UNSUPPORTED_CONFIGURATION;
@@ -238,7 +243,7 @@ bool ARCoreInterface::choose_camera_config() {
 	api.ArCameraConfigList_destroy(list);
 	api.ArCameraConfigFilter_destroy(filter);
 	if (status != AR_SUCCESS) { fail(status, "camera config"); return false; }
-	UtilityFunctions::print("ARCORE config_count=", available.size(), " selected=", selected, " selection=", camera_config_index >= 0 ? "explicit" : gpu_texture.is_valid() ? "largest_gpu" : "largest_cpu", " cpu=", cpu_size, " gpu=", gpu_size, " details=diagnostics.json");
+	UtilityFunctions::print("ARCORE config_count=", available.size(), " selected=", selected, " selection=", camera_config_index >= 0 ? "explicit" : "quality", " cpu=", cpu_size, " gpu=", gpu_size, " details=diagnostics.json");
 	return true;
 }
 
@@ -255,6 +260,7 @@ void ARCoreInterface::refresh_camera_config() {
 }
 
 bool ARCoreInterface::create_session() {
+	if (suspended) { set_state(PocketAR::PAUSED); return false; }
 	const auto bridge = arcore_bridge_snapshot();
 	if (bridge.state != PocketAR::READY) {
 		set_state(PocketAR::SessionState(bridge.state));
@@ -307,7 +313,7 @@ bool ARCoreInterface::create_session() {
 }
 
 void ARCoreInterface::resume_session() {
-	if (!session || running || application_suspended) return;
+	if (!session || running || application_suspended || suspended) return;
 	const auto bridge = arcore_bridge_snapshot();
 	if (bridge.state != PocketAR::READY || !bridge.resumed) return;
 	const uint64_t start = tick_usec();
@@ -352,6 +358,7 @@ void ARCoreInterface::clear_planes() {
 		api.ArTrackable_release(reinterpret_cast<ArTrackable *>(item.first));
 	}
 	planes.clear();
+	pending_planes.clear();
 	if (changed) call_deferred("emit_signal", "planes_changed");
 }
 
@@ -433,6 +440,28 @@ void ARCoreInterface::start_playback(const String &p_uri) {
 	playback_dataset = p_uri;
 	reset();
 }
+void ARCoreInterface::set_suspended(bool p_suspended) {
+	ERR_FAIL_COND(initialized && !on_owner_thread());
+	if (suspended == p_suspended) return;
+	suspended = p_suspended;
+	if (!initialized) return;
+	if (suspended) {
+		pause_session();
+		current_packet.unref(); presented_packet.unref();
+		head->invalidate_pose("default");
+		tracking_status = XR_NOT_TRACKING;
+		set_state(PocketAR::PAUSED);
+	} else bridge_changed();
+}
+
+void ARCoreInterface::set_camera_quality(PocketAR::CameraQuality p_quality) {
+	ERR_FAIL_COND(p_quality < PocketAR::HIGHEST || p_quality > PocketAR::LOWEST);
+	ERR_FAIL_COND(initialized && !on_owner_thread());
+	if (camera_quality == p_quality) return;
+	camera_quality = p_quality;
+	if (session && camera_config_index < 0) reset();
+}
+
 void ARCoreInterface::set_camera_config_index(int p_index) {
 	ERR_FAIL_COND(p_index < -1);
 	if (camera_config_index == p_index) return;
@@ -485,6 +514,7 @@ void ARCoreInterface::mark_applied(const Ref<ARFramePacket> &p_packet) {
 	applied_packet = p_packet;
 }
 void ARCoreInterface::mark_presented() {
+	if (suspended || application_suspended) return;
 #ifdef DEBUG_ENABLED
 	if (debug_plane.presentation_paused()) { presented_packet.unref(); return; }
 #endif
@@ -510,9 +540,17 @@ ARCoreInterface::TextureSlot *ARCoreInterface::find_texture_slot() {
 	}
 	return nullptr;
 }
+void ARCoreInterface::set_diagnostics_enabled(bool p_enabled) {
+	ERR_FAIL_COND(initialized && !on_owner_thread());
+	diagnostics_enabled = p_enabled;
+}
+
 Dictionary ARCoreInterface::get_diagnostics() const {
 	Dictionary result = diagnostics.duplicate(true);
+	result["diagnostics_enabled"] = diagnostics_enabled;
 	result["plane_finding_mode"] = int(plane_finding_mode);
+	result["camera_quality"] = int(camera_quality);
+	result["suspended"] = suspended;
 	result["extras"] = extras.diagnostics();
 	Dictionary measured = timings.duplicate(true);
 	measured["destroy"] = destroy_stats->last_usec.load() / 1000.0;

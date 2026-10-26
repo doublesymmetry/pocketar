@@ -92,6 +92,22 @@ func _initialize() -> void:
 		harness.observed = data
 		check_level(harness, "FAIL", "invalid GPU comparison: " + str(invalid))
 	harness.free()
+	var ios: Node = load("res://ar/ios_ar_harness.gd").new() as Node
+	var oracle_values: Dictionary = {
+		"packets_published": 10, "diagnostic_samples": 0,
+		"projection_form_valid": true, "native_depth_zero_to_one": true,
+		"projection_near_far_error": 0.0, "projection_core_error_px": 0.1,
+		"pose_error": 0.00001, "orientations_seen": [0], "projection_aspect_mismatch_count": 0,
+		"display_transform_valid": true, "display_transform_error_px": 0.1,
+	}
+	ios.set("observed", oracle_values)
+	for method: StringName in [&"_projection", &"_display_transform"]:
+		for samples: int in [0, 10]:
+			oracle_values["diagnostic_samples"] = samples
+			ios.set("failed", false)
+			ios.call(method)
+			_check(bool(ios.get("failed")) == (samples == 0), "%s requires collected oracle samples" % method)
+	ios.free()
 	for prefix: String in ["HARNESS STEP camera-image OK ", "ARCORE DIAGNOSTICS "]:
 		for payload: String in ["a".repeat(900), "🙂".repeat(500), "a\nb\rc", "short"]:
 			var line: String = HarnessLog.format_line(prefix + payload)

@@ -16,7 +16,9 @@ run test_debug_plane -DDEBUG_ENABLED "${cpp_flags[@]}" tests/native/test_debug_p
 run test_projection "${cpp_flags[@]}" tests/native/test_projection.cpp src/core/projection.cpp "$cpp_archive"
 run test_plane_raycast "${cpp_flags[@]}" tests/native/test_plane_raycast.cpp src/core/ar_plane_geometry.cpp "$cpp_archive"
 run test_arkit_math "${cpp_flags[@]}" tests/native/test_arkit_math.cpp src/core/projection.cpp "$cpp_archive"
+run test_camera_quality tests/native/test_camera_quality.cpp
 run test_import_retirement tests/native/test_import_retirement.cpp
+run test_timing_samples tests/native/test_timing_samples.cpp
 run test_yuv tests/native/test_yuv.cpp
 run test_gpu_camera tests/native/test_gpu_camera.cpp
 run test_scripted_session tests/native/test_scripted_session.cpp src/core/scripted_session.cpp

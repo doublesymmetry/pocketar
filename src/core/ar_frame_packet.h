@@ -6,6 +6,7 @@
 #include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
+#include <memory>
 #include <vector>
 
 namespace godot {
@@ -16,7 +17,7 @@ class ScriptedARInterface;
 class ARCoreInterface;
 class ARKitInterface;
 
-// Copied values outlive presentation; native camera textures are valid only while current or presented.
+// Values are copied; native texture Refs do not archive images, and the GPU texture can change before presentation.
 class ARFramePacket : public RefCounted {
 	GDCLASS(ARFramePacket, RefCounted)
 	friend class SimulatedARInterface;
@@ -43,6 +44,8 @@ class ARFramePacket : public RefCounted {
 	ARIntrinsics intrinsics;
 	int quarter_turns = 0;
 	std::vector<ARPlaneSnapshot> planes;
+	mutable std::shared_ptr<TypedArray<Dictionary>> plane_values;
+	void reuse_plane_values(const Ref<ARFramePacket> &p_previous);
 
 protected:
 	static void _bind_methods();

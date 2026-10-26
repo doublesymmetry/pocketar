@@ -34,9 +34,11 @@ ARPlaneTracker::ARPlaneTracker() {
 }
 
 void ARPlaneTracker::update(const ARPlaneSnapshot &p_snapshot) {
+	if (snapshot == p_snapshot) return;
+	if (snapshot.plane_id != p_snapshot.plane_id || snapshot.session_generation != p_snapshot.session_generation) {
+		set_tracker_name("pocketar/plane/" + String::num_int64(p_snapshot.session_generation) + "/" + String::num_int64(p_snapshot.plane_id));
+	}
 	snapshot = p_snapshot;
-	snapshot.polygon = p_snapshot.polygon.duplicate();
-	set_tracker_name("pocketar/plane/" + String::num_int64(snapshot.session_generation) + "/" + String::num_int64(snapshot.plane_id));
 	if (snapshot.tracking_state == TRACKING) {
 		set_pose("default", snapshot.transform, Vector3(), Vector3(), XRPose::XR_TRACKING_CONFIDENCE_HIGH);
 	} else {

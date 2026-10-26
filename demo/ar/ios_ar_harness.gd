@@ -45,6 +45,7 @@ func _ready() -> void:
 		_step("arkit-session", "FAIL", "ARKitInterface unavailable")
 		_finish()
 		return
+	view.interface.call("set_diagnostics_enabled", true)
 	Engine.max_fps = 60
 	view.packet_applied.connect(_observe_anchor_ids)
 	get_tree().create_timer(timeout_seconds).timeout.connect(_timeout)
@@ -129,18 +130,18 @@ func _camera_image() -> void:
 
 
 func _projection() -> void:
-	if not _require("projection-form", observed, ["projection_form_valid", "packets_published", "projection_near_far_error", "projection_core_error_px", "orientations_seen", "projection_aspect_mismatch_count", "pose_error", "native_depth_zero_to_one"]):
+	if not _require("projection-form", observed, ["projection_form_valid", "diagnostic_samples", "projection_near_far_error", "projection_core_error_px", "orientations_seen", "projection_aspect_mismatch_count", "pose_error", "native_depth_zero_to_one"]):
 		return
-	var ok: bool = bool(observed["projection_form_valid"]) and int(observed["packets_published"]) > 0 and bool(observed["native_depth_zero_to_one"])
+	var ok: bool = bool(observed["projection_form_valid"]) and int(observed["diagnostic_samples"]) > 0 and bool(observed["native_depth_zero_to_one"])
 	ok = ok and _bounded(observed["projection_near_far_error"], 0.0001) and _bounded(observed["projection_core_error_px"], 0.25) and _bounded(observed["pose_error"], 0.0001)
-	_step("projection-form", "OK" if ok else "FAIL", "samples=%s near_far_error=%s core_error_px=%s pose_error=%s orientations=%s aspect_mismatches=%s" % [observed["packets_published"], observed["projection_near_far_error"], observed["projection_core_error_px"], observed["pose_error"], observed.get("orientations_seen"), observed.get("projection_aspect_mismatch_count")])
+	_step("projection-form", "OK" if ok else "FAIL", "samples=%s near_far_error=%s core_error_px=%s pose_error=%s orientations=%s aspect_mismatches=%s" % [observed["diagnostic_samples"], observed["projection_near_far_error"], observed["projection_core_error_px"], observed["pose_error"], observed.get("orientations_seen"), observed.get("projection_aspect_mismatch_count")])
 
 
 func _display_transform() -> void:
-	if not _require("display-transform", observed, ["display_transform_valid", "packets_published", "display_transform_error_px"]):
+	if not _require("display-transform", observed, ["display_transform_valid", "diagnostic_samples", "display_transform_error_px"]):
 		return
-	var ok: bool = bool(observed["display_transform_valid"]) and int(observed["packets_published"]) > 0 and _bounded(observed["display_transform_error_px"], 0.5)
-	_step("display-transform", "OK" if ok else "FAIL", "samples=%s error_px=%s" % [observed["packets_published"], observed["display_transform_error_px"]])
+	var ok: bool = bool(observed["display_transform_valid"]) and int(observed["diagnostic_samples"]) > 0 and _bounded(observed["display_transform_error_px"], 0.5)
+	_step("display-transform", "OK" if ok else "FAIL", "samples=%s error_px=%s" % [observed["diagnostic_samples"], observed["display_transform_error_px"]])
 
 
 func _bounded(value: Variant, limit: float) -> bool:

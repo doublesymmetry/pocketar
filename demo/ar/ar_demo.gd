@@ -27,6 +27,7 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 	view = AR_VIEW.instantiate() as ARView
+	view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 	var composition_index: int = args.find("-harness-composition")
 	if composition_index >= 0:
 		if composition_index + 1 >= args.size() or args[composition_index + 1] not in ["in-scene", "isolated-camera"]:
@@ -34,9 +35,9 @@ func _ready() -> void:
 		else:
 			view.composition = ARView.Composition.ISOLATED_CAMERA if args[composition_index + 1] == "isolated-camera" else ARView.Composition.IN_SCENE
 	view.handle_presses = true
-	view.backend = 2 if OS.get_name() == "iOS" else (1 if OS.get_name() == "Android" else 0)
+	view.backend = ARView.Backend.ARKIT if OS.get_name() == "iOS" else (ARView.Backend.ARCORE if OS.get_name() == "Android" else ARView.Backend.SYNTHETIC)
 	var path_index: int = args.find("-harness-camera-path")
-	if view.backend == 1 and ClassDB.class_exists("ARCoreInterface"):
+	if view.backend == ARView.Backend.ARCORE and ClassDB.class_exists("ARCoreInterface"):
 		view.interface = ClassDB.instantiate("ARCoreInterface") as XRInterfaceExtension
 		if path_index >= 0:
 			if path_index + 1 >= args.size() or args[path_index + 1] not in ["auto", "cpu"]:
@@ -52,7 +53,7 @@ func _ready() -> void:
 	if config_index >= 0:
 		if config_index + 1 >= args.size() or not args[config_index + 1].is_valid_int() or args[config_index + 1].to_int() < 0:
 			dataset_error = "camera config must be a nonnegative integer"
-		elif view.backend == 1 and ClassDB.class_exists("ARCoreInterface"):
+		elif view.backend == ARView.Backend.ARCORE and ClassDB.class_exists("ARCoreInterface"):
 			view.interface.call("set_camera_config_index", args[config_index + 1].to_int())
 		else:
 			dataset_error = "camera config requires ARCore on Android"

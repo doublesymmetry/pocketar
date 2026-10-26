@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="ARRaycastHit" inherits="RefCounted" api_type="extension" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Copied intersection with a detected plane polygon.
+	</brief_description>
+	<description>
+		Returned nearest first by ARView.raycast or [method PocketAR.raycast_planes]. Only tracking, unsubsumed polygon front faces are intersected. Hit values remain readable after later frames; they do not track subsequent plane motion or create an anchor. Discard identities when the session generation changes.
+	</description>
+	<members>
+		<member name="alignment" type="int" setter="" getter="get_alignment" default="0">
+			Plane alignment as an [enum ARPlaneTracker.Alignment] ordinal, not a mask bit.
+		</member>
+		<member name="distance" type="float" setter="" getter="get_distance" default="0.0">
+			Distance in metres from the ray origin. ARView rays start on the near plane, not at the camera centre.
+		</member>
+		<member name="frame_id" type="int" setter="" getter="get_frame_id" default="0">
+			Frame ID of the packet used for this intersection.
+		</member>
+		<member name="plane_id" type="int" setter="" getter="get_plane_id" default="0">
+			Opaque plane identity within [member session_generation].
+		</member>
+		<member name="pose" type="Transform3D" setter="" getter="get_pose" default="Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)">
+			World-space hit transform in metres. +Y follows the plane normal; +Z points toward the incoming ray projected on the plane, using the plane +Z for a perpendicular ray.
+		</member>
+		<member name="session_generation" type="int" setter="" getter="get_session_generation" default="0">
+			Generation of the packet used for this intersection.
+		</member>
+	</members>
+</class>

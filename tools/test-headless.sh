@@ -12,7 +12,7 @@ run() {
     fi
     rg -q 'PASS' "$log"
 }
-for name in packet_smoke ios_harness_args pocketar_args scripted_clock scripted_suite plane_finding session_facade session_reentrancy debug_plane; do
+for name in packet_smoke ios_harness_args pocketar_args scripted_clock scripted_suite plane_finding plane_cache visualizer_activity session_activity session_facade session_reentrancy debug_plane; do
     run "$name" --script "$PWD/tests/headless/$name.gd"
 done
 run ar_view_smoke --script "$PWD/tests/tools/ar_view_smoke.gd"

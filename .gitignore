@@ -16,5 +16,6 @@ local.properties
 /android/build/
 /android/plugin/build/
 /demo/android/
+/samples/*/android/
 /demo/addons/*/bin/
 __pycache__/

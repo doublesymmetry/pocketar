@@ -22,7 +22,7 @@ void ARCoreInterface::_process() {
 	if (!initialized) return;
 	ERR_FAIL_COND(!on_owner_thread());
 	bridge_changed();
-	if (!session || !running || application_suspended || state == PocketAR::FAILED || state == PocketAR::UNSUPPORTED || state == PocketAR::PERMISSION_DENIED) return;
+	if (!session || !running || application_suspended || suspended || state == PocketAR::FAILED || state == PocketAR::UNSUPPORTED || state == PocketAR::PERMISSION_DENIED) return;
 	const auto bridge = arcore_bridge_snapshot();
 	if (!bridge.resumed || bridge.state != PocketAR::READY) return;
 	if (frame_setup_swap != rd_swaps) {
@@ -58,6 +58,7 @@ void ARCoreInterface::_process() {
 		return;
 	}
 	increment("successful_updates");
+	refresh_planes();
 	extras.on_tick(frame);
 	int64_t timestamp = 0;
 	api.ArFrame_getTimestamp(session, frame, &timestamp);
@@ -146,14 +147,13 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	float matrix[16];
 	api.ArCamera_getProjectionMatrix(session, camera, 0.05f, 100.0f, matrix);
 	for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r) packet->projection[c][r] = matrix[c * 4 + r];
-	inspect_projection(camera, matrix);
+	if (diagnostics_enabled) inspect_projection(camera, matrix);
 	inspect_intrinsics(camera, **packet);
 	api.ArCamera_release(camera);
 	const float corners[] = {0,0, 1,0, 0,1, 1,1};
 	float mapped[8];
-	api.ArFrame_transformCoordinates2d(session, frame, AR_COORDINATES_2D_VIEW_NORMALIZED, 4, corners, AR_COORDINATES_2D_IMAGE_NORMALIZED, mapped);
-	const Transform2D cpu_display_transform(Vector2(mapped[2] - mapped[0], mapped[3] - mapped[1]), Vector2(mapped[4] - mapped[0], mapped[5] - mapped[1]), Vector2(mapped[0], mapped[1]));
-	if (gpu_active) api.ArFrame_transformCoordinates2d(session, frame, AR_COORDINATES_2D_VIEW_NORMALIZED, 4, corners, AR_COORDINATES_2D_TEXTURE_NORMALIZED, mapped);
+	api.ArFrame_transformCoordinates2d(session, frame, AR_COORDINATES_2D_VIEW_NORMALIZED, 4, corners, gpu_active ? AR_COORDINATES_2D_TEXTURE_NORMALIZED : AR_COORDINATES_2D_IMAGE_NORMALIZED, mapped);
+	Transform2D cpu_display_transform(Vector2(mapped[2] - mapped[0], mapped[3] - mapped[1]), Vector2(mapped[4] - mapped[0], mapped[5] - mapped[1]), Vector2(mapped[0], mapped[1]));
 	const Vector2 origin(mapped[0], mapped[1]);
 	const Vector2 x = Vector2(mapped[2], mapped[3]) - origin, y = Vector2(mapped[4], mapped[5]) - origin;
 	bool affine = (origin + x + y).distance_to(Vector2(mapped[6], mapped[7])) <= 1e-4;
@@ -162,6 +162,10 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	diagnostics["display_transform_valid"] = bool(diagnostics["display_transform_valid"]) && affine && inside;
 	increment("display_transform_samples");
 	packet->display_transform = Transform2D(x, y, origin);
+	if (gpu_active && diagnostics_enabled) {
+		api.ArFrame_transformCoordinates2d(session, frame, AR_COORDINATES_2D_VIEW_NORMALIZED, 4, corners, AR_COORDINATES_2D_IMAGE_NORMALIZED, mapped);
+		cpu_display_transform = Transform2D(Vector2(mapped[2] - mapped[0], mapped[3] - mapped[1]), Vector2(mapped[4] - mapped[0], mapped[5] - mapped[1]), Vector2(mapped[0], mapped[1]));
+	}
 	packet->quarter_turns = rotation;
 	packet->viewport_size = viewport_size;
 	int32_t width = 0, height = 0;
@@ -199,16 +203,12 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		}
 		const uint64_t copy_start = tick_usec();
 		pocketar::ImagePlane image_planes[3];
-		Array strides;
 		for (int i = 0; i < 3; ++i) {
 			int32_t length = 0;
 			api.ArImage_getPlaneData(session, image, i, &image_planes[i].data, &length);
 			image_planes[i].length = std::max(0, length);
 			api.ArImage_getPlaneRowStride(session, image, i, &image_planes[i].row_stride);
 			api.ArImage_getPlanePixelStride(session, image, i, &image_planes[i].pixel_stride);
-			Dictionary plane;
-			plane["row_stride"] = image_planes[i].row_stride; plane["pixel_stride"] = image_planes[i].pixel_stride; plane["data_length"] = length;
-			strides.append(plane);
 		}
 		if (staging_size != Vector2i(width, height)) {
 			luma.resize(width * height);
@@ -220,83 +220,93 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		api.ArImage_release(image);
 		if (!repacked) { fail(AR_ERROR_FATAL, "camera image plane bounds"); return; }
 		repack_usec = tick_usec() - copy_start;
-		const uint64_t stats_start = tick_usec();
 		const String layout_name = layout == pocketar::YUVLayout::NV12 ? "NV12" : layout == pocketar::YUVLayout::NV21 ? "NV21" : "generic";
-		if (!diagnostics.has("image_plane_layout") || diagnostics["image_plane_layout"] != Variant(strides)) {
-			for (int i = 0; i < strides.size(); ++i) UtilityFunctions::print("ARCORE plane ", i, " ", strides[i], " layout=", layout_name);
-		}
-		diagnostics["image_plane_layout"] = strides;
 		diagnostics["image_layout"] = layout_name;
-		uint64_t sum = 0;
-		const uint8_t *pixels = luma.ptr();
-		for (int y = 0; y < height; y += 4) {
-			const uint8_t *row = pixels + size_t(y) * width;
-			for (int x = 0; x < width; x += 4) sum += row[x];
+		if (diagnostics_enabled) {
+			const uint64_t stats_start = tick_usec();
+			Array strides;
+			for (const auto &image_plane : image_planes) {
+				Dictionary plane;
+				plane["row_stride"] = image_plane.row_stride; plane["pixel_stride"] = image_plane.pixel_stride; plane["data_length"] = int64_t(image_plane.length);
+				strides.append(plane);
+			}
+			if (!diagnostics.has("image_plane_layout") || diagnostics["image_plane_layout"] != Variant(strides)) {
+				for (int i = 0; i < strides.size(); ++i) UtilityFunctions::print("ARCORE plane ", i, " ", strides[i], " layout=", layout_name);
+			}
+			diagnostics["image_plane_layout"] = strides;
+			uint64_t sum = 0;
+			const uint8_t *pixels = luma.ptr();
+			for (int y = 0; y < height; y += 4) {
+				const uint8_t *row = pixels + size_t(y) * width;
+				for (int x = 0; x < width; x += 4) sum += row[x];
+			}
+			diagnostics["mean_y"] = double(sum) / (((width + 3) / 4) * ((height + 3) / 4));
+			stats_usec = tick_usec() - stats_start;
 		}
-		diagnostics["mean_y"] = double(sum) / (((width + 3) / 4) * ((height + 3) / 4));
-		stats_usec = tick_usec() - stats_start;
 	}
 	const bool changed_planes = copy_planes(**packet);
-	const Transform3D camera_from_world = packet->physical_camera_transform.affine_inverse();
-	const Transform3D display_from_world = packet->camera_transform.affine_inverse();
-	const Transform2D image_to_view = cpu_display_transform.affine_inverse();
-	auto point_reprojection_error = [&](const Vector3 &p_world, double &r_error) {
-		if (!packet->tracking_valid) return false;
-		const Vector3 physical = camera_from_world.xform(p_world);
-		const Vector3 oriented = display_from_world.xform(p_world);
-		if (physical.z >= -0.05 || oriented.z >= -0.05) return false;
-		const ARIntrinsics &k = packet->intrinsics;
-		const Vector2 image_uv((k.fx * physical.x / -physical.z + k.cx) / k.image_size.x,
-			(k.cy - k.fy * physical.y / -physical.z) / k.image_size.y);
-		const Vector4 clip = packet->projection.xform(Vector4(oriented.x, oriented.y, oriented.z, 1));
-		const Vector2 projected((clip.x / clip.w + 1) * 0.5, (1 - clip.y / clip.w) * 0.5);
-		r_error = ((image_to_view.xform(image_uv) - projected) * Vector2(viewport_size)).length();
-		return std::isfinite(r_error);
-	};
-	double plane_reprojection_error = 0;
-	int plane_reprojection_samples = 0;
-	for (const auto &plane : packet->planes) {
-#ifdef DEBUG_ENABLED
-		if (plane.debug) continue;
-#endif
-		if (!packet->tracking_valid || plane.tracking_state != AR_TRACKING_STATE_TRACKING || plane.subsumed_by) continue;
-		for (int i = 0; i < plane.polygon.size(); ++i) {
-			const Vector2 vertex = plane.polygon[i];
-			const Vector3 world = plane.transform.xform(Vector3(vertex.x, 0, vertex.y));
-			double error = 0;
-			if (!point_reprojection_error(world, error)) continue;
-			plane_reprojection_error = std::max(plane_reprojection_error, error);
-			++plane_reprojection_samples;
-		}
-	}
-	if (plane_reprojection_samples) {
-		diagnostics["plane_reprojection_max_px"] = std::max(double(diagnostics.get("plane_reprojection_max_px", 0.0)), plane_reprojection_error);
-		increment("plane_reprojection_samples", plane_reprojection_samples);
-	}
 	std::map<int64_t, ArPlane *> native_planes;
 	for (const auto &plane : planes) native_planes.emplace(plane.second.id, plane.first);
 	extras.on_frame(frame, packet->frame_id, packet, native_planes);
-	double cloud_reprojection_error = 0;
-	int cloud_reprojection_samples = 0;
-	const PackedVector3Array points = extras.get_point_cloud().get("positions", PackedVector3Array());
-	for (int64_t i = 0; i < points.size(); i++) {
-		double error = 0;
-		if (!point_reprojection_error(points[i], error)) continue;
-		cloud_reprojection_error = std::max(cloud_reprojection_error, error);
-		cloud_reprojection_samples++;
-	}
-	if (cloud_reprojection_samples) {
-		diagnostics["point_cloud_reprojection_max_px"] = std::max(double(diagnostics.get("point_cloud_reprojection_max_px", 0.0)), cloud_reprojection_error);
-		increment("point_cloud_reprojection_samples", cloud_reprojection_samples);
-	}
-	const int reprojection_samples = plane_reprojection_samples + cloud_reprojection_samples;
-	if (reprojection_samples) {
-		diagnostics["projection_reprojection_max_px"] = std::max(double(diagnostics.get("projection_reprojection_max_px", 0.0)), std::max(plane_reprojection_error, cloud_reprojection_error));
-		increment("projection_reprojection_samples", reprojection_samples);
-		Dictionary rotations = diagnostics.get("projection_reprojection_rotation_samples", Dictionary());
-		const String key = String::num_int64(rotation);
-		rotations[key] = int64_t(rotations.get(key, 0)) + reprojection_samples;
-		diagnostics["projection_reprojection_rotation_samples"] = rotations;
+	if (diagnostics_enabled) {
+		const Transform3D camera_from_world = packet->physical_camera_transform.affine_inverse();
+		const Transform3D display_from_world = packet->camera_transform.affine_inverse();
+		const Transform2D image_to_view = cpu_display_transform.affine_inverse();
+		auto point_reprojection_error = [&](const Vector3 &p_world, double &r_error) {
+			if (!packet->tracking_valid) return false;
+			const Vector3 physical = camera_from_world.xform(p_world);
+			const Vector3 oriented = display_from_world.xform(p_world);
+			if (physical.z >= -0.05 || oriented.z >= -0.05) return false;
+			const ARIntrinsics &k = packet->intrinsics;
+			const Vector2 image_uv((k.fx * physical.x / -physical.z + k.cx) / k.image_size.x,
+				(k.cy - k.fy * physical.y / -physical.z) / k.image_size.y);
+			const Vector4 clip = packet->projection.xform(Vector4(oriented.x, oriented.y, oriented.z, 1));
+			const Vector2 projected((clip.x / clip.w + 1) * 0.5, (1 - clip.y / clip.w) * 0.5);
+			r_error = ((image_to_view.xform(image_uv) - projected) * Vector2(viewport_size)).length();
+			return std::isfinite(r_error);
+		};
+		double plane_reprojection_error = 0;
+		int plane_reprojection_samples = 0;
+		for (const auto &plane : packet->planes) {
+#ifdef DEBUG_ENABLED
+			if (plane.debug) continue;
+#endif
+			if (!packet->tracking_valid || plane.tracking_state != AR_TRACKING_STATE_TRACKING || plane.subsumed_by) continue;
+			for (int i = 0; i < plane.polygon.size(); ++i) {
+				const Vector2 vertex = plane.polygon[i];
+				const Vector3 world = plane.transform.xform(Vector3(vertex.x, 0, vertex.y));
+				double error = 0;
+				if (!point_reprojection_error(world, error)) continue;
+				plane_reprojection_error = std::max(plane_reprojection_error, error);
+				++plane_reprojection_samples;
+			}
+		}
+		if (plane_reprojection_samples) {
+			diagnostics["plane_reprojection_max_px"] = std::max(double(diagnostics.get("plane_reprojection_max_px", 0.0)), plane_reprojection_error);
+			increment("plane_reprojection_samples", plane_reprojection_samples);
+		}
+		double cloud_reprojection_error = 0;
+		int cloud_reprojection_samples = 0;
+		const PackedVector3Array points = extras.get_point_cloud().get("positions", PackedVector3Array());
+		for (int64_t i = 0; i < points.size(); i++) {
+			double error = 0;
+			if (!point_reprojection_error(points[i], error)) continue;
+			cloud_reprojection_error = std::max(cloud_reprojection_error, error);
+			cloud_reprojection_samples++;
+		}
+		if (cloud_reprojection_samples) {
+			diagnostics["point_cloud_reprojection_max_px"] = std::max(double(diagnostics.get("point_cloud_reprojection_max_px", 0.0)), cloud_reprojection_error);
+			increment("point_cloud_reprojection_samples", cloud_reprojection_samples);
+		}
+		const int reprojection_samples = plane_reprojection_samples + cloud_reprojection_samples;
+		if (reprojection_samples) {
+			diagnostics["projection_reprojection_max_px"] = std::max(double(diagnostics.get("projection_reprojection_max_px", 0.0)), std::max(plane_reprojection_error, cloud_reprojection_error));
+			increment("projection_reprojection_samples", reprojection_samples);
+			Dictionary rotations = diagnostics.get("projection_reprojection_rotation_samples", Dictionary());
+			const String key = String::num_int64(rotation);
+			rotations[key] = int64_t(rotations.get(key, 0)) + reprojection_samples;
+			diagnostics["projection_reprojection_rotation_samples"] = rotations;
+		}
 	}
 	if (gpu_active) {
 		packet->rgb_texture = gpu_texture;
@@ -323,7 +333,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		slot->last_use = rd_swaps;
 		increment("textures_updated");
 		sample_timing(repack_times, repack_cursor, double(repack_usec));
-		sample_timing(stats_times, stats_cursor, double(stats_usec));
+		if (diagnostics_enabled) sample_timing(stats_times, stats_cursor, double(stats_usec));
 		sample_timing(upload_times, upload_cursor, double(upload_usec));
 		sample_timing(repack_upload_times, repack_upload_cursor, double(repack_usec + stats_usec + upload_usec));
 	} else {
@@ -334,6 +344,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 			packet->image_size = current_packet->image_size;
 		}
 	}
+	packet->reuse_plane_values(current_packet);
 	current_packet = packet;
 	head->set_pose("default", last_good_pose, Vector3(), Vector3(), packet->tracking_valid ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_NONE);
 	increment("packets_published");
@@ -355,35 +366,44 @@ int64_t ARCoreInterface::ensure_plane(ArPlane *p_plane, bool p_acquired) {
 	snapshot.tracking_state = AR_TRACKING_STATE_PAUSED;
 	entry.tracker->update(snapshot);
 	XRServer::get_singleton()->add_tracker(entry.tracker);
+	entry.dirty = true;
 	planes.emplace(p_plane, entry);
+	pending_planes.push_back(p_plane);
 	return entry.id;
 }
 
-bool ARCoreInterface::copy_planes(ARFramePacket &r_packet) {
-	api.ArSession_getAllTrackables(session, AR_TRACKABLE_PLANE, trackable_list);
+void ARCoreInterface::refresh_planes() {
+	api.ArFrame_getUpdatedTrackables(session, frame, AR_TRACKABLE_PLANE, trackable_list);
 	int32_t count = 0;
 	api.ArTrackableList_getSize(session, trackable_list, &count);
 	for (int i = 0; i < count; ++i) {
 		ArTrackable *trackable = nullptr;
 		api.ArTrackableList_acquireItem(session, trackable_list, i, &trackable);
+		ArPlane *plane = reinterpret_cast<ArPlane *>(trackable);
 		ArTrackingState state;
 		api.ArTrackable_getTrackingState(session, trackable, &state);
-		if (state == AR_TRACKING_STATE_STOPPED && planes.find(reinterpret_cast<ArPlane *>(trackable)) == planes.end()) {
+		if (state == AR_TRACKING_STATE_STOPPED && planes.find(plane) == planes.end()) {
 			api.ArTrackable_release(trackable);
-		} else ensure_plane(reinterpret_cast<ArPlane *>(trackable), true);
+			continue;
+		}
+		ensure_plane(plane, true);
+		auto &entry = planes.at(plane);
+		if (!entry.dirty) { entry.dirty = true; pending_planes.push_back(plane); }
 	}
-	for (auto it = planes.begin(); it != planes.end();) {
-		ArPlane *plane = it->first;
+	for (size_t i = 0; i < pending_planes.size(); ++i) {
+		ArPlane *plane = pending_planes[i];
+		auto found = planes.find(plane);
+		ARPlaneSnapshot snapshot = found->second.tracker->get_snapshot();
 		ArTrackingState tracking;
 		api.ArTrackable_getTrackingState(session, reinterpret_cast<ArTrackable *>(plane), &tracking);
 		if (tracking == AR_TRACKING_STATE_STOPPED) {
-			XRServer::get_singleton()->remove_tracker(it->second.tracker);
+			XRServer::get_singleton()->remove_tracker(found->second.tracker);
 			api.ArTrackable_release(reinterpret_cast<ArTrackable *>(plane));
-			it = planes.erase(it);
+			planes.erase(found);
 			continue;
 		}
-		ARPlaneSnapshot snapshot;
-		snapshot.session_generation = generation; snapshot.plane_id = it->second.id; snapshot.tracking_state = tracking;
+		found->second.dirty = false;
+		snapshot.tracking_state = tracking;
 		ArPlaneType type;
 		api.ArPlane_getType(session, plane, &type); snapshot.alignment = type;
 		api.ArPlane_getCenterPose(session, plane, scratch_pose); snapshot.transform = read_pose();
@@ -392,19 +412,28 @@ bool ARCoreInterface::copy_planes(ARFramePacket &r_packet) {
 		snapshot.extents = Vector2(extent_x, extent_z);
 		int32_t polygon_size = 0;
 		api.ArPlane_getPolygonSize(session, plane, &polygon_size);
-		if (polygon_size >= 6 && polygon_size % 2 == 0) {
-			std::vector<float> polygon(polygon_size);
-			api.ArPlane_getPolygon(session, plane, polygon.data());
+		if (polygon_size < 6 || polygon_size % 2) polygon_size = 0;
+		plane_polygon.resize(polygon_size);
+		if (polygon_size) api.ArPlane_getPolygon(session, plane, plane_polygon.data());
+		bool same_polygon = snapshot.polygon.size() == polygon_size / 2;
+		for (int v = 0; same_polygon && v < polygon_size / 2; ++v) same_polygon = snapshot.polygon.get(v) == Vector2(plane_polygon[2 * v], plane_polygon[2 * v + 1]);
+		if (!same_polygon) {
+			snapshot.polygon = PackedVector2Array();
 			snapshot.polygon.resize(polygon_size / 2);
-			for (int v = 0; v < polygon_size / 2; ++v) snapshot.polygon[v] = Vector2(polygon[2*v], polygon[2*v+1]);
+			for (int v = 0; v < polygon_size / 2; ++v) snapshot.polygon[v] = Vector2(plane_polygon[2 * v], plane_polygon[2 * v + 1]);
+			increment("plane_geometry_rebuilds");
 		}
 		ArPlane *parent = nullptr;
 		api.ArPlane_acquireSubsumedBy(session, plane, &parent);
-		if (parent) snapshot.subsumed_by = ensure_plane(parent, true);
-		it->second.tracker->update(snapshot);
-		r_packet.planes.push_back(snapshot);
-		++it;
+		snapshot.subsumed_by = parent ? ensure_plane(parent, true) : 0;
+		found->second.tracker->update(snapshot);
+		increment("plane_updates");
 	}
+	pending_planes.clear();
+}
+
+bool ARCoreInterface::copy_planes(ARFramePacket &r_packet) {
+	for (const auto &entry : planes) r_packet.planes.push_back(entry.second.tracker->get_snapshot());
 #ifdef DEBUG_ENABLED
 	debug_plane.merge(r_packet.planes, generation, r_packet.tracking_valid && state == PocketAR::TRACKING);
 #endif

@@ -27,9 +27,9 @@ bool SyntheticARInterface::_initialize() {
 #endif
 	generation = next_ar_id();
 	sequence = 0;
-	make_packet(Time::get_singleton()->get_ticks_usec());
+	if (!is_paused()) make_packet(Time::get_singleton()->get_ticks_usec());
 	call_deferred("emit_signal", "session_generation_changed", generation);
-	call_deferred("emit_signal", "session_state_changed", PocketAR::TRACKING);
+	call_deferred("emit_signal", "session_state_changed", get_session_state());
 	return true;
 }
 
@@ -40,8 +40,9 @@ void SyntheticARInterface::reset() {
 #endif
 	generation = next_ar_id();
 	sequence = 0;
+	current_packet.unref();
 	presented_packet.unref();
-	make_packet(Time::get_singleton()->get_ticks_usec());
+	if (!is_paused()) make_packet(Time::get_singleton()->get_ticks_usec());
 	call_deferred("emit_signal", "session_generation_changed", generation);
 }
 
@@ -74,7 +75,19 @@ void SyntheticARInterface::set_frame_id_pose(bool p_enabled) {
 	frame_id_pose = p_enabled;
 }
 
+void SyntheticARInterface::activity_changed() {
+	if (is_paused()) {
+#ifdef DEBUG_ENABLED
+		debug_plane.pause();
+#endif
+		current_packet.unref(); presented_packet.unref();
+		head->invalidate_pose("default");
+	} else geometry_dirty = true;
+	call_deferred("emit_signal", "session_state_changed", get_session_state());
+}
+
 void SyntheticARInterface::_process() {
+	if (!initialized || is_paused()) return;
 	const uint64_t tick = Time::get_singleton()->get_ticks_usec();
 	if (geometry_dirty || tick - last_tick >= uint64_t(1000000.0 / camera_rate)) {
 		make_packet(tick);
@@ -102,6 +115,7 @@ void SyntheticARInterface::make_packet(uint64_t p_tick) {
 #ifdef DEBUG_ENABLED
 	publish_debug_plane(packet, true);
 #endif
+	packet->reuse_plane_values(current_packet);
 	current_packet = packet;
 	head->set_pose("default", packet->camera_transform, Vector3(), Vector3(), XRPose::XR_TRACKING_CONFIDENCE_HIGH);
 }

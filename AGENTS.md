@@ -58,7 +58,7 @@ avoid the shell builtin with the same name.
 | Headless packet, facade, scripted, arguments, exporter and thread tests | `tools/test-headless.sh` |
 | ARCore native lifecycle/status, GPU completion lifetime and query/recording fixtures | `TMPDIR=/tmp tools/test-arcore.sh` |
 | All Python tool tests | `python3 -m unittest discover -s tests/tools` |
-| Kotlin launch argument tests | `cd android && ./gradlew :plugin:testDebugUnitTest` |
+| Kotlin launch argument and AR request tests | `cd android && ./gradlew :plugin:testDebugUnitTest` |
 | Generate landscape fixture | `python3 tools/fixtures.py --output demo/harness/fixtures/table.jsonl --loss-at 1 --reset-at 1.5 --pause-at 1.75 --tap-at 0.6 --drag-to 0.1 -0.7 -2 --plane-examples` |
 | Generate portrait fixture | Use the preceding command with `--output demo/harness/fixtures/table-portrait.jsonl --view-size 1080 1920` |
 
@@ -92,6 +92,7 @@ settings/cache or reading system certificates are separate from script errors.
 - `demo/addons/pocketar/`: ARView, shaders, extension descriptor, plane visualizer and editor export plugin.
 - `demo/addons/pocketar/bin/`: generated libraries, XCFrameworks and AARs; ignored by Git.
 - `demo/harness/`: rendering assertions and scripted replay fixtures.
+- `samples/tap_to_place/`: standalone game example, with relative symlinks to the addon and desktop table fixture.
 - `android/`: Godot v2 Kotlin plugin and AAR Gradle project.
 - `tests/native/`: standalone C++ numerical, resource and fixture parser tests.
 - `tests/headless/`: GDScript suites and mocked native ARCore fixtures.
@@ -313,8 +314,14 @@ native interface name is `PocketARCore`. The Kotlin singleton is
 `PocketARPlugin`; `PocketAR` remains the shared native raycast API.
 
 ARCore uses SDK 1.56.0, requires Google Play Services for AR 1.48 or newer, and logs
-its installed APK version. Kotlin checks availability and installation on Android's
-UI thread and requests CAMERA permission. Native code starts only after the JNI
+its installed APK version. Kotlin checks availability asynchronously without prompts
+at startup. ARCoreInterface initialization calls `PocketARPlugin.requestSession()`;
+games can also call it explicitly for setup or retry. Installation and CAMERA
+permission requests run on Android's UI thread only after that request, including
+on subsequent resumes. Denials expose NEEDS_INSTALL or PERMISSION_DENIED; resuming
+alone does not retry denied prompts. `reset()` only resets the native session.
+The tap-to-place sample creates its ARView from Start AR and offers Retry setup;
+repeated camera denials may require app settings. Native code starts only after the JNI
 bridge reports installation and permission. CAMERA permission denial is exposed,
 including denial after an app-settings change. The demo exports as AR Optional;
 set the Android export option `pocketar/ar_required` to add the AR hardware
@@ -329,8 +336,8 @@ application Context global references, never a JNIEnv. Session destroy
 is the exception: a JVM-attached worker owns the bare paused session after every
 other native reference has been released. Shutdown never waits for destroy.
 
-The config explicitly uses EXPOSE_HARDWARE_BUFFER, LATEST_CAMERA_IMAGE, horizontal
-and vertical planes by default, auto focus and disabled light estimation. Depth, instant
+The config explicitly uses EXPOSE_HARDWARE_BUFFER, LATEST_CAMERA_IMAGE, plane
+discovery disabled by default, auto focus and disabled light estimation. Depth, instant
 placement, cloud/geospatial anchors, semantics, faces, stabilization and streetscape
 geometry keep the SDK's disabled defaults. CPU camera selection uses a
 non-null back-camera/30fps/no-depth/no-stereo filter, largest matching-aspect CPU
@@ -491,7 +498,7 @@ fallback; ordinary CPU runs report `gpu-vs-cpu INFO`.
 
 ## ARKit backend and iPhone diagnostics
 
-`ARKitInterface` (`PocketARKit`) is the iOS Metal backend. `ARView.backend = 2`
+`ARKitInterface` (`PocketARKit`) is the iOS Metal backend. `ARView.backend = ARView.Backend.ARKIT`
 selects it; the AR demo selects it on iOS. One primary monoscopic camera publishes
 `head` / `default`. All ARKit/UIKit access, imports and texture changes happen on
 the main thread in Safe rendering mode. Other rendering drivers are unsupported.
@@ -500,7 +507,7 @@ never primary; it keeps swap callbacks alive after an ARView has been removed.
 
 The session polls `currentFrame` once per `_process` inside an autorelease pool.
 Packets copy values and plane boundaries; no ARFrame, ARCamera or ARAnchor enters
-a packet. Plane detection defaults to horizontal and vertical; autofocus and gravity
+a packet. Plane detection defaults to disabled; autofocus and gravity
 alignment are fixed. Light estimation and HDR video are off.
 
 Interface orientation comes from the Godot view's window scene `effectiveGeometry`.
@@ -627,6 +634,31 @@ the certified preset.
 Initializing and Relocalizing report `XR_UNKNOWN_TRACKING`; excessive motion
 reports `XR_EXCESSIVE_MOTION`.
 
+## Class reference and diagnostics
+
+The game API contract is in `docs/api.md`; onboarding and public-engine setup
+are in `README.md`. Native class help lives in `doc_classes/*.xml` and is embedded
+by `GodotCPPDocData` only for editor/template_debug targets. Generated C++ stays
+under `build/`. ARView and the addon scripts use `##` comments for editor help.
+Generate native signatures with `godot --headless --path demo --doctool <scratch-dir>
+--gdextension-docs`; this lists only classes registered on the running platform.
+Keep mobile-only XML when refreshing docs on macOS.
+
+ARCore and ARKit default to `set_diagnostics_enabled(false)`. Enable it on the
+interface for projection, pose and UV oracles, CPU image layout/luma sampling and
+plane/point-cloud reprojection checks. Native device harnesses enable it;
+ordinary demo runs leave it off. Disabling collection preserves previous samples;
+format/lifetime/error guards and path counters remain active. ARCore GPU readback
+requires the separate `set_gpu_validation_enabled(true)` opt-in.
+Timing percentiles cover the latest 512 observations per series, about 17 seconds
+at 30 samples per second. Statistics sampling times are collected only with
+diagnostics enabled.
+
+The demo enables material debanding. The desktop harness allows eight byte levels
+for dithered in-scene camera landmarks and MSAA edges, retaining the stricter
+undithered/isolated bounds. `camera-precision` measures pointwise and column-mean
+error with material and viewport dithering independently.
+
 ## Camera upload settings
 
 For ARCore CPU uploads, use
@@ -646,9 +678,9 @@ frames one apart while the camera moves.
 ## Scripted sessions and the game facade
 
 `ARView.plane_finding_mode` can be set before startup or while running. Its
-`PocketAR.PlaneFindingMode` values are `PLANE_FINDING_DISABLED=0`,
+`PocketAR.PlaneFindingMode` values are `PLANE_FINDING_DISABLED=0` (default),
 `PLANE_FINDING_HORIZONTAL=1` (upward and downward), and
-`PLANE_FINDING_HORIZONTAL_AND_VERTICAL=3` (default). The property reads the
+`PLANE_FINDING_HORIZONTAL_AND_VERTICAL=3`. The property reads the
 backend immediately; all four backends expose `set_plane_finding_mode()` and
 `get_plane_finding_mode()`. The selected mode survives pause/resume and reset.
 Reset still clears planes and changes generation, even when detection is disabled.

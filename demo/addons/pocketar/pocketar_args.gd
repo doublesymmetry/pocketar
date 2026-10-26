@@ -1,8 +1,11 @@
 class_name PocketARArgs
 extends RefCounted
+## Internal development launch-argument transport, outside the game AR API.
 
 
-## Returns user arguments and a transport error; applications validate their flags.
+## Returns args (PackedStringArray) and error (String, empty on success).
+## Reads POCKETAR_ARGS JSON only in iOS debug builds; otherwise uses OS user arguments.
+## Invalid JSON returns empty args and an error. Callers validate their own flags.
 static func read() -> Dictionary:
 	if OS.get_name() == "iOS" and OS.is_debug_build() and OS.has_environment("POCKETAR_ARGS"):
 		return _parse_environment(OS.get_environment("POCKETAR_ARGS"))

@@ -36,6 +36,7 @@ private:
 	struct PlaneEntry {
 		int64_t id = 0;
 		Ref<ARPlaneTracker> tracker;
+		bool dirty = false;
 	};
 	struct DestroyStats {
 		std::atomic<int64_t> count{0};
@@ -47,12 +48,14 @@ private:
 	String playback_dataset;
 	ArSession *session = nullptr;
 	ArConfig *config = nullptr;
-	PocketAR::PlaneFindingMode plane_finding_mode = PocketAR::PLANE_FINDING_HORIZONTAL_AND_VERTICAL;
+	PocketAR::PlaneFindingMode plane_finding_mode = PocketAR::PLANE_FINDING_DISABLED;
 	ArFrame *frame = nullptr;
 	ArPose *scratch_pose = nullptr;
 	ArCameraIntrinsics *camera_intrinsics = nullptr;
 	ArTrackableList *trackable_list = nullptr;
 	std::map<ArPlane *, PlaneEntry> planes;
+	std::vector<ArPlane *> pending_planes;
+	std::vector<float> plane_polygon;
 	std::vector<TextureSlot> texture_slots;
 	std::shared_ptr<DestroyStats> destroy_stats = std::make_shared<DestroyStats>();
 	std::thread::id owner_thread;
@@ -62,7 +65,10 @@ private:
 	bool initialized = false;
 	bool running = false;
 	bool application_suspended = false;
+	bool suspended = false;
+	PocketAR::CameraQuality camera_quality = PocketAR::HIGHEST;
 	bool geometry_dirty = true;
+	bool diagnostics_enabled = false;
 	int camera_config_index = -1;
 	String camera_path = "auto";
 	Ref<Texture2D> gpu_texture;
@@ -126,6 +132,7 @@ private:
 	void pause_session();
 	void release_session();
 	void clear_planes();
+	void refresh_planes();
 	bool copy_planes(ARFramePacket &r_packet);
 	int64_t ensure_plane(ArPlane *p_plane, bool p_acquired);
 	Transform3D read_pose() const;
@@ -155,9 +162,12 @@ public:
 	PocketAR::TrackingReason get_tracking_reason() const { return reason; }
 	int64_t get_session_generation() const { return generation; }
 	Dictionary get_diagnostics() const;
+	void set_diagnostics_enabled(bool p_enabled);
 	void reset();
 	void set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode);
 	PocketAR::PlaneFindingMode get_plane_finding_mode() const { return plane_finding_mode; }
+	void set_suspended(bool p_suspended);
+	void set_camera_quality(PocketAR::CameraQuality p_quality);
 	void set_camera_config_index(int p_index);
 	void set_camera_path(const String &p_path);
 	void set_gpu_validation_enabled(bool p_enabled);
