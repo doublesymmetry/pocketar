@@ -2,6 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p build/ci
+# Runner images can carry a shared Gradle cache; keep this job's Gradle state private.
+export GRADLE_USER_HOME="$PWD/build/gradle-home"
 actionlint
 python3 tools/package.py
 TMPDIR=/tmp tools/test-native.sh
