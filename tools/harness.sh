@@ -8,8 +8,8 @@ case "$platform" in
         exec python3 tools/run-harness.py -- godot --path demo --rendering-method mobile \
             --windowed --resolution 960x720 -- --harness "$@" ;;
     android|android-ar)
-        : "${ADB:?Set ADB to the adb binary matching the machine server; do not use devenv adb}"
-        : "${ANDROID_SERIAL:?Set ANDROID_SERIAL after checking that the shared phone is free}"
+        : "${ADB:?Set ADB to the adb binary matching the running server}"
+        : "${ANDROID_SERIAL:?Set ANDROID_SERIAL to the Android device serial}"
         apk=${APK:-build/exports/android/pocketar-debug.apk}
         "$ADB" -s "$ANDROID_SERIAL" install -r "$apk"
         exec python3 tools/run-harness.py "--$platform" "$ADB" "$ANDROID_SERIAL" -- "$@" ;;

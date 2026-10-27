@@ -6,7 +6,7 @@ desktop rendering harness.
 
 ## Requirements
 
-Work in this task worktree, not `~/hub/repos/`. Do not commit unless asked.
+Work in the task's worktree. Do not commit unless asked.
 Use the repository's devenv for Godot, SCons, Python, Java 17 and the Android SDK.
 When already inside its shell, run commands directly; nested devenv calls fail in
 the coding sandbox. Xcode supplies the Apple compiler. Keep `apple.sdk = null`
@@ -29,11 +29,12 @@ The certified iOS deployment target stays 16.0 in SConstruct and the preset.
 `scons platform=ios ios_min_version=15.0` is a diagnostic override only; it does
 not certify iOS 15 or make an A10 device support the Metal renderer.
 
-Use `$ADB`, never a bare `adb` command. The devenv client version differs from the
+Use `$ADB`, never a bare `adb` command. The devenv client version may differ from the
 host's running server. Set `ADB` to the matching host binary and set
-`ANDROID_SERIAL` after checking that nobody is using the shared Pixel. The phone
-must be unlocked before a harness run. Do not reset the adb server or change the
-phone lock. The hub instructions describe unlocking without printing the PIN.
+`ANDROID_SERIAL` to the test phone's serial. Unlock it before a harness run,
+retrieving any PIN from your password manager without printing it. Disable
+Godot's `export/android/shutdown_adb_on_exit` to keep exports from stopping the
+adb server.
 
 ## Commands
 
@@ -54,7 +55,7 @@ avoid the shell builtin with the same name.
 | Desktop rendering harness | `harness desktop -harness-out /tmp/pocketar-captures` |
 | Selected rendering checks | `harness desktop -harness-steps projection,transparency` |
 | Installed iPhone demo | `IOS_DEVICE=<id> harness ios` |
-| Pixel demo installation and harness | `ADB=<host-binary> ANDROID_SERIAL=<serial> harness android` |
+| Android demo installation and harness | `ADB=<host-binary> ANDROID_SERIAL=<serial> harness android` |
 | Native math, retirement, YUV/GPU and fixture parser tests; Python fixture tests | `TMPDIR=/tmp tools/test-native.sh` |
 | Headless packet, facade, scripted, arguments, exporter and thread tests | `tools/test-headless.sh` |
 | ARCore native lifecycle/status, GPU completion lifetime and query/recording fixtures | `TMPDIR=/tmp tools/test-arcore.sh` |
@@ -154,7 +155,7 @@ handles RID retirement behind fences.
 
 ## Engine evidence
 
-Paths below are relative to `/Users/ci/hub/wt/godot-pocketar-4.7.2` (4.7.2).
+Paths below are relative to the Godot 4.7.2 source tree.
 
 | Decision | Source |
 | --- | --- |
@@ -276,8 +277,8 @@ into `build/harness/<platform>/android-userdata.tar`; release builds cannot use
 `build/harness/<platform>/latest.log`, with separate `android` and `android-ar`
 directories and `desktop` used for the `macos` alias.
 
-Headless cannot render. Run the desktop harness through ci4's GUI session, not a
-bare SSH command or this sandbox. It reads lossless viewport images after
+Headless cannot render. Run the desktop harness through a logged-in GUI session
+on an Apple Silicon Mac. It reads lossless viewport images after
 `frame_post_draw`, saves every check's PNGs, and prints exactly one
 `HARNESS RESULT PASS|FAIL`. `user://harness/` is the default capture directory;
 `-harness-out` overrides it. `-harness-timeout` defaults to 240 seconds and the
@@ -288,7 +289,7 @@ only the selected steps. Phones run all checks automatically on launch.
 Readback can lower measured render rate; consistency thresholds and capture details
 live in `demo/harness/harness.gd`.
 
-## ARCore backend and Pixel diagnostics
+## ARCore backend and Android diagnostics
 
 `ARCoreInterface` implements the same packet/presentation methods as the synthetic
 interface. `ARView.backend` defaults to synthetic;
@@ -357,11 +358,11 @@ scons platform=android target=template_release arch=arm64 api_version=4.7 ndk_ve
 ARCore header provenance, updates and single-copy shim packaging are documented
 in [thirdparty/arcore/README.md](thirdparty/arcore/README.md).
 
-After Claude has built/exported a debug APK and checked/unlocked the shared Pixel:
+After building/exporting a debug APK and checking/unlocking the test phone:
 
 ```bash
-ADB=<host-binary> ANDROID_SERIAL=18231FDF6004QL tools/harness.sh android-ar -harness-duration 60
-ADB=<host-binary> ANDROID_SERIAL=18231FDF6004QL tools/harness.sh android-ar -harness-duration 1800
+ADB=<host-binary> ANDROID_SERIAL=<serial> tools/harness.sh android-ar -harness-duration 60
+ADB=<host-binary> ANDROID_SERIAL=<serial> tools/harness.sh android-ar -harness-duration 1800
 ```
 
 `android-ar` installs the selected APK (`APK` overrides its path) and launches the
@@ -371,7 +372,7 @@ the capture directory. Real Android home/relaunch cycles remain necessary to
 verify OS callback ordering.
 
 To launch the plain AR demo from an installed debug APK, after checking and
-unlocking the shared Pixel, use the same host `$ADB` and `ANDROID_SERIAL`:
+unlocking the test phone, use the same host `$ADB` and `ANDROID_SERIAL`:
 
 ```bash
 "$ADB" shell am force-stop org.doublesymmetry.pocketar.demo
@@ -449,8 +450,8 @@ The explicit YUV color model stays BT.601 full, matching Camera2's YUV_420_888
 Both camera paths report RenderingServer frame setup CPU p50/p95; keep validation
 runs separate from throughput measurements because synchronous readback adds stalls.
 
-After Claude builds the AAR/APK with patched templates and checks/unlocks the
-shared Pixel, use the host `ADB` and `ANDROID_SERIAL` described above:
+After building the AAR/APK with patched templates and checking/unlocking the
+test phone, use the host `ADB` and `ANDROID_SERIAL` described above:
 
 ```bash
 tools/harness.sh android-ar -harness-duration 60 -harness-gpu-validate
@@ -565,12 +566,10 @@ Follow [docs/ios-device.md](docs/ios-device.md) for iOS preflight, installation
 and harness transport. Run `ios-ar` with `-harness-duration 60`, then
 `-harness-duration 1800`.
 
-One-time iPhone 12 setup, performed by its owner: finish Setup Assistant without a
-passcode, Face ID, Apple ID or Workspace account; connect to ci4 and tap Trust;
-set Auto-Lock to Never; disable automatic OS updates; enable Developer Mode and
-complete its restart/confirmation; enable Settings > Developer > UI Automation;
-set Privacy & Security > Wired Accessories to Always Allow. Silence notifications
-with a Focus. If a passcode is required, a human must unlock after every reboot.
+Before an iOS run, connect a supported iPhone to the Mac and tap Trust; enable
+Developer Mode and complete its restart/confirmation. Its owner must unlock it,
+including after every reboot, and keep it awake during the run. Enable Settings
+> Developer > UI Automation when the run needs automated interaction.
 Register the UDID with signing team L7G7TF62MC during the first Xcode device build.
 After installing, launch the demo once and tap Allow on the camera prompt. The
 harness reports not-determined, restricted or denied authorization explicitly.

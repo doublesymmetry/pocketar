@@ -1,8 +1,8 @@
 # iOS device commands
 
-Run these from ci4's GUI session with Xcode selected and an iOS 17+ device paired,
-unlocked, trusted and in Developer Mode. `IOS_DEVICE` or `IOS_UDID` selects the
-device. The commands never change its lock, pairing or Developer Mode settings.
+Run these from a logged-in GUI session on an Apple Silicon Mac with Xcode selected
+and an iOS 17+ device paired, unlocked, trusted and in Developer Mode.
+`IOS_DEVICE` or `IOS_UDID` selects the device. The commands never change its lock, pairing or Developer Mode settings.
 Preflight requests DDI services (which may mount the developer image), then checks
 pairing, tunnel, Developer Mode, DDI availability and OS version. Every query runs
 even if an earlier query fails. Responses, errors and each check's status go into
@@ -29,7 +29,9 @@ sent as a JSON array of strings in `POCKETAR_ARGS`.
 
 The `ios-ar` lane runs the ARKit checks; `ios` runs the synthetic rendering suite
 and uses afcclient/idevicedebug 1.4.0 for older devices, with a UDID in
-`IOS_DEVICE`; `IOS_VERSION` overrides OS discovery. Both launch detached
+`IOS_DEVICE`; `IOS_VERSION` overrides OS discovery. For iOS 16, use a compatible
+Xcode such as 26.2 through `DEVELOPER_DIR`; newer Xcode releases may drop support
+for that OS. Both launch detached
 and pull `Documents/harness-<id>.log` and `Documents/logs/godot.log`. Only a file
 containing `HARNESS RUN <id>` can supply results, so a forwarded devicectl separator
 or a stale log cannot silently select another run. The host terminates the PID,
