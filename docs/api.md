@@ -1,9 +1,8 @@
 # API contract
 
-Games use the `res://addons/pocketar/ar_view.tscn` scene, `ARFramePacket`,
-`ARPlaneTracker`, `ARRaycastHit` and the `PocketAR` singleton's enums. Native
-classes have editor help in editor/debug builds; ARView and ARPlaneVisualizer
-have GDScript documentation. Existing names are retained.
+Use `res://addons/pocketar/ar_view.tscn` with `ARFramePacket`, `ARPlaneTracker`,
+`ARRaycastHit` and `PocketAR` enums. Member details are in native editor/debug
+help and the ARView and ARPlaneVisualizer GDScript documentation.
 
 ## Game API
 
@@ -12,13 +11,13 @@ have GDScript documentation. Existing names are retained.
 | ARView startup | `backend`: an `ARView.Backend` (`SYNTHETIC`, `ARCORE`, `ARKIT`, `SCRIPTED`). Choose backend and `composition` before adding to the tree. Composition changes after ready are rejected; live backend replacement is unsupported. |
 | ARView configuration | `handle_presses`, `environment`, `plane_finding_mode` (disabled by default), `camera_quality`, `camera_frame_rate`; `orientation_quarter_turns` controls simulation (−1 automatic, 0–3 clockwise). Native orientation comes from the device. |
 | ARView scene | After ready, put objects under `scene_root`, Controls under `hud`, use `world_3d` for physics/shared cameras, and `camera.near`/`far` for clip distances in metres. The backend owns camera pose/projection. |
-| ARView session | `suspended` pauses acquisition and viewport rendering independently of application lifecycle. Read-only `session_state`, `tracking_reason`, `session_generation`; `reset()` clears planes/presentation and changes generation on an initialized session. It does not remove game nodes. |
-| ARView placement | `screen_to_ray(point)`, `raycast(point, alignments)`, `world_to_screen(point)` and `view_point(event_position)` use the conventions below. |
+| ARView session | Read-only `session_state`, `tracking_reason`, `session_generation`; `reset()` clears planes/presentation and changes generation on an initialized session, preserving game nodes. See [session controls](#session-controls) for `suspended`. |
+| ARView placement | `screen_to_ray(point)`, `raycast(point, alignments)`, `world_to_screen(point)`, `view_point(event_position)` follow [coordinates and placement](#coordinates-and-placement). |
 | Packet values | Read-only IDs, timestamps, tracking validity, camera transforms, projection, intrinsics, image/viewport sizes, orientation, display transform and copied plane dictionaries. |
 | Plane trackers | Read-only identity, generation, alignment, extents, polygon, subsumption, tracking state and transform. Trackers update in place through XRServer. |
 | Hits | Read-only `pose`, `distance`, `alignment`, `plane_id`, `frame_id`, `session_generation`; copied results remain readable after later frames. |
 | PocketAR | Session/reason/plane-finding/alignment-mask enums, `get_version()` and `get_backend()`. Explicit-packet math helpers are advanced. |
-| ARPlaneVisualizer | Optional sample/debug visualization with `ar_view` and read-only `plane_count`. |
+| ARPlaneVisualizer | Optional sample/debug visualization with `ar_view` and read-only `plane_count`; catches up when shown after hiding. |
 
 ## Coordinates and placement
 
@@ -29,12 +28,12 @@ physical image-camera basis. Keep XROrigin3D and `scene_root` at identity and XR
 world scale at one. One active ARView owns a private world and the primary XR
 interface.
 
-Screen arguments/results are pixels local to ARView, with a top-left origin.
+Screen arguments/results use pixels local to ARView, with a top-left origin.
 `view_point(event.position)` converts viewport/canvas input to those pixels.
 `screen_to_ray()` inverts the full presented projection and returns a Dictionary
 with `origin` (world near-plane point), `direction` (unit world vector),
-`frame_id` and `session_generation`. It returns `{}` without a valid presented
-packet, valid tracking, matching generation or positive view size.
+`frame_id` and `session_generation`. It returns `{}` if presentation or tracking
+is invalid, the generation differs or the view size is not positive.
 
 `raycast()` returns copied hits nearest first, or `[]` without valid presentation
 or a hit. It intersects the front of tracking, unsubsumed plane polygons, not
@@ -46,16 +45,16 @@ plane, falling back to the plane's +Z for a perpendicular ray.
 
 `world_to_screen()` returns `Vector2.INF` without valid presentation, for
 non-finite input or points on/behind the camera plane. Points outside the view
-can return finite coordinates outside its bounds. This does not test occlusion.
+can return finite coordinates outside its bounds; occlusion is not tested.
 
 Plane polygons are local XZ pairs in metres; +Y is the normal and `extents` are
 full X/Z lengths. `transform` maps plane-local coordinates to world space.
 Plane IDs are opaque within a generation. XRServer names are
 `pocketar/plane/<generation>/<id>`; subsumed trackers remain aliases, with
 `subsumed_by` naming the replacement, and are excluded from default visualization
-and raycasts. Zero means no subsumption. A tracker is live state; use
-`packet.planes` for a copied snapshot. An XR tracker of type `TRACKER_ANCHOR`
-here describes a detected plane, not a game-created anchor.
+and raycasts. Zero means no subsumption. A tracker is live state;
+each `packet.planes` read returns editable copies that cannot mutate the packet.
+`TRACKER_ANCHOR` here describes a detected plane, not a game-created anchor.
 
 ## Frames, signals and lifetime
 
@@ -64,24 +63,24 @@ marks it presented after drawing. Touch placement uses the presented packet.
 At camera rates below the render rate a complete packet repeats. Geometry or
 calibration changes produce a new packet.
 
-`packet_applied(packet)` fires when ARView applies a different packet, before
-draw (also during startup). It does not fire for repeats or a cleared packet.
+`packet_applied(packet)` fires before draw when ARView applies a different packet,
+including startup, but not for repeats or clearing.
 `screen_pressed(point, ray)` fires for an unconsumed touch/left mouse press
-inside the view when `handle_presses` is true; it marks that input handled.
-Touch-emulated mouse presses are ignored. Its ray may be `{}` while tracking
-is unavailable.
+inside the view when `handle_presses` is true; HUD Controls receive input first.
+It marks input handled and ignores touch-emulated mouse presses.
+Its ray may be `{}` while tracking is unavailable.
 
 `session_state_changed`, `tracking_reason_changed`,
 `session_generation_changed` and `planes_changed` describe current backend
-state. Notifications are deferred until the native operation finishes, so
-handlers can reset safely; properties query state immediately. State/reason
-notifications fire on value changes, and initial startup can publish the
-initial state/generation. `planes_changed` is not a presentation notification.
+state. Notifications wait until the native operation finishes so handlers can
+reset safely; properties query state immediately. State/reason notifications fire
+on value changes; startup can publish initial state/generation.
+`planes_changed` is not a presentation notification.
 Discard old identities and clear or rebuild placements on generation changes.
 
 Packet values remain valid for the packet's lifetime; retaining native textures
 does not preserve camera pixels. See the
-[ARFramePacket class reference](https://github.com/doublesymmetry/pocketar/blob/3c5a0ad598e823d3ab669092a8a2b96d95b19428/doc_classes/ARFramePacket.xml)
+[ARFramePacket class reference](https://github.com/doublesymmetry/pocketar/blob/v0.0.1/doc_classes/ARFramePacket.xml)
 for image lifetime, calibration, UV conventions and timestamps.
 
 ## Session controls
@@ -95,60 +94,54 @@ initialization. ARKit limited poses may be valid while plane tracking is paused;
 ARCore valid poses require native tracking. Consult packet `tracking_valid`
 when working directly with packets.
 
-On Android, initializing an ARCore interface (including through ARView) requests
-ARCore installation and camera permission. Loading the addon and resuming the
-app before that request do not prompt. `PocketARPlugin.requestSession()` is an
-Android-only explicit setup/retry call, obtained through `Engine.get_singleton()`.
-It can run before a view exists; state becomes observable through the view once
-created. Denial remains `PERMISSION_DENIED` or `NEEDS_INSTALL` until prerequisites
-change or the game requests a retry. `reset()` resets the native session; it
-does not retry Android permission or installation prompts. Repeated camera
-denials may require Android app settings. Tracking reasons describe pose quality,
-so use session state for setup errors.
+Android checks availability without prompting. Initializing ARCore, including
+through ARView, requests installation and camera permission; earlier addon loading
+or app resumes do not prompt. For setup/retry before or after view creation, call
+`Engine.get_singleton("PocketARPlugin").requestSession()` on Android.
+State is observable once the view exists. Later resumes continue requested setup,
+but do not retry denials. `PERMISSION_DENIED` or `NEEDS_INSTALL` persists until
+prerequisites change or the game requests a retry. `reset()` only resets the native
+session. Repeated camera denials may require Android app settings. Use session
+state for setup errors; tracking reasons describe pose quality.
 
-`plane_finding_mode` defaults to disabled. This behavior change requires games
-that want planes to set the mode explicitly. It accepts disabled, horizontal (both upward/downward) or
-horizontal-and-vertical. It persists across reset/pause. Disabling discovery
-preserves existing planes: ARKit stops discovery/refinement, ARCore continues
-copying the native states, and Scripted freezes retained snapshots until
-re-enabled. It neither freezes game objects nor creates anchors.
+`plane_finding_mode` accepts disabled (default), horizontal (upward/downward) or
+horizontal-and-vertical and persists across reset/pause. Disabling discovery
+preserves planes: ARKit stops discovery/refinement, ARCore keeps copying native
+states, and Scripted freezes retained snapshots until re-enabled. It neither
+freezes game objects nor creates anchors.
 
 `camera_quality` uses `PocketAR.CameraQuality`: `HIGHEST` (default), `BALANCED`
-and `LOWEST`. Android retains the back-camera, 30 fps, no-depth/no-stereo filter.
-The CPU path considers matching CPU/GPU aspect ratios and selects by CPU pixel
+and `LOWEST`. Android filters for a back camera at 30 fps without depth or stereo.
+The CPU path requires matching CPU/GPU aspect ratios and selects by CPU pixel
 area, breaking ties with the smallest GPU stream. The hardware-buffer path
 selects by GPU pixel area, breaking ties with the smallest CPU stream.
 `BALANCED` selects the lower middle distinct area; `LOWEST` selects the smallest.
 An explicit Android camera config index overrides this preference. Changing the
 preference resets an existing Android session unless an explicit index is active.
 
-On iOS, `HIGHEST` selects the first format in Apple's supported order, preserving
-the existing default. `BALANCED` and `LOWEST` use distinct image pixel areas,
-with Apple's order breaking ties. `camera_frame_rate` is an iOS preference:
+On iOS, `HIGHEST` selects the first format in Apple's supported order.
+`BALANCED` and `LOWEST` use distinct image pixel areas, with Apple's order
+breaking ties. `camera_frame_rate` is an iOS preference:
 0 (default), 30 or 60. A nonzero value first restricts formats to the nearest
 supported rate, choosing the lower rate on a tie. Quality selection then runs
 within those formats. iOS reconfigures without requesting a tracking reset.
-Simulated backends ignore camera preferences; their existing fixture/intrinsics
-and camera-rate controls still apply. These policies make no power or thermal
-claim and do not change the game's rendering rate.
+Simulated backends ignore these preferences; use fixture/intrinsics and camera-rate
+controls. Preferences do not change the game's render rate or guarantee power
+or thermal savings.
 
 Native diagnostics expose `camera_quality`, `config_list` and the effective
 `config` dimensions/rate. ARKit also reports requested `camera_frame_rate` and
 `config_index`; ARCore reports CPU and GPU dimensions and the FPS range.
 
-`suspended` can be set before startup or while running. A suspended view reports
-`PAUSED`, publishes no new packets and uses `SubViewport.UPDATE_DISABLED`.
-Placement helpers return no result. Resume waits for application activity too;
-application resume cannot override explicit suspension. Ordinary resume preserves
-the generation and asks the SDK to retain tracking. Tracking may need to recover,
-and Android dataset playback follows ARCore's own paused-playback behavior.
-Reset while suspended clears packets and planes and changes the generation but
-does not start capture until resumed. Visibility and overlays do not change this
-property. Virtual node scripts are not paused by disabling viewport rendering;
-games control their own simulation separately.
-
-Each read of `packet.planes` returns editable copies; mutations cannot change
-the packet. A hidden plane visualizer catches up when shown.
+Set `suspended` before startup or while running to pause acquisition and viewport
+rendering independently of application lifecycle. The view reports `PAUSED`,
+publishes no new packets and uses `SubViewport.UPDATE_DISABLED`; placement returns
+no result. Resume requires both application activity and `suspended=false`.
+Ordinary resume preserves generation and asks the SDK to retain tracking, which
+may need to recover. Android datasets follow ARCore's paused-playback behavior.
+Reset while suspended clears packets/planes and changes generation without
+starting capture. Visibility and overlays do not affect suspension; virtual node
+scripts keep running, so games must pause their own simulation.
 
 ## Advanced and internal surfaces
 
@@ -162,9 +155,9 @@ live-query results and test controls are outside the stable game contract.
 | --- | --- |
 | All backends | `set_plane_finding_mode()`/getter, `set_suspended()` and session getters/`reset()` support direct integrations; prefer ARView's facade. |
 | ARCore camera controls | `set_camera_config_index(index)` selects a diagnostics-listed config, −1 restores automatic selection; `set_camera_path("auto"\|"cpu")` selects automatic hardware-buffer detection or CPU. Changing either can reset the session and generation. |
-| Native diagnostics | `set_diagnostics_enabled(bool)` defaults false; `get_diagnostics()` reports counters and collected samples. Disabling collection preserves prior results. No uniform cross-platform schema is promised. ARCore `set_gpu_validation_enabled()` is a separate readback opt-in; `set_point_cloud_enabled()` collects diagnostic point data, with no public point-cloud getter. ARKit `get_native_plane_identifiers()` is diagnostic. |
-| Native live queries | `live_hit_test(view_pixels)` and ARCore `live_hit_test_ray(origin, direction)` inspect the current native frame. Query IDs expire on the next update. Results differ by platform and are distinct from copied ARRaycastHit placement results. |
-| ARCore datasets | `start_recording(file_uri)`, `stop_recording()`, `record_input(bytes)`, `start_playback(file_uri)`, `get_playback_inputs()`, `get_dataset_diagnostics()`. Android-only advanced replay; see the [ARCoreInterface class reference](https://github.com/doublesymmetry/pocketar/blob/3c5a0ad598e823d3ab669092a8a2b96d95b19428/doc_classes/ARCoreInterface.xml) for storage, limits and lifecycle. |
+| Native diagnostics | `set_diagnostics_enabled(bool)` defaults false; `get_diagnostics()` reports counters/samples. Disabling collection preserves results; schemas may differ by platform. ARCore `set_gpu_validation_enabled()` separately enables readback; `set_point_cloud_enabled()` collects diagnostic points without a public getter. ARKit `get_native_plane_identifiers()` is diagnostic. |
+| Native live queries | `live_hit_test(view_pixels)` and ARCore `live_hit_test_ray(origin, direction)` inspect the current native frame. IDs expire on the next update. Results vary by platform and differ from copied `ARRaycastHit` placement results. |
+| ARCore datasets | `start_recording(file_uri)`, `stop_recording()`, `record_input(bytes)`, `start_playback(file_uri)`, `get_playback_inputs()`, `get_dataset_diagnostics()` provide Android-only replay; see [ARCoreInterface](https://github.com/doublesymmetry/pocketar/blob/v0.0.1/doc_classes/ARCoreInterface.xml) for storage, limits and lifecycle. |
 | Synthetic controls | `set_intrinsics()`, `set_pose()`, `set_camera_rate()` configure desktop simulation. `set_frame_id_pose()` is a harness control. |
 | Scripted controls | `load_fixture()`, `advance_to()`, `get_pending_inputs()`, `get_plane_count()`, `get_semantics()` support deterministic tests. Load and advance to zero before supplying the interface to a Scripted ARView. Fixture schema and clock rules are in AGENTS.md. |
 | Explicit-packet math | `PocketAR.screen_to_ray(packet, viewport_size, point)` and `raycast_planes(packet, ray)` leave packet selection and generation checks to the caller. Prefer ARView for screen input. |
