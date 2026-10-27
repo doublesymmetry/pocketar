@@ -41,7 +41,7 @@
 	F(ArFrame_getUpdatedTrackData) F(ArTrackDataList_create) F(ArTrackDataList_destroy) \
 	F(ArTrackDataList_getSize) F(ArTrackDataList_acquireItem) F(ArTrackData_getFrameTimestamp) F(ArTrackData_getData) F(ArTrackData_release) \
 	F(ArFrame_acquirePointCloud) F(ArPointCloud_getNumberOfPoints) F(ArPointCloud_getData) \
-	F(ArPointCloud_getPointIds) F(ArPointCloud_getTimestamp) F(ArPointCloud_release)
+	F(ArPointCloud_release)
 
 struct ARCoreApi {
 #define DECLARE_ARCORE(name) decltype(&::name) name = nullptr;

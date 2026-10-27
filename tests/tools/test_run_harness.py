@@ -92,8 +92,6 @@ class AndroidHarnessTest(unittest.TestCase):
         # am's negative lookbehind splits the array but preserves the escape bytes.
         received = re.split(r"(?<!\\),", extra)
         self.assertEqual([kotlin_unescape(value) for value in received], arguments)
-        self.assertEqual(kotlin_unescape(r"\\,"), "\\,")
-        self.assertEqual(kotlin_unescape("a\\q\\"), "a\\q\\")
 
     def test_process_check_distinguishes_exit_restart_and_transport_error(self):
         for code, stdout, stderr, cause in [

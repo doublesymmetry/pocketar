@@ -256,7 +256,7 @@ void ARKitInterface::_uninitialize() {
 	active_interfaces.erase(this);
 }
 
-void ARKitInterface::run_session(bool p_reset) {
+void ARKitInterface::run_session() {
 	if (suspended || application_suspended) { set_state(PocketAR::PAUSED); return; }
 	const AVAuthorizationStatus authorization = camera_authorization(diagnostics);
 	if (authorization == AVAuthorizationStatusDenied || authorization == AVAuthorizationStatusRestricted) {
@@ -300,9 +300,9 @@ void ARKitInterface::run_session(bool p_reset) {
 	set_state(PocketAR::READY);
 	const uint64_t started = tick_usec();
 	if (!bool(diagnostics["configured"])) impl->start_tick = started;
-	if (p_reset || impl->reset_pending) impl->reset_cutoff = CACurrentMediaTime();
-	[impl->session runWithConfiguration:impl->config options:(p_reset || impl->reset_pending) ? ARSessionRunOptionResetTracking | ARSessionRunOptionRemoveExistingAnchors : 0];
-	timings[p_reset || impl->reset_pending ? "reset_ms" : "resume_ms"] = (tick_usec() - started) / 1000.0;
+	if (impl->reset_pending) impl->reset_cutoff = CACurrentMediaTime();
+	[impl->session runWithConfiguration:impl->config options:(impl->reset_pending) ? ARSessionRunOptionResetTracking | ARSessionRunOptionRemoveExistingAnchors : 0];
+	timings[impl->reset_pending ? "reset_ms" : "resume_ms"] = (tick_usec() - started) / 1000.0;
 	impl->reset_pending = false;
 	impl->running = true;
 	tracking_status = XR_UNKNOWN_TRACKING;
@@ -332,7 +332,7 @@ void ARKitInterface::set_suspended(bool p_suspended) {
 	suspended = p_suspended;
 	if (!initialized) return;
 	if (suspended) pause_session();
-	else if (!application_suspended) run_session(false);
+	else if (!application_suspended) run_session();
 }
 
 void ARKitInterface::application_pause() {
@@ -348,7 +348,7 @@ void ARKitInterface::application_resume() {
 	ERR_FAIL_COND(!on_owner_thread());
 	const bool was_suspended = application_suspended;
 	application_suspended = false;
-	if (!suspended && (was_suspended || !impl->running)) run_session(false);
+	if (!suspended && (was_suspended || !impl->running)) run_session();
 }
 
 void ARKitInterface::choose_camera_format() {
@@ -373,7 +373,7 @@ void ARKitInterface::set_camera_quality(PocketAR::CameraQuality p_quality) {
 	ERR_FAIL_COND(initialized && !on_owner_thread());
 	if (camera_quality == p_quality) return;
 	camera_quality = p_quality;
-	if (impl->running) run_session(false);
+	if (impl->running) run_session();
 }
 
 void ARKitInterface::set_camera_frame_rate(int p_fps) {
@@ -381,7 +381,7 @@ void ARKitInterface::set_camera_frame_rate(int p_fps) {
 	ERR_FAIL_COND(initialized && !on_owner_thread());
 	if (camera_frame_rate == p_fps) return;
 	camera_frame_rate = p_fps;
-	if (impl->running) run_session(false);
+	if (impl->running) run_session();
 }
 
 void ARKitInterface::session_interrupted(bool p_interrupted) {
@@ -441,7 +441,7 @@ void ARKitInterface::reset() {
 	geometry_dirty = true;
 	increment("reset_count");
 	call_deferred("emit_signal", "session_generation_changed", generation);
-	run_session(true);
+	run_session();
 }
 
 static_assert(NSUInteger(PocketAR::PLANE_FINDING_DISABLED) == ARPlaneDetectionNone && NSUInteger(PocketAR::PLANE_FINDING_HORIZONTAL) == ARPlaneDetectionHorizontal &&
@@ -545,7 +545,7 @@ void ARKitInterface::_process() {
 	@autoreleasepool {
 		const AVAuthorizationStatus authorization = camera_authorization(diagnostics);
 		if (!impl->running || authorization != AVAuthorizationStatusAuthorized) {
-			if (state != PocketAR::FAILED && state != PocketAR::UNSUPPORTED) run_session(false);
+			if (state != PocketAR::FAILED && state != PocketAR::UNSUPPORTED) run_session();
 			if (!impl->running) return;
 		}
 		UIView *view = (__bridge UIView *)(void *)DisplayServer::get_singleton()->window_get_native_handle(DisplayServer::WINDOW_VIEW);

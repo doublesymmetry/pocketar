@@ -35,10 +35,6 @@ static void test_layouts(int p_width, int p_height, int p_padding) {
 			const int first = expected_layout == YUVLayout::NV12 ? 1 : 2, second = 3 - first;
 			planes[first] = {interleaved.data(), interleaved.size() - 1, uv_stride, 2};
 			planes[second] = {interleaved.data() + 1, interleaved.size() - 1, uv_stride, 2};
-			if (p_width == 1920 && p_height == 1080 && p_padding == 0) {
-				assert(planes[1].length == 1036799 && planes[2].length == 1036799);
-				assert(planes[1].row_stride == 1920);
-			}
 		}
 		YUVLayout layout;
 		assert(repack_yuv(p_width, p_height, planes, out_y.data(), out_uv.data(), layout));

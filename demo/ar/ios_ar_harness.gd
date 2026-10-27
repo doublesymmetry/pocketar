@@ -278,15 +278,11 @@ func _observe_anchor_ids(packet: ARFramePacket) -> void:
 func _wait_for_packet(generation: int, after_frame: int) -> bool:
 	var deadline: int = Time.get_ticks_msec() + 12000
 	while Time.get_ticks_msec() < deadline and not result_printed:
-		if _packet_matches(generation, after_frame):
+		var packet: ARFramePacket = view.interface.call("get_presented_packet") as ARFramePacket
+		if packet != null and packet.session_generation == generation and packet.frame_id > after_frame:
 			return true
 		await get_tree().create_timer(0.1).timeout
 	return false
-
-
-func _packet_matches(generation: int, after_frame: int) -> bool:
-	var packet: ARFramePacket = view.interface.call("get_presented_packet") as ARFramePacket
-	return packet != null and packet.session_generation == generation and packet.frame_id > after_frame
 
 
 func _current_frame() -> int:

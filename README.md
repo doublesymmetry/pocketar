@@ -147,20 +147,14 @@ invalidates old plane identities; clear or rebuild placements then.
 
 ## Session cost controls
 
-Plane discovery is disabled by default. This is a behavior change: games that
-need planes must set `ar.plane_finding_mode` to `PocketAR.PLANE_FINDING_HORIZONTAL`
-or `PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL`. The demo, rendering
-harnesses and tap-to-place sample enable their required planes explicitly.
-Disabling discovery later preserves planes already found; reset clears them.
+Plane discovery defaults to disabled. Set `ar.plane_finding_mode` to
+`PocketAR.PLANE_FINDING_HORIZONTAL` or
+`PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL` to enable it. Disabling discovery
+preserves found planes; reset clears them.
 
-`ar.camera_quality` accepts `PocketAR.HIGHEST`, `BALANCED` or `LOWEST`.
-`HIGHEST` remains the default: the largest matching CPU image on stock Android,
-the largest GPU image on the hardware-buffer path, and Apple's first supported
-iOS video format. `BALANCED` chooses the lower middle available resolution tier;
-`LOWEST` chooses the smallest. These are selection policies, not measured power
-presets. iOS also accepts `ar.camera_frame_rate = 30` or `60`; zero preserves
-platform ordering. See the [selection and fallback rules](docs/api.md#session-controls).
-Native `get_diagnostics()` reports the requested preferences and chosen format.
+Set `ar.camera_quality` to `PocketAR.HIGHEST` (default), `BALANCED` or `LOWEST`.
+On iOS, `ar.camera_frame_rate` accepts `0` (default), `30` or `60`. See the
+[selection and fallback rules](docs/api.md#session-controls).
 
 Set `ar.suspended = true` for menus or inactive AR screens. This pauses the native
 session and stops the virtual viewport updating. Set it to false to resume;
