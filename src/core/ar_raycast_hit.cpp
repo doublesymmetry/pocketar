@@ -1,6 +1,4 @@
 #include "ar_raycast_hit.h"
-#include "ar_frame_packet.h"
-#include "ar_plane_geometry.h"
 #include <godot_cpp/core/class_db.hpp>
 
 namespace godot {
@@ -18,34 +16,6 @@ void ARRaycastHit::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "distance"), "", "get_distance");
 	ClassDB::bind_method(D_METHOD("get_pose"), &ARRaycastHit::get_pose);
 	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM3D, "pose"), "", "get_pose");
-}
-
-TypedArray<ARRaycastHit> raycast_planes(const Ref<ARFramePacket> &p_packet, const ARRay &p_ray) {
-	TypedArray<ARRaycastHit> results;
-	if (p_packet.is_null() || !p_packet->get_tracking_valid()) {
-		return results;
-	}
-	std::vector<ARPlaneRaycastInput> planes;
-	for (const ARPlaneSnapshot &plane : p_packet->get_plane_snapshots()) {
-		planes.push_back({ plane.plane_id, plane.tracking_state, plane.subsumed_by, plane.transform, plane.polygon.ptr(), size_t(plane.polygon.size()) });
-	}
-	for (const ARPlaneIntersection &intersection : raycast_plane_polygons(planes, p_ray)) {
-		Ref<ARRaycastHit> hit;
-		hit.instantiate();
-		hit->session_generation = p_packet->get_session_generation();
-		hit->frame_id = p_packet->get_frame_id();
-		hit->plane_id = intersection.plane_id;
-		for (const ARPlaneSnapshot &plane : p_packet->get_plane_snapshots()) {
-			if (plane.plane_id == intersection.plane_id) {
-				hit->alignment = plane.alignment;
-				break;
-			}
-		}
-		hit->distance = intersection.distance;
-		hit->pose = intersection.pose;
-		results.push_back(hit);
-	}
-	return results;
 }
 
 }

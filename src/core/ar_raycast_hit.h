@@ -2,16 +2,12 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/transform3d.hpp>
-#include <godot_cpp/variant/typed_array.hpp>
-#include "projection.h"
 
 namespace godot {
 
-class ARFramePacket;
-
 class ARRaycastHit : public RefCounted {
 	GDCLASS(ARRaycastHit, RefCounted)
-	friend TypedArray<ARRaycastHit> raycast_planes(const Ref<ARFramePacket> &p_packet, const ARRay &p_ray);
+	friend class PocketAR;
 
 	int64_t session_generation = 0;
 	int64_t frame_id = 0;
@@ -31,7 +27,5 @@ public:
 	double get_distance() const { return distance; }
 	Transform3D get_pose() const { return pose; }
 };
-
-TypedArray<ARRaycastHit> raycast_planes(const Ref<ARFramePacket> &p_packet, const ARRay &p_ray);
 
 }

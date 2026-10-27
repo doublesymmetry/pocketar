@@ -79,34 +79,10 @@ notifications fire on value changes, and initial startup can publish the
 initial state/generation. `planes_changed` is not a presentation notification.
 Discard old identities and clear or rebuild placements on generation changes.
 
-Packet pose, calibration, timestamps, IDs and plane values are copied and remain
-valid for the packet's lifetime. Native textures have a separate lifetime:
-
-- ARKit and ARCore CPU images are protected while current, presented, or still
-  applied to ARView's material. Keeping a script Ref does not extend that protection.
-  Retired ARKit Texture2DRD references are cleared; reused ARCore CPU slots can
-  display newer pixels.
-- ARCore's hardware-buffer path shares one RGB texture. The engine can replace
-  its pixels during the next conversion, before the next packet is presented.
-  Even a current or presented packet does not freeze that image.
-- Simulated packets own their ImageTextures, but games must not rely on that
-  behavior for native camera images.
-
-Texture acquisition can be refused while pose, tracking and planes advance
-using previous textures. Texture fields and `imported_chroma` are advanced
-rendering details, not an image archival API.
-
-`display_transform` maps top-left viewport UV to top-left camera-image UV with
-aspect-fill crop and rotation. ARCore GPU packets use `TEXTURE_NORMALIZED` UV
-and the GPU texture size in `image_size`; `intrinsics` always describes the CPU
-image on ARCore. Its `fx`, `fy`, `cx`, `cy` are pixels in
-`intrinsics.image_size`, which can differ from `image_size`. The two streams can
-have different crops and fields of view. Projection uses OpenGL NDC depth
-[−1,+1]; Godot applies device depth/Y corrections.
-
-Timestamps are backend clock values in microseconds/nanoseconds, not wall time.
-Do not compare them across backends or to an assumed host clock. Synthetic time
-uses `Time.get_ticks_usec()`; scripted time advances explicitly.
+Packet values remain valid for the packet's lifetime; retaining native textures
+does not preserve camera pixels. See the
+[ARFramePacket class reference](https://github.com/doublesymmetry/pocketar/blob/3c5a0ad598e823d3ab669092a8a2b96d95b19428/doc_classes/ARFramePacket.xml)
+for image lifetime, calibration, UV conventions and timestamps.
 
 ## Session controls
 
@@ -171,12 +147,8 @@ does not start capture until resumed. Visibility and overlays do not change this
 property. Virtual node scripts are not paused by disabling viewport rendering;
 games control their own simulation separately.
 
-Unchanged plane polygons share copy-on-write storage across packets and trackers.
-Native updates, tracking changes, removals and subsumption still publish copied
-values. `packet.planes` caches conversion of unchanged scalar values; each read
-returns editable containers and independent polygon wrappers so script mutations
-cannot change the packet. Container copies remain necessary for this contract.
-The plane visualizer skips packet work while hidden and catches up when shown.
+Each read of `packet.planes` returns editable copies; mutations cannot change
+the packet. A hidden plane visualizer catches up when shown.
 
 ## Advanced and internal surfaces
 
@@ -192,7 +164,7 @@ live-query results and test controls are outside the stable game contract.
 | ARCore camera controls | `set_camera_config_index(index)` selects a diagnostics-listed config, −1 restores automatic selection; `set_camera_path("auto"\|"cpu")` selects automatic hardware-buffer detection or CPU. Changing either can reset the session and generation. |
 | Native diagnostics | `set_diagnostics_enabled(bool)` defaults false; `get_diagnostics()` reports counters and collected samples. Disabling collection preserves prior results. No uniform cross-platform schema is promised. ARCore `set_gpu_validation_enabled()` is a separate readback opt-in; `set_point_cloud_enabled()` collects diagnostic point data, with no public point-cloud getter. ARKit `get_native_plane_identifiers()` is diagnostic. |
 | Native live queries | `live_hit_test(view_pixels)` and ARCore `live_hit_test_ray(origin, direction)` inspect the current native frame. Query IDs expire on the next update. Results differ by platform and are distinct from copied ARRaycastHit placement results. |
-| ARCore datasets | `start_recording(file_uri)`, `stop_recording()`, `record_input(bytes)`, `start_playback(file_uri)`, `get_playback_inputs()`, `get_dataset_diagnostics()`. Android-only advanced replay, described below. |
+| ARCore datasets | `start_recording(file_uri)`, `stop_recording()`, `record_input(bytes)`, `start_playback(file_uri)`, `get_playback_inputs()`, `get_dataset_diagnostics()`. Android-only advanced replay; see the [ARCoreInterface class reference](https://github.com/doublesymmetry/pocketar/blob/3c5a0ad598e823d3ab669092a8a2b96d95b19428/doc_classes/ARCoreInterface.xml) for storage, limits and lifecycle. |
 | Synthetic controls | `set_intrinsics()`, `set_pose()`, `set_camera_rate()` configure desktop simulation. `set_frame_id_pose()` is a harness control. |
 | Scripted controls | `load_fixture()`, `advance_to()`, `get_pending_inputs()`, `get_plane_count()`, `get_semantics()` support deterministic tests. Load and advance to zero before supplying the interface to a Scripted ARView. Fixture schema and clock rules are in AGENTS.md. |
 | Explicit-packet math | `PocketAR.screen_to_ray(packet, viewport_size, point)` and `raycast_planes(packet, ray)` leave packet selection and generation checks to the caller. Prefer ARView for screen input. |
@@ -200,12 +172,3 @@ live-query results and test controls are outside the stable game contract.
 | Debug plane injection | `set_debug_plane`/`clear_debug_plane`, available only in debug/editor libraries; harness controls, not real detection. |
 | Internal ARView fields | `virtual_scene`, `world_environment`, `background`, `composite`, `applied_packet`, `waiting_for_packet`, `camera_material`, `camera_quad`. Do not mutate them. |
 | Development/editor helpers | PocketARArgs, the editor/export plugin's script members, and Kotlin PocketARPlugin diagnostics/launch plumbing are internal. Export option `pocketar/ar_required` is public; `PocketARPlugin.getExternalFilesDir()` supports advanced dataset storage. |
-
-For Android datasets, `PocketARPlugin.getExternalFilesDir()` supplies private
-external storage. Build a percent-encoded `file://` URI beneath it. Recording
-returns status dictionaries, stops on pause and accepts application-owned input
-payloads up to 65536 bytes (128 queued inputs, at most eight new-frame retries).
-Playback creates a fresh generation; `start_playback()` returns void, so inspect
-session/dataset status for failures and completion. `get_playback_inputs()`
-drains each recorded frame's inputs once. Datasets contain room video and device
-information; keep them in private storage. They are not persistent AR anchors.

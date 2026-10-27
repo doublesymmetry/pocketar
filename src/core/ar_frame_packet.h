@@ -72,6 +72,4 @@ public:
 	const std::vector<ARPlaneSnapshot> &get_plane_snapshots() const { return planes; }
 };
 
-ARRay ray_from_screen(const Ref<ARFramePacket> &p_packet, const Vector2 &p_viewport_size, const Vector2 &p_screen_point);
-
 }

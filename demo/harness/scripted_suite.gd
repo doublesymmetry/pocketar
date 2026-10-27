@@ -176,17 +176,6 @@ func _run_once(host: Node, fixture: String, composition: ARView.Composition) -> 
 		["state", PocketAR.TRACKING], ["planes", 2],
 		["planes", 0], ["generation", 2], ["state", PocketAR.INITIALIZING],
 	], "fixture plane notifications preserve exact order and count without a debug plane: " + fixture)
-	var generations: Array = []
-	var states: Array = []
-	var reasons: Array = []
-	for transition: Array in normalized:
-		match transition[0]:
-			"generation": generations.append(transition[1])
-			"state": states.append(transition[1])
-			"reason": reasons.append(transition[1])
-	_check(generations == [0, 1, 2], "initialization and two resets each emit exactly one generation")
-	_check(reasons == [PocketAR.INSUFFICIENT_FEATURES, PocketAR.NONE], "tracking reasons follow fixture order")
-	_check(states == [PocketAR.INITIALIZING, PocketAR.TRACKING, PocketAR.INITIALIZING, PocketAR.TRACKING, PocketAR.INITIALIZING, PocketAR.TRACKING, PocketAR.PAUSED, PocketAR.INITIALIZING, PocketAR.TRACKING, PocketAR.INITIALIZING], "facade state transitions preserve initialization, loss, reset and lifecycle order")
 	var result: Dictionary = {"packets": packets, "inputs": inputs, "events": observer.events.duplicate(true), "presses": presses, "timeline": normalized}
 	observer.free()
 	view.free()

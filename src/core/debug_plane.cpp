@@ -47,13 +47,7 @@ bool DebugPlane::clear() {
 void DebugPlane::pause() {
 	paused = active();
 	if (tracker.is_null()) return;
-	ARPlaneSnapshot snapshot;
-	snapshot.plane_id = tracker->get_plane_id();
-	snapshot.session_generation = tracker->get_session_generation();
-	snapshot.debug = true;
-	snapshot.transform = tracker->get_transform();
-	snapshot.extents = tracker->get_extents();
-	snapshot.polygon = tracker->get_polygon();
+	ARPlaneSnapshot snapshot = tracker->get_snapshot();
 	snapshot.tracking_state = ARPlaneTracker::PAUSED;
 	tracker->update(snapshot);
 }

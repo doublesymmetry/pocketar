@@ -88,8 +88,4 @@ TypedArray<Dictionary> ARFramePacket::get_planes() const {
 	return result;
 }
 
-ARRay ray_from_screen(const Ref<ARFramePacket> &p_packet, const Vector2 &p_viewport_size, const Vector2 &p_screen_point) {
-	return ray_from_screen(p_packet->get_projection(), p_packet->get_camera_transform(), p_viewport_size, p_screen_point);
-}
-
 }

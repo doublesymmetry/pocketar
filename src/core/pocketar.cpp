@@ -1,4 +1,5 @@
 #include "pocketar.h"
+#include "ar_plane_geometry.h"
 #include <godot_cpp/classes/xr_interface.hpp>
 #include <godot_cpp/classes/xr_server.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -54,7 +55,7 @@ String PocketAR::get_backend() const {
 Dictionary PocketAR::screen_to_ray(const Ref<ARFramePacket> &p_packet, const Vector2 &p_viewport_size, const Vector2 &p_screen_point) const {
 	ERR_FAIL_COND_V(p_packet.is_null() || !p_packet->get_tracking_valid(), Dictionary());
 	ERR_FAIL_COND_V(p_viewport_size.x <= 0 || p_viewport_size.y <= 0, Dictionary());
-	const ARRay ray = ray_from_screen(p_packet, p_viewport_size, p_screen_point);
+	const ARRay ray = ray_from_screen(p_packet->get_projection(), p_packet->get_camera_transform(), p_viewport_size, p_screen_point);
 	Dictionary result;
 	result["origin"] = ray.origin;
 	result["direction"] = ray.direction;
@@ -64,7 +65,32 @@ Dictionary PocketAR::screen_to_ray(const Ref<ARFramePacket> &p_packet, const Vec
 }
 
 TypedArray<ARRaycastHit> PocketAR::raycast_planes(const Ref<ARFramePacket> &p_packet, const Dictionary &p_ray) const {
-	return godot::raycast_planes(p_packet, { p_ray.get("origin", Vector3()), p_ray.get("direction", Vector3()) });
+	const ARRay ray = { p_ray.get("origin", Vector3()), p_ray.get("direction", Vector3()) };
+	TypedArray<ARRaycastHit> results;
+	if (p_packet.is_null() || !p_packet->get_tracking_valid()) {
+		return results;
+	}
+	std::vector<ARPlaneRaycastInput> planes;
+	for (const ARPlaneSnapshot &plane : p_packet->get_plane_snapshots()) {
+		planes.push_back({ plane.plane_id, plane.tracking_state, plane.subsumed_by, plane.transform, plane.polygon.ptr(), size_t(plane.polygon.size()) });
+	}
+	for (const ARPlaneIntersection &intersection : raycast_plane_polygons(planes, ray)) {
+		Ref<ARRaycastHit> hit;
+		hit.instantiate();
+		hit->session_generation = p_packet->get_session_generation();
+		hit->frame_id = p_packet->get_frame_id();
+		hit->plane_id = intersection.plane_id;
+		for (const ARPlaneSnapshot &plane : p_packet->get_plane_snapshots()) {
+			if (plane.plane_id == intersection.plane_id) {
+				hit->alignment = plane.alignment;
+				break;
+			}
+		}
+		hit->distance = intersection.distance;
+		hit->pose = intersection.pose;
+		results.push_back(hit);
+	}
+	return results;
 }
 
 }

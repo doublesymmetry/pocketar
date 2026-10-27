@@ -99,7 +99,6 @@ private:
 	Vector2i cpu_size, gpu_size, fps_range;
 	Vector2i staging_size;
 	PackedByteArray luma, chroma;
-	double near_plane = 0.05, far_plane = 100.0;
 	Transform3D last_good_pose;
 	PocketAR::SessionState state = PocketAR::CHECKING;
 	PocketAR::TrackingReason reason = PocketAR::NONE;
@@ -124,7 +123,7 @@ private:
 	void set_reason(PocketAR::TrackingReason p_reason);
 	void increment(const char *p_key, int64_t p_amount = 1);
 	void fail(ArStatus p_status, const String &p_operation);
-	bool create_session();
+	void create_session();
 	bool choose_camera_config();
 	void refresh_camera_config();
 	void refresh_plane_finding_mode();
@@ -134,7 +133,7 @@ private:
 	void clear_planes();
 	void refresh_planes();
 	bool copy_planes(ARFramePacket &r_packet);
-	int64_t ensure_plane(ArPlane *p_plane, bool p_acquired);
+	int64_t ensure_plane(ArPlane *p_plane);
 	Transform3D read_pose() const;
 	void build_packet(int64_t p_timestamp);
 	TextureSlot *find_texture_slot();

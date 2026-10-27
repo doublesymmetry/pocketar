@@ -119,7 +119,7 @@
 			<return type="void" />
 			<param index="0" name="enabled" type="bool" />
 			<description>
-				Advanced diagnostics, false by default. Enables projection/pose/UV checks and image/plane samples. Disabling preserves accumulated samples; error guards and path counters remain active. Timing percentiles cover the latest 512 observations per series. GPU readback has a separate opt-in.
+				Advanced diagnostics, false by default. Enables projection/pose/UV checks and image/plane samples. Disabling preserves accumulated samples; error guards and path counters remain active. Timing percentiles cover the latest 512 observations per series.
 			</description>
 		</method>
 		<method name="set_display_geometry">

@@ -50,7 +50,7 @@ class ARKitInterface : public XRInterfaceExtension {
 	void set_state(PocketAR::SessionState p_state);
 	void set_reason(PocketAR::TrackingReason p_reason);
 	void increment(const char *p_key);
-	void run_session(bool p_reset);
+	void run_session();
 	void pause_session();
 	void choose_camera_format();
 	void clear_packets();

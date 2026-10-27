@@ -351,10 +351,10 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	if (changed_planes) call_deferred("emit_signal", "planes_changed");
 }
 
-int64_t ARCoreInterface::ensure_plane(ArPlane *p_plane, bool p_acquired) {
+int64_t ARCoreInterface::ensure_plane(ArPlane *p_plane) {
 	auto found = planes.find(p_plane);
 	if (found != planes.end()) {
-		if (p_acquired) api.ArTrackable_release(reinterpret_cast<ArTrackable *>(p_plane));
+		api.ArTrackable_release(reinterpret_cast<ArTrackable *>(p_plane));
 		return found->second.id;
 	}
 	PlaneEntry entry;
@@ -386,7 +386,7 @@ void ARCoreInterface::refresh_planes() {
 			api.ArTrackable_release(trackable);
 			continue;
 		}
-		ensure_plane(plane, true);
+		ensure_plane(plane);
 		auto &entry = planes.at(plane);
 		if (!entry.dirty) { entry.dirty = true; pending_planes.push_back(plane); }
 	}
@@ -425,7 +425,7 @@ void ARCoreInterface::refresh_planes() {
 		}
 		ArPlane *parent = nullptr;
 		api.ArPlane_acquireSubsumedBy(session, plane, &parent);
-		snapshot.subsumed_by = parent ? ensure_plane(parent, true) : 0;
+		snapshot.subsumed_by = parent ? ensure_plane(parent) : 0;
 		found->second.tracker->update(snapshot);
 		increment("plane_updates");
 	}

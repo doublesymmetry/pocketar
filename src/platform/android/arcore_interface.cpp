@@ -259,28 +259,28 @@ void ARCoreInterface::refresh_camera_config() {
 	diagnostics["config"] = effective;
 }
 
-bool ARCoreInterface::create_session() {
-	if (suspended) { set_state(PocketAR::PAUSED); return false; }
+void ARCoreInterface::create_session() {
+	if (suspended) { set_state(PocketAR::PAUSED); return; }
 	const auto bridge = arcore_bridge_snapshot();
 	if (bridge.state != PocketAR::READY) {
 		set_state(PocketAR::SessionState(bridge.state));
-		return false;
+		return;
 	}
 	if (!bridge.resumed || application_suspended) {
 		set_state(PocketAR::PAUSED);
-		return false;
+		return;
 	}
 	set_state(PocketAR::READY);
 	if (int(diagnostics.get("texture_upload_region_size_px", 64)) < 512) {
 		UtilityFunctions::push_warning("ARCore camera upload region size is below 512 px; use 1024 px with staging_buffer/block_size_kb=4096 for lower upload cost.");
 	}
 	ARCoreJNIEnv jni(bridge.vm);
-	if (!jni.env || !bridge.context) { fail(AR_ERROR_FATAL, "JNI context"); return false; }
+	if (!jni.env || !bridge.context) { fail(AR_ERROR_FATAL, "JNI context"); return; }
 	uint64_t start = tick_usec();
 	ArStatus status = api.ArSession_create(jni.env, bridge.context, &session);
 	timings["create"] = (tick_usec() - start) / 1000.0;
-	if (status != AR_SUCCESS) { fail(status, "create"); return false; }
-	if (!choose_camera_config()) { release_session(); return false; }
+	if (status != AR_SUCCESS) { fail(status, "create"); return; }
+	if (!choose_camera_config()) { release_session(); return; }
 	api.ArConfig_create(session, &config);
 	api.ArConfig_setTextureUpdateMode(session, config, AR_TEXTURE_UPDATE_MODE_EXPOSE_HARDWARE_BUFFER);
 	api.ArConfig_setUpdateMode(session, config, AR_UPDATE_MODE_LATEST_CAMERA_IMAGE);
@@ -290,7 +290,7 @@ bool ARCoreInterface::create_session() {
 	start = tick_usec();
 	status = api.ArSession_configure(session, config);
 	timings["configure"] = (tick_usec() - start) / 1000.0;
-	if (status != AR_SUCCESS) { fail(status, "configure"); release_session(); return false; }
+	if (status != AR_SUCCESS) { fail(status, "configure"); release_session(); return; }
 	refresh_plane_finding_mode();
 	api.ArFrame_create(session, &frame);
 	api.ArPose_create(session, nullptr, &scratch_pose);
@@ -305,11 +305,10 @@ bool ARCoreInterface::create_session() {
 	if (!playback_dataset.is_empty()) {
 		const Dictionary playback = extras.set_playback_dataset(playback_dataset);
 		diagnostics["playback_start"] = playback;
-		if (!bool(playback.get("ok", false))) { fail(AR_ERROR_PLAYBACK_FAILED, "set playback dataset"); release_session(); return false; }
+		if (!bool(playback.get("ok", false))) { fail(AR_ERROR_PLAYBACK_FAILED, "set playback dataset"); release_session(); return; }
 	}
 	diagnostics["configured"] = true;
 	resume_session();
-	return true;
 }
 
 void ARCoreInterface::resume_session() {
@@ -493,7 +492,6 @@ void ARCoreInterface::set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode) 
 void ARCoreInterface::set_display_geometry(const Vector2i &p_size, int, double p_near, double p_far) {
 	ERR_FAIL_COND(p_size.x <= 0 || p_size.y <= 0 || !std::isfinite(p_near) || !std::isfinite(p_far) || p_near <= 0 || p_far <= p_near);
 	if (viewport_size != p_size) { viewport_size = p_size; geometry_dirty = true; }
-	near_plane = p_near; far_plane = p_far;
 }
 Vector2 ARCoreInterface::_get_render_target_size() { return current_packet.is_valid() ? current_packet->get_viewport_size() : Vector2(viewport_size); }
 Transform3D ARCoreInterface::_get_camera_transform() { return current_packet.is_valid() ? current_packet->get_camera_transform() : last_good_pose; }

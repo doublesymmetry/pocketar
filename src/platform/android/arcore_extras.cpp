@@ -1,7 +1,5 @@
 #include "arcore_extras.h"
 #include "core/ar_ids.h"
-#include <godot_cpp/variant/packed_float32_array.hpp>
-#include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <algorithm>
 #include <cstring>
@@ -50,8 +48,6 @@ void ARCoreExtras::setup(ArSession *p_session, int64_t p_generation) {
 	frame_id = 0;
 	last_track_timestamp = 0;
 	last_playback_input_timestamp = 0;
-	recording_status = AR_RECORDING_NONE;
-	playback_status = AR_PLAYBACK_NONE;
 	if (session) {
 		api.ArPose_create(session, nullptr, &scratch_pose);
 		api.ArTrackDataList_create(session, &track_data_list);
@@ -417,33 +413,18 @@ void ARCoreExtras::copy_point_cloud() {
 		return;
 	}
 	int32_t count = 0;
-	int64_t timestamp = 0;
 	api.ArPointCloud_getNumberOfPoints(session, cloud, &count);
-	api.ArPointCloud_getTimestamp(session, cloud, &timestamp);
 	PackedVector3Array positions;
-	PackedFloat32Array confidences;
-	PackedInt32Array ids;
 	if (count > 0) {
 		const float *points = nullptr;
-		const int32_t *point_ids = nullptr;
 		api.ArPointCloud_getData(session, cloud, &points);
-		api.ArPointCloud_getPointIds(session, cloud, &point_ids);
 		positions.resize(count);
-		confidences.resize(count);
-		ids.resize(count);
 		for (int32_t i = 0; i < count; i++) {
 			positions[i] = Vector3(points[4 * i], points[4 * i + 1], points[4 * i + 2]);
-			confidences[i] = points[4 * i + 3];
-			ids[i] = point_ids[i];
 		}
 	}
 	api.ArPointCloud_release(cloud);
-	point_cloud["session_generation"] = generation;
-	point_cloud["frame_id"] = frame_id;
-	point_cloud["timestamp_ns"] = timestamp;
 	point_cloud["positions"] = positions;
-	point_cloud["confidences"] = confidences;
-	point_cloud["ids"] = ids;
 }
 
 }

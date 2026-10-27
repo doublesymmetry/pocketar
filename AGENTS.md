@@ -110,33 +110,17 @@ One ARView owns one monoscopic `XRInterfaceExtension` and makes it primary.
 The synthetic interface is named `PocketARSynthetic`; scripted fixtures use
 `PocketARScripted`. Both publish `head` / `default` for
 `XRCamera3D`. The transparent XR SubViewport contains `XROrigin3D`, `XRCamera3D`
-and `SceneRoot`. `ARView.composition` is a startup-only `Composition` enum:
-`IN_SCENE` (default) or `ISOLATED_CAMERA`. Assign it before adding the view to the
-tree; changing it after `_ready` reports an error and preserves the selected mode.
-In-scene draws the camera inside the XR viewport; isolated draws an SDR camera
-canvas beneath the virtual scene. A CanvasLayer holds ordinary HUD Controls above both. Controls receive input first.
-ARView ignores input by default. With `handle_presses=true`, unconsumed presses
-emit a ray through `ARView.screen_to_ray()` and mark the event handled. The demo
-and rendering harness opt in. Touch-emulated mouse presses are ignored.
+and `SceneRoot`. A CanvasLayer holds ordinary HUD Controls above both.
+The demo and rendering harness opt in to `handle_presses`.
+See the [game API](docs/api.md#game-api),
+[input and frame contracts](docs/api.md#frames-signals-and-lifetime), and
+[composition](README.md#composition).
 
-`ARFramePacket` contains copied calibration, pose, UV mapping, IDs, timestamps,
-tracking state and planes. These values remain valid for the packet's lifetime.
-On ARKit and the ARCore CPU path, camera textures are valid only while the packet is
-current or presented; ARView also protects the last packet applied to its material
-until it replaces or clears that material. Script-held packet or texture Refs do
-not extend camera-image lifetime. An old ARKit Texture2DRD is cleared and samples
-the engine default; an old ARCore CPU texture can show newer slot content. The GPU
-path shares one ExternalTexture across packets: submitting the next frame lets
-the engine replace its pixels during conversion, before that frame's packet is
-presented. Even a current or presented GPU packet does not preserve its image. Keep the
-packet for touch/raycast values, not as an image archive. If texture acquisition
-is refused, pose, tracking and planes still advance using the previous textures,
-and `texture_refusals` increases. Setters affect the next acquisition. Below the
-render rate, the entire packet repeats. Resize/calibration changes acquire a new complete
-packet immediately on the next XR process. The synthetic clock is monotonic
-`Time.get_ticks_usec()`; orientation is clockwise quarter turns relative to the
-fixed camera image. Automatic synthetic orientation chooses 0 for landscape and
-1 for portrait; explicitly set 0–3 to exercise reverse orientations.
+Packet lifetimes and clocks follow [the frame contract](docs/api.md#frames-signals-and-lifetime).
+`texture_refusals` counts refused acquisitions. Setters affect the next acquisition;
+geometry/calibration changes acquire on the next XR process. Synthetic orientation
+uses clockwise quarter turns: automatic selects 0 for landscape and 1 for portrait;
+explicit 0–3 exercises reverse orientations.
 
 `display_transform` maps top-left-origin viewport UV into top-left-origin camera
 image UV, including centred aspect-fill crop and rotation. On the ARCore GPU path,
@@ -258,12 +242,10 @@ sees only the virtual scene, and alpha-zero glow is discarded. The camera is
 unaffected by the game's Environment, including fog. Keep the outer viewport SDR
 in both modes. Both camera shaders share the same YCbCr/RGB sampling include.
 
-`ARView.environment` is the game's source resource. Background mode and colour
-are ignored in both modes: ARView copies the other settings into a private
-Environment before each draw and forces a transparent-black clear. Live edits
-apply even when the camera packet repeats, and leave the source resource unchanged.
-Both modes keep the transparent-viewport depth-of-field restriction. Custom
-blending and nonlinear translucent rendering need their own rendering review.
+Environment behaviour and limits follow [composition](README.md#composition).
+ARView copies the non-background settings into a private Environment before each
+draw, forces a transparent-black clear, and applies live edits even when the
+camera packet repeats.
 
 The rendering harness runs both compositions, prefixing captures and step details
 with the mode. Projection and `xr-mono-2d` measure geometry against a camera-only
@@ -340,11 +322,8 @@ other native reference has been released. Shutdown never waits for destroy.
 The config explicitly uses EXPOSE_HARDWARE_BUFFER, LATEST_CAMERA_IMAGE, plane
 discovery disabled by default, auto focus and disabled light estimation. Depth, instant
 placement, cloud/geospatial anchors, semantics, faces, stabilization and streetscape
-geometry keep the SDK's disabled defaults. CPU camera selection uses a
-non-null back-camera/30fps/no-depth/no-stereo filter, largest matching-aspect CPU
-image and smallest GPU image on ties. `set_camera_config_index(index)` selects a
-listed configuration (including VGA); -1 restores automatic selection.
-Changing the camera configuration resets an active session.
+geometry keep the SDK's disabled defaults. Camera selection follows
+[session controls](docs/api.md#session-controls).
 Do not enable Godot CameraServer feeds while an ARSession runs: both open Camera2.
 
 A new timestamp yields one copied packet. On the CPU path, YUV_420_888 is repacked using each
@@ -375,11 +354,8 @@ scons platform=android target=template_debug arch=arm64 api_version=4.7 ndk_vers
 scons platform=android target=template_release arch=arm64 api_version=4.7 ndk_version=29.0.14206865 -j8
 ```
 
-The checked-in header comes from the SDK `v1.56.0` GitHub tag; its provenance is
-in `thirdparty/arcore/README.md`. The 1.56.0 AAR has no header, so
-`tools/update-arcore-header.sh` uses the exact SDK tag. Godot's Maven export
-dependency packages the arm64 shim once. Do not add the shim to both the plugin AAR and the
-exported Maven dependency.
+ARCore header provenance, updates and single-copy shim packaging are documented
+in [thirdparty/arcore/README.md](thirdparty/arcore/README.md).
 
 After Claude has built/exported a debug APK and checked/unlocked the shared Pixel:
 
@@ -420,25 +396,13 @@ to exercise the DisplayListener; clock offsets remain in `diagnostics.json` beca
 the ARCore timestamp source is unestablished. Run separate config-index sessions
 for VGA/high-resolution thermal and bandwidth comparisons.
 
-Native query helpers are `live_hit_test(view_pixels)` and
-`live_hit_test_ray(origin, direction)`; results describe the current native frame
-and expire at the next update. Optional `set_point_cloud_enabled(true)` copies
-point-cloud data for reprojection diagnostics and releases it in the same tick.
-
-For ARCore datasets, use `PocketARPlugin.getExternalFilesDir()` to construct a
-percent-encoded `file://` URI in private external storage, then
-`start_recording(uri)`, `record_input(bytes)` and `stop_recording()`.
-`start_playback(uri)` creates a fresh generation. `get_playback_inputs()` drains custom input records for the
-application to replay. The fixed track UUID is
-`61a97725-8be4-4e8f-a196-6af38ca10735`, version 1, with opaque application-owned
-payloads, bounded to 65536 bytes. ILLEGAL_STATE writes retry over at most eight
-new frames, with a 128-input queue. Recording auto-stops on pause. ARCore 1.56 playback
-returns the same track data on later frames; PocketAR delivers each recorded frame's inputs
-once and counts the rest as `playback_inputs_repeated`. Playback end
-is exposed in extras diagnostics; restarting the same URI creates another fresh
-session. Dataset tests must use tolerances, not exact plane counts or poses.
-Datasets contain room video and device information; keep them in private storage,
-never in the MIT repository.
+Native queries, point clouds and datasets follow
+[advanced and internal surfaces](docs/api.md#advanced-and-internal-surfaces) and
+[ARCoreInterface](doc_classes/ARCoreInterface.xml).
+Keep input track UUID `61a97725-8be4-4e8f-a196-6af38ca10735`, version 1, stable.
+Repeated playback inputs increment `playback_inputs_repeated`. Dataset tests
+require tolerances for poses and plane counts. Keep room recordings private and
+out of the repository.
 
 The demo accepts `-harness-camera-config <index>` before session creation;
 `-harness-record <name.mp4>` and `-harness-playback <name.mp4>` are mutually exclusive,
@@ -597,16 +561,9 @@ It is a live query; copied packet polygons remain the placement API.
 details, plus `thermal_state` (`NSProcessInfo.thermalState`, 0 nominal to 3 critical); the ARKit
 step thresholds live in `demo/ar/ios_ar_harness.gd`.
 
-Use the iOS 17+ lane from ci4's GUI session after building/signing the exported app:
-
-```bash
-IOS_DEVICE=<udid> python3 tools/ios-device.py preflight
-IOS_DEVICE=<udid> python3 tools/ios-device.py install /path/to/signed.app
-IOS_DEVICE=<udid> tools/harness.sh ios-ar -harness-duration 60
-IOS_DEVICE=<udid> tools/harness.sh ios-ar -harness-duration 1800
-```
-
-See `docs/ios-device.md` for the iOS transport, run-log, capture and cleanup protocol.
+Follow [docs/ios-device.md](docs/ios-device.md) for iOS preflight, installation
+and harness transport. Run `ios-ar` with `-harness-duration 60`, then
+`-harness-duration 1800`.
 
 One-time iPhone 12 setup, performed by its owner: finish Setup Assistant without a
 passcode, Face ID, Apple ID or Workspace account; connect to ci4 and tap Trust;
@@ -645,15 +602,11 @@ Generate native signatures with `godot --headless --path demo --doctool <scratch
 --gdextension-docs`; this lists only classes registered on the running platform.
 Keep mobile-only XML when refreshing docs on macOS.
 
-ARCore and ARKit default to `set_diagnostics_enabled(false)`. Enable it on the
-interface for projection, pose and UV oracles, CPU image layout/luma sampling and
-plane/point-cloud reprojection checks. Native device harnesses enable it;
-ordinary demo runs leave it off. Disabling collection preserves previous samples;
-format/lifetime/error guards and path counters remain active. ARCore GPU readback
-requires the separate `set_gpu_validation_enabled(true)` opt-in.
-Timing percentiles cover the latest 512 observations per series, about 17 seconds
-at 30 samples per second. Statistics sampling times are collected only with
-diagnostics enabled.
+Native harnesses enable diagnostics; ordinary demo runs leave them off.
+Collection contracts are in [ARCoreInterface](doc_classes/ARCoreInterface.xml) and
+[ARKitInterface](doc_classes/ARKitInterface.xml); GPU readback requires ARCore's
+separate opt-in. Statistics sampling times are collected only while diagnostics
+are enabled.
 
 The demo enables material debanding. The desktop harness allows eight byte levels
 for dithered in-scene camera landmarks and MSAA edges, retaining the stricter
@@ -678,13 +631,8 @@ frames one apart while the camera moves.
 
 ## Scripted sessions and the game facade
 
-`ARView.plane_finding_mode` can be set before startup or while running. Its
-`PocketAR.PlaneFindingMode` values are `PLANE_FINDING_DISABLED=0` (default),
-`PLANE_FINDING_HORIZONTAL=1` (upward and downward), and
-`PLANE_FINDING_HORIZONTAL_AND_VERTICAL=3`. The property reads the
-backend immediately; all four backends expose `set_plane_finding_mode()` and
-`get_plane_finding_mode()`. The selected mode survives pause/resume and reset.
-Reset still clears planes and changes generation, even when detection is disabled.
+Plane-finding controls follow [session controls](docs/api.md#session-controls)
+and `PocketAR.PlaneFindingMode` in [PocketAR.xml](doc_classes/PocketAR.xml).
 
 ARCore changes only plane finding on the existing session config and calls
 `ArSession_configure`, without pausing, recreating the session or selecting a
@@ -721,29 +669,14 @@ and camera config, then restores the original mode. It reports before/after plan
 counts and saves snapshots to `plane-finding.json`. With no observed plane changes
 after re-enabling it reports INFO; exercise discovery by moving over textured surfaces.
 
-`ARView.backend` values are Synthetic=0, ARCore=1, ARKit=2, Scripted=3. Supply
-a loaded `ScriptedARInterface` through `ARView.interface` before adding a Scripted
-view to the tree. `PocketAR.get_backend()`
-reports the primary interface: `synthetic`, `scripted`, `arcore`, `arkit`, `none`
-when there is no primary, or `unknown` for another provider.
+Backend selection and replay methods are documented in
+[ARView's editor help](demo/addons/pocketar/ar_view.gd),
+[PocketAR](doc_classes/PocketAR.xml) and
+[ScriptedARInterface](doc_classes/ScriptedARInterface.xml).
 
-All four backends expose `reset()`, `get_session_state()`,
-`get_tracking_reason()` and `get_session_generation()`. Games use `ARView.reset()`
-and the read-only `session_state`, `tracking_reason` and `session_generation`
-properties. Properties query the backend immediately. ARView forwards `session_state_changed(state)`,
-`tracking_reason_changed(reason)`, `session_generation_changed(generation)` and
-`planes_changed()`. Backend notifications are deferred in order until the current
-native operation finishes, so a signal handler can safely reset the session.
-State and reason signals fire on value changes. Generation
-IDs remain process-wide unique, so replay comparisons normalize generations
-relative to each run rather than expecting the same absolute ID. Plane changes
-refer to the current snapshot/tracker set; placement uses the presented packet.
-
-`PocketAR.SessionState` is the shared enum: UNSUPPORTED=0, CHECKING=1,
-NEEDS_INSTALL=2, INSTALLING=3, PERMISSION_DENIED=4, READY=5, INITIALIZING=6,
-TRACKING=7, PAUSED=8, FAILED=9. `PocketAR.TrackingReason` is NONE=0, BAD_STATE=1,
-INSUFFICIENT_LIGHT=2, EXCESSIVE_MOTION=3, INSUFFICIENT_FEATURES=4,
-CAMERA_UNAVAILABLE=5.
+Session state and notifications follow [the frame contract](docs/api.md#frames-signals-and-lifetime)
+and [PocketAR](doc_classes/PocketAR.xml). Replay comparisons must normalize
+process-wide unique generation IDs relative to each run.
 
 - Synthetic reports TRACKING/NONE while initialized and PAUSED when stopped.
   Reset immediately changes generation and invalidates presentation.
@@ -784,17 +717,9 @@ records at the same time execute in file order. Frame IDs increase across resets
 - Inputs contain `kind: "down"` / `"move"` / `"up"` / `"cancel"`, a nonnegative
   `finger`, normalized `uv: [x,y]` and `target_frame` naming a fixture frame.
 
-`load_fixture(path)` validates the entire file and returns an Error; malformed
-records report their line number and leave the existing fixture unchanged.
-`advance_to(t_usec)` applies all reached records and publishes the newest reached frame. Time cannot move backwards; reload to rewind.
-Call `advance_to(0)` before initialization. Time moves only through `advance_to`.
 Geometry changes rebuild projection and display transform from recorded intrinsics and physical
 pose even when the frame repeats. Camera pixels use the synthetic bars.
 
-`reset()` keeps the fixture cursor, changes generation and clears packets and
-trackers. Planes remain absent until a later frame supplies `planes` again.
-Trackers use `pocketar/plane/<generation>/<id>`. `get_pending_inputs()` drains the
-reached inputs, with `uv` returned as Vector2 and `session_generation` attached.
 The driver waits until `target_frame` is presented, multiplies UV by ARView size,
 and transforms that local point into viewport coordinates before constructing
 Godot touch/drag events. The library never injects inputs itself. Generated headers
@@ -808,14 +733,6 @@ Generated physical camera poses compose the path's yaw with a local-Z roll of
 so world up stays screen up in every orientation, including on the orbit path.
 The recorded transform remains in the physical image-camera basis.
 
-Generate the desktop suite fixture with:
-
-```sh
-python3 tools/fixtures.py --output demo/harness/fixtures/table.jsonl \
-  --loss-at 1 --reset-at 1.5 --pause-at 1.75 --tap-at 0.6 \
-  --drag-to 0.1 -0.7 -2 --plane-examples
-```
-
 `--table-height` sets metres below the camera; `--camera orbit` or `static` chooses
 its path. Each `--tap-at` projects the table centre. Fixtures use ARKit semantics,
 run for 2 seconds at 30 fps, and use 0.25-second losses and 0.1-second pauses.
@@ -824,14 +741,8 @@ The `scripted` desktop harness step runs each landscape and 1080×1920 portrait
 fixture twice, with an explicit deferred flush after each time advance. The headless companion
 checks the same state, placement and input behavior without claiming GPU coverage.
 
-`ARView.raycast(point, alignments=PocketAR.ALIGNMENT_MASK_ALL)` filters hits by a bit
-mask: `ALIGNMENT_MASK_HORIZONTAL_UPWARD=1`,
-`ALIGNMENT_MASK_HORIZONTAL_DOWNWARD=2`, `ALIGNMENT_MASK_VERTICAL=4`,
-`ALIGNMENT_MASK_ALL=7`. Each `ARRaycastHit`
-exposes the plane's `alignment` (the existing ARPlaneTracker enum, values 0–2).
-`world_to_screen(world_point)` returns ARView-local pixels from the presented
-packet. It returns Vector2.INF when the packet/input cannot be used; world points
-behind the camera are invalid.
+Placement follows [coordinates and placement](docs/api.md#coordinates-and-placement)
+and `PocketAR.AlignmentMask` in [PocketAR.xml](doc_classes/PocketAR.xml).
 `view_point(event_position)` converts viewport event positions with the inverse
 of `get_global_transform_with_canvas()`, including canvas scaling and rotation.
 

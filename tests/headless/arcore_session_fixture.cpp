@@ -575,7 +575,6 @@ public:
 		check(debug_notifications == 4, "debug merged notifications cover add, tracking loss, reset and teardown only");
 #endif
 		check(reset_from_reason, "deferred tracking notification permits a game reset");
-		check(events.slice(0, 3) == expected_events.slice(0, 3), "cold-start facade sequence is exactly CHECKING, READY, INITIALIZING with no PAUSED");
 		check(events == expected_events, "deferred notifications preserve payload order and suppress unchanged values");
 		session->_uninitialize();
 		check(session->get_session_state() == PocketAR::PAUSED, "uninitializing a pending session reports PAUSED");
