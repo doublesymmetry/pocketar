@@ -51,8 +51,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix="pocketar-package-") as temporary:
         staging = Path(temporary)
         addon = staging / "addon/addons/pocketar"
-        source = ROOT / "demo/addons/pocketar"
-        for name in git("ls-files", "demo/addons/pocketar").splitlines():
+        source = ROOT / "harness/addons/pocketar"
+        for name in git("ls-files", "harness/addons/pocketar").splitlines():
             path = ROOT / name
             if not path.name.startswith("pocketar_args."):
                 copy(path, addon / path.relative_to(source))

@@ -58,6 +58,11 @@ files, editor help, license notices and the API contract in `docs/`.
 For the complete sample, unzip `pocketar-tap-to-place-<version>.zip`, import
 `tap_to_place/project.godot` and press Run. `SHA256SUMS` covers both ZIPs.
 
+A git clone or GitHub's **Download ZIP** contains no compiled libraries: build
+with `tools/build.sh` before opening a project, or use the release ZIPs to run
+without building. The `harness/` project runs tests; `samples/tap_to_place/` is
+the example game.
+
 ### Build from source
 
 Install Nix and devenv on Apple Silicon and select Xcode with `xcode-select`.
@@ -73,7 +78,7 @@ tools/build.sh android debug  # or: tools/build.sh ios debug
 
 Build the mobile target with `release` for release exports. The macOS debug
 library supplies editor help and is required even for mobile-only games. Copy
-all of `demo/addons/pocketar/` to your project's `addons/pocketar/` and enable the plugin.
+all of `harness/addons/pocketar/` to your project's `addons/pocketar/` and enable the plugin.
 In the repository shell, `stock godot` selects public Godot 4.7.2.
 
 ## Add an AR scene

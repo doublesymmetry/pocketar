@@ -16,7 +16,7 @@ func _check(condition: bool, message: String) -> void:
 func _run() -> void:
 	var interface := ScriptedARInterface.new()
 	interface.set_plane_finding_mode(PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL)
-	_check(interface.load_fixture("res://harness/fixtures/table.jsonl") == OK, "fixture loads")
+	_check(interface.load_fixture("res://suites/fixtures/table.jsonl") == OK, "fixture loads")
 	interface.advance_to(500000)
 	interface.set_display_geometry(Vector2i(640, 480), 0, 0.05, 100.0)
 	XRServer.add_interface(interface)

@@ -5,7 +5,7 @@ platform=${1:-desktop}
 [[ $# == 0 ]] || shift
 case "$platform" in
     desktop|macos)
-        exec python3 tools/run-harness.py -- godot --path demo --rendering-method mobile \
+        exec python3 tools/run-harness.py -- godot --path harness --rendering-method mobile \
             --windowed --resolution 960x720 -- --harness "$@" ;;
     android|android-ar)
         : "${ADB:?Set ADB to the adb binary matching the running server}"

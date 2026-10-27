@@ -1,7 +1,7 @@
 extends RefCounted
 
 const AR_VIEW: PackedScene = preload("res://addons/pocketar/ar_view.tscn")
-const FIXTURES: PackedStringArray = ["res://harness/fixtures/table.jsonl", "res://harness/fixtures/table-portrait.jsonl"]
+const FIXTURES: PackedStringArray = ["res://suites/fixtures/table.jsonl", "res://suites/fixtures/table-portrait.jsonl"]
 const TABLE_CENTER := Vector3(0.0, -0.7, -2.0)
 const TICKS: Array[int] = [0, 500000, 600000, 633333, 666667, 1266667, 1500000, 1533333, 1750000, 1850000, 1866667]
 const FRAME_IDS: Array[int] = [1, 16, 19, 20, 21, 39, 46, 47, 53, 56, 57]

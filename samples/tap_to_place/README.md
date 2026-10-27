@@ -17,6 +17,10 @@ after denial, enable it in app settings and return.
 From a release ZIP, import `tap_to_place/project.godot` into public Godot 4.7.2+
 and press Run. The addon and desktop fixture are included.
 
+A source checkout, including GitHub's **Download ZIP**, contains no compiled
+libraries. Build with `tools/build.sh` before opening the sample, or use the
+release ZIP to run without building.
+
 From the repository root, inside `devenv shell`:
 
 ```sh
@@ -31,7 +35,7 @@ Desktop uses a static table fixture and synthetic camera. Click the centre cyan
 wall or table below; reset reloads that frame. Live camera and plane detection
 require a phone, which selects ARKit or ARCore.
 
-In source, `addons/pocketar` links to `demo/addons/pocketar`, so builds update
+In source, `addons/pocketar` links to `harness/addons/pocketar`, so builds update
 the sample. Packaging replaces the link with the release addon. Mobile exports
 exclude the sample's `fixtures/table.jsonl`.
 

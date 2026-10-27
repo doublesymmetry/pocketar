@@ -32,7 +32,7 @@ if platform == "ios":
     objc_env = env.Clone()
     objc_env.Append(CXXFLAGS=["-fobjc-arc", "-fmodules", "-fcxx-modules",
                              "-fmodules-cache-path=" + Dir("build/clang-module-cache").abspath])
-output = "demo/addons/pocketar/bin/{}/{}/{}".format(platform, env["target"], env["arch"])
+output = "harness/addons/pocketar/bin/{}/{}/{}".format(platform, env["target"], env["arch"])
 objects = [(objc_env if str(s).endswith(".mm") else env).SharedObject(
     "build/" + env["suffix"] + "/" + str(s) + ".os", s) for s in sources]
 if platform == "ios":

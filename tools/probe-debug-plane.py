@@ -39,11 +39,11 @@ def prepare(destination, platform, mode):
     project = destination / "project"
     project.mkdir(parents=True, exist_ok=False)
     addon = project / "addons/pocketar"
-    shutil.copytree(ROOT / "demo/addons/pocketar", addon, ignore=shutil.ignore_patterns("bin"))
+    shutil.copytree(ROOT / "harness/addons/pocketar", addon, ignore=shutil.ignore_patterns("bin"))
     for target in {platform, "macos"}:
-        source = ROOT / "demo/addons/pocketar/bin" / target
+        source = ROOT / "harness/addons/pocketar/bin" / target
         shutil.copytree(source, addon / "bin" / target)
-    shutil.copy2(ROOT / "demo/icon.png", project / "icon.png")
+    shutil.copy2(ROOT / "harness/icon.png", project / "icon.png")
     for name in ("debug_plane_api.gd", "debug_plane_api.gd.uid", "debug_plane_api.tscn"):
         shutil.copy2(ROOT / "tests/probes" / name, project / name)
     expected = "true" if mode == "debug" else "false"
@@ -66,7 +66,7 @@ enabled=PackedStringArray("res://addons/pocketar/plugin.cfg")
 [probe]
 expect_debug={expected}
 ''')
-    presets = (ROOT / "demo/export_presets.cfg").read_text().replace(
+    presets = (ROOT / "harness/export_presets.cfg").read_text().replace(
         "org.doublesymmetry.pocketar.demo", "org.doublesymmetry.pocketar.apiprobe")
     presets += '''
 [preset.2]
@@ -82,7 +82,7 @@ application/bundle_identifier="org.doublesymmetry.pocketar.apiprobe"
 codesign/codesign=0
 '''
     (project / "export_presets.cfg").write_text(presets)
-    credentials = ROOT / "demo/.godot/export_credentials.cfg"
+    credentials = ROOT / "harness/.godot/export_credentials.cfg"
     if credentials.exists():
         (project / ".godot").mkdir(exist_ok=True)
         shutil.copy2(credentials, project / ".godot/export_credentials.cfg")
@@ -92,7 +92,7 @@ codesign/codesign=0
 
 def verify_native(destination, platform, mode, artifact):
     suffix = {"macos": "dylib", "android": "so", "ios": "a"}[platform]
-    built = ROOT / f"demo/addons/pocketar/bin/{platform}/template_{mode}/arm64/libpocketar.{suffix}"
+    built = ROOT / f"harness/addons/pocketar/bin/{platform}/template_{mode}/arm64/libpocketar.{suffix}"
     expected = digest(built)
     if platform == "android":
         with zipfile.ZipFile(artifact) as package:

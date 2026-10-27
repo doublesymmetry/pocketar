@@ -3,7 +3,7 @@ config_version=5
 [application]
 config/name="PocketAR harness"
 config/icon="res://icon.png"
-run/main_scene="res://harness/harness.tscn"
+run/main_scene="res://suites/harness.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 
 [debug]

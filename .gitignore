@@ -15,7 +15,7 @@ local.properties
 /android/.gradle/
 /android/build/
 /android/plugin/build/
-/demo/android/
+/harness/android/
 /samples/*/android/
-/demo/addons/*/bin/
+/harness/addons/*/bin/
 __pycache__/

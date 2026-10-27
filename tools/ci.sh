@@ -6,7 +6,7 @@ actionlint
 python3 tools/package.py
 TMPDIR=/tmp tools/test-native.sh
 TMPDIR=/tmp stock tools/test-arcore.sh
-stock godot --headless --path demo --editor --import --quit-after 180 > build/ci/import.log 2>&1
+stock godot --headless --path harness --editor --import --quit-after 180 > build/ci/import.log 2>&1
 if rg 'SCRIPT ERROR:|ERROR:' build/ci/import.log; then exit 1; fi
 stock tools/test-headless.sh
 gradle -p android :plugin:testDebugUnitTest

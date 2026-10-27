@@ -13,11 +13,11 @@ def main():
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version):
         raise SystemExit("VERSION must contain a semantic version without a v prefix")
     fields = {
-        "demo/addons/pocketar/plugin.cfg": [(r'(?m)^version="[^"]+"', f'version="{version}"')],
-        "demo/addons/pocketar/pocketar.gdextension": [(r'(?m)^version = "[^"]+"', f'version = "{version}"')],
+        "harness/addons/pocketar/plugin.cfg": [(r'(?m)^version="[^"]+"', f'version="{version}"')],
+        "harness/addons/pocketar/pocketar.gdextension": [(r'(?m)^version = "[^"]+"', f'version = "{version}"')],
         "src/core/pocketar.h": [(r'get_version\(\) const \{ return "[^"]+";', f'get_version() const {{ return "{version}";')],
     }
-    for name in ("demo", "samples/tap_to_place"):
+    for name in ("harness", "samples/tap_to_place"):
         fields[f"{name}/export_presets.cfg"] = [
             (r'(?m)^application/short_version="[^"]+"', f'application/short_version="{version.split("-")[0]}"'),
             (r'(?m)^version/name="[^"]+"', f'version/name="{version}"'),

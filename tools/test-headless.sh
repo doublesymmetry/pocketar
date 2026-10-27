@@ -6,7 +6,7 @@ run() {
     local name=$1
     shift
     local log="$PWD/build/tests/headless/$name.log"
-    godot --headless --path demo --log-file "$log" "$@"
+    godot --headless --path harness --log-file "$log" "$@"
     if rg -q 'SCRIPT ERROR:|FAIL' "$log"; then
         exit 1
     fi
