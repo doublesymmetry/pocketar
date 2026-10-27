@@ -30,7 +30,7 @@ def harness_timeout(args, ar):
         duration = float(args[index + 1])
         if not math.isfinite(duration) or duration <= 0:
             raise ValueError("-harness-duration must be a finite positive number")
-    return duration + 180 if ar else 300.0
+    return duration + 180 if ar else 600.0
 
 
 def validate_harness_options(args):
