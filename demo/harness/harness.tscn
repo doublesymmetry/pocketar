@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://harness/harness.gd" id="1"]
+[ext_resource type="PackedScene" path="res://addons/pocketar/ar_view.tscn" id="2"]
+
+[node name="Harness" type="Node"]
+script = ExtResource("1")
+
+[node name="ARView" parent="." instance=ExtResource("2")]
+handle_presses = true
+plane_finding_mode = 3

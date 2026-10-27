@@ -9,3 +9,13 @@ devenv.local.nix
 *.dylib
 .sconsign*.dblite
 /bin/
+local.properties
+
+/build/
+/android/.gradle/
+/android/build/
+/android/plugin/build/
+/demo/android/
+/samples/*/android/
+/demo/addons/*/bin/
+__pycache__/

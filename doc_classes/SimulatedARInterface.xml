@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="SimulatedARInterface" inherits="XRInterfaceExtension" api_type="extension" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Advanced abstract base for synthetic and scripted AR backends.
+	</brief_description>
+	<description>
+		ARView owns this interface. Its display-geometry and packet/presentation methods are internal protocol, retained for addon scripts and harnesses. Only one primary monoscopic interface is supported, on the main thread in Safe rendering mode. Debug-plane methods exist only in editor/debug libraries.
+	</description>
+	<methods>
+		<method name="clear_debug_plane">
+			<return type="void" />
+			<description>
+				Internal debug/editor-only harness control. Requests removal of the injected plane.
+			</description>
+		</method>
+		<method name="get_current_packet" qualifiers="const">
+			<return type="ARFramePacket" />
+			<description>
+				Internal ARView protocol. Returns the latest acquired packet, or null before acquisition/after clearing. This is not necessarily the presented frame.
+			</description>
+		</method>
+		<method name="get_plane_finding_mode" qualifiers="const">
+			<return type="int" enum="PocketAR.PlaneFindingMode" />
+			<description>
+				Returns the selected [enum PocketAR.PlaneFindingMode].
+			</description>
+		</method>
+		<method name="get_presented_packet" qualifiers="const">
+			<return type="ARFramePacket" />
+			<description>
+				Internal ARView protocol. Returns the last packet marked after draw, or null before presentation/after clearing. A retained native texture is not an image archive.
+			</description>
+		</method>
+		<method name="get_session_generation" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the current process-wide unique session identity. Old plane and query identities cannot be reused after reset.
+			</description>
+		</method>
+		<method name="mark_presented">
+			<return type="void" />
+			<description>
+				Internal ARView protocol, called after draw to advance presentation. Do not call on a view-owned interface.
+			</description>
+		</method>
+		<method name="set_debug_plane">
+			<return type="int" />
+			<param index="0" name="transform" type="Transform3D" />
+			<param index="1" name="extents" type="Vector2" />
+			<description>
+				Internal debug/editor-only harness control. Injects a plane at a world transform with full X/Z extents in metres and returns its ID. Not native plane discovery.
+			</description>
+		</method>
+		<method name="set_display_geometry">
+			<return type="void" />
+			<param index="0" name="viewport_size" type="Vector2i" />
+			<param index="1" name="quarter_turns" type="int" />
+			<param index="2" name="near" type="float" />
+			<param index="3" name="far" type="float" />
+			<description>
+				Internal ARView protocol: viewport size in pixels, clockwise quarter turns 0-3, and near/far distances in metres. Geometry changes rebuild the next complete packet.
+			</description>
+		</method>
+		<method name="set_plane_finding_mode">
+			<return type="void" />
+			<param index="0" name="mode" type="int" enum="PocketAR.PlaneFindingMode" />
+			<description>
+				Defaults to disabled. Selects [enum PocketAR.PlaneFindingMode] before or during the session, retained across pause/reset. Disabling retains existing planes; native refinement behavior differs by platform. Prefer ARView.plane_finding_mode.
+			</description>
+		</method>
+		<method name="set_suspended">
+			<return type="void" />
+			<param index="0" name="suspended" type="bool" />
+			<description>
+				Internal ARView protocol. Explicit suspension is independent of application pause. Prefer ARView.suspended.
+			</description>
+		</method>
+		<method name="application_pause">
+			<return type="void" />
+			<description>
+				Internal lifecycle protocol used by ARView/platform callbacks and test drivers. Prefer normal application lifecycle for a running view.
+			</description>
+		</method>
+		<method name="application_resume">
+			<return type="void" />
+			<description>
+				Internal lifecycle protocol used by ARView/platform callbacks and test drivers. Prefer normal application lifecycle for a running view.
+			</description>
+		</method>
+	</methods>
+	<signals>
+		<signal name="planes_changed">
+			<description>
+				Deferred notification that the current plane snapshot/tracker set changed. This is not a presentation notification.
+			</description>
+		</signal>
+		<signal name="session_generation_changed">
+			<param index="0" name="generation" type="int" />
+			<description>
+				Deferred notification that the session identity changed. Discard old plane/query identities and clear or rebuild placements.
+			</description>
+		</signal>
+		<signal name="session_state_changed">
+			<param index="0" name="state" type="int" />
+			<description>
+				Current [enum PocketAR.SessionState] notification, deferred until the native operation finishes. Emitted on changes and initial startup where applicable; handlers may reset safely.
+			</description>
+		</signal>
+		<signal name="tracking_reason_changed">
+			<param index="0" name="reason" type="int" />
+			<description>
+				Emitted when the current [enum PocketAR.TrackingReason] changes, deferred until the native operation finishes.
+			</description>
+		</signal>
+	</signals>
+</class>

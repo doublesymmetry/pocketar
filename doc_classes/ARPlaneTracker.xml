@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="ARPlaneTracker" inherits="XRPositionalTracker" api_type="extension" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Live detected-plane geometry registered with XRServer.
+	</brief_description>
+	<description>
+		Trackers are named pocketar/plane/&lt;generation&gt;/&lt;id&gt; and updated in place. Use [member ARFramePacket.planes] for copied geometry from a particular frame. The inherited default pose is valid while tracking.
+		World units are metres. Plane-local coordinates are XZ with +Y normal; transforms are world-from-plane and extents are full lengths. Identity is scoped to a session generation. Subsumed planes remain aliases but default visualization and raycasts omit them. A plane tracker is not a game-created anchor, even though its XR tracker type is TRACKER_ANCHOR.
+	</description>
+	<members>
+		<member name="alignment" type="int" setter="" getter="get_alignment" default="0">
+			An [enum Alignment] ordinal, not a [enum PocketAR.AlignmentMask] bit. Use 1 shifted by this value to form a mask bit.
+		</member>
+		<member name="extents" type="Vector2" setter="" getter="get_extents" default="Vector2(0, 0)">
+			Full plane lengths along local X and Z in metres. Raycasts use the polygon, not this bounding rectangle.
+		</member>
+		<member name="plane_id" type="int" setter="" getter="get_plane_id" default="0">
+			Opaque plane identity within [member session_generation].
+		</member>
+		<member name="polygon" type="PackedVector2Array" setter="" getter="get_polygon" default="PackedVector2Array()">
+			Copied polygon vertices as local XZ pairs in metres, with +Y normal.
+		</member>
+		<member name="session_generation" type="int" setter="" getter="get_session_generation" default="0">
+			Session identity that owns this plane. Reset removes old trackers and invalidates old plane identities.
+		</member>
+		<member name="subsumed_by" type="int" setter="" getter="get_subsumed_by" default="0">
+			Replacement plane ID in this generation, or zero if not subsumed.
+		</member>
+		<member name="tracking_state" type="int" setter="" getter="get_tracking_state" default="1">
+			Current [enum TrackingState]. Paused/stopped and subsumed planes do not produce placement hits.
+		</member>
+		<member name="transform" type="Transform3D" setter="" getter="get_transform" default="Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)">
+			World-from-plane transform in metres; basis +Y is the plane normal.
+		</member>
+	</members>
+	<constants>
+		<constant name="TRACKING" value="0" enum="TrackingState">
+			The plane has a tracked pose and can be used for placement.
+		</constant>
+		<constant name="PAUSED" value="1" enum="TrackingState">
+			The plane is retained but is not currently tracking.
+		</constant>
+		<constant name="STOPPED" value="2" enum="TrackingState">
+			The plane is no longer tracked.
+		</constant>
+		<constant name="HORIZONTAL_UPWARD_FACING" value="0" enum="Alignment">
+			Horizontal plane with upward normal (ordinal 0).
+		</constant>
+		<constant name="HORIZONTAL_DOWNWARD_FACING" value="1" enum="Alignment">
+			Horizontal plane with downward normal (ordinal 1).
+		</constant>
+		<constant name="VERTICAL" value="2" enum="Alignment">
+			Vertical plane (ordinal 2).
+		</constant>
+	</constants>
+</class>

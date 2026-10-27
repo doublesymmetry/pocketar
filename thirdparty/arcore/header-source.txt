@@ -1,0 +1,3 @@
+ARCore SDK 1.56.0
+https://raw.githubusercontent.com/google-ar/arcore-android-sdk/v1.56.0/libraries/include/arcore_c_api.h
+aa21558d0ffe73e99d06cbf67a399841e3d9b5fdfec286fc91dcb948c3e3cd3d  thirdparty/arcore/include/arcore_c_api.h

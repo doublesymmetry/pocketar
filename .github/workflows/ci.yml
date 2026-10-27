@@ -1,0 +1,72 @@
+name: CI
+on:
+  push:
+    branches: [main, godot-handheld-ar-arkit]
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!.claude/**'
+      - '!.agents/**'
+  pull_request:
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!.claude/**'
+      - '!.agents/**'
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: blaze/macos-latest
+    timeout-minutes: 120
+    env:
+      DEVENV_TUI: 'false'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+      - name: Pin devenv and verify host
+        run: |
+          test "$(uname -m)" = arm64
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then test "$GITHUB_REF_NAME" = "v$(cat VERSION)"; fi
+          xcodebuild -version
+          nix --version
+          mkdir -p build/ci
+          nix build --accept-flake-config github:cachix/devenv/b904dcb51fe48c30db250038241507f60752f222 --out-link build/ci/devenv
+          echo "$PWD/build/ci/devenv/bin" >> "$GITHUB_PATH"
+          build/ci/devenv/bin/devenv version | tee build/ci/devenv-version.txt
+      - name: Tests, release package and installed projects
+        run: devenv shell -- tools/ci.sh 2>&1 | tee build/ci/check.log
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-package
+          path: |
+            build/package/*.zip
+            build/package/SHA256SUMS
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: checks-${{ github.run_id }}
+          path: |
+            build/ci/*.log
+            build/ci/*.txt
+            build/tests/
+            build/install/*/*.log
+            build/install/*/*.png
+            build/harness/
+            android/plugin/build/reports/tests/

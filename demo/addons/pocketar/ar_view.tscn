@@ -1,0 +1,69 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://addons/pocketar/ar_view.gd" id="1"]
+[ext_resource type="Shader" path="res://addons/pocketar/camera.gdshader" id="2"]
+[ext_resource type="Shader" path="res://addons/pocketar/composite.gdshader" id="3"]
+
+[sub_resource type="ShaderMaterial" id="CameraMaterial"]
+resource_local_to_scene = true
+shader = ExtResource("2")
+
+[sub_resource type="ShaderMaterial" id="CompositeMaterial"]
+shader = ExtResource("3")
+
+[node name="ARView" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1")
+
+[node name="CameraBackground" type="ColorRect" parent="."]
+material = SubResource("CameraMaterial")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="VirtualScene" type="SubViewport" parent="."]
+transparent_bg = true
+handle_input_locally = false
+size = Vector2i(960, 720)
+use_xr = true
+use_hdr_2d = true
+render_target_update_mode = 4
+
+[node name="XROrigin3D" type="XROrigin3D" parent="VirtualScene"]
+
+[node name="XRCamera3D" type="XRCamera3D" parent="VirtualScene/XROrigin3D"]
+current = true
+near = 0.05
+far = 100.0
+
+[node name="SceneRoot" type="Node3D" parent="VirtualScene/XROrigin3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="VirtualScene"]
+
+[node name="SceneComposite" type="TextureRect" parent="."]
+material = SubResource("CompositeMaterial")
+texture_filter = 1
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+expand_mode = 1
+
+[node name="HUD" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="UI" type="Control" parent="HUD"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2

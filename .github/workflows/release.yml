@@ -1,0 +1,45 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: build
+    runs-on: blaze/macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-package
+          path: build/package
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const version = fs.readFileSync('VERSION', 'utf8').trim();
+            const tag = context.ref.replace('refs/tags/', '');
+            if (tag !== `v${version}`) throw new Error(`Tag ${tag} does not match VERSION ${version}`);
+            const names = [`pocketar-${version}.zip`, `pocketar-tap-to-place-${version}.zip`, 'SHA256SUMS'];
+            const files = names.map(name => ({ name, data: fs.readFileSync(`build/package/${name}`) }));
+            const body = fs.readFileSync('.github/release-notes.md', 'utf8').replaceAll('@TAG@', tag);
+            const { data: release } = await github.rest.repos.createRelease({
+              ...context.repo, tag_name: tag, name: `PocketAR ${version}`, body,
+              draft: true, prerelease: version.includes('-')
+            });
+            for (const file of files) {
+              await github.rest.repos.uploadReleaseAsset({
+                ...context.repo, release_id: release.id, ...file,
+                headers: { 'content-type': 'application/octet-stream', 'content-length': file.data.length }
+              });
+            }
+            await github.rest.repos.updateRelease({
+              ...context.repo, release_id: release.id, draft: false
+            });

@@ -1,0 +1,29 @@
+config_version=5
+
+[application]
+config/name="PocketAR tap to place"
+config/icon="res://icon.svg"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.7", "Mobile")
+
+[display]
+window/size/viewport_width=960
+window/size/viewport_height=720
+window/handheld/orientation=6
+
+[editor_plugins]
+enabled=PackedStringArray("res://addons/pocketar/plugin.cfg")
+
+[rendering]
+renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
+rendering_device/driver.ios="metal"
+rendering_device/driver.macos="metal"
+rendering_device/driver.android="vulkan"
+rendering_device/fallback_to_opengl3=false
+rendering_device/staging_buffer/block_size_kb=4096
+rendering_device/staging_buffer/texture_upload_region_size_px=1024
+textures/vram_compression/import_etc2_astc=true
+viewport/hdr_2d=false
+driver/threads/thread_model=1
+anti_aliasing/quality/use_debanding=true
