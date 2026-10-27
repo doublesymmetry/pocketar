@@ -59,7 +59,7 @@ avoid the shell builtin with the same name.
 | Headless packet, facade, scripted, arguments, exporter and thread tests | `tools/test-headless.sh` |
 | ARCore native lifecycle/status, GPU completion lifetime and query/recording fixtures | `TMPDIR=/tmp tools/test-arcore.sh` |
 | All Python tool tests | `python3 -m unittest discover -s tests/tools` |
-| Kotlin launch argument and AR request tests | `cd android && ./gradlew :plugin:testDebugUnitTest` |
+| Kotlin launch argument and AR request tests | `gradle -p android :plugin:testDebugUnitTest` |
 | Generate landscape fixture | `python3 tools/fixtures.py --output demo/harness/fixtures/table.jsonl --loss-at 1 --reset-at 1.5 --pause-at 1.75 --tap-at 0.6 --drag-to 0.1 -0.7 -2 --plane-examples` |
 | Generate portrait fixture | Use the preceding command with `--output demo/harness/fixtures/table-portrait.jsonl --view-size 1080 1920` |
 

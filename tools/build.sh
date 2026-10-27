@@ -38,5 +38,5 @@ case "$platform" in
     android)
         variant=Debug
         [[ "$mode" != release ]] || variant=Release
-        (cd android && ./gradlew ":plugin:assemble$variant") ;;
+        gradle -p android ":plugin:assemble$variant" ;;
 esac
