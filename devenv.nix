@@ -17,6 +17,7 @@ in
     pkgs.jq
     pkgs.ripgrep
     pkgs.actionlint
+    pkgs.gradle_8
   ];
 
   # Gradle rejects two SDK locations, and some hosts export their own ANDROID_SDK_ROOT.
