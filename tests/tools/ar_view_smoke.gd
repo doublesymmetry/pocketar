@@ -83,7 +83,7 @@ func _check_mode(mode: ARView.Composition) -> void:
 				var point: Vector3 = bounds.get_endpoint(corner)
 				var clip: Vector4 = view.applied_packet.projection * Vector4(point.x, point.y, point.z, 1)
 				_check(clip.w > 0 and absf(clip.x) < clip.w and absf(clip.y) < clip.w and absf(clip.z) < clip.w, "camera AABB stays inside asymmetric far=23 frustum at focal=%s" % focal)
-	var harness: Node = load("res://harness/harness.gd").new() as Node
+	var harness: Node = load("res://suites/harness.gd").new() as Node
 	harness.set("view", view)
 	var backdrop: Image = Image.create(32, 32, false, Image.FORMAT_RGBA8)
 	backdrop.fill(Color.RED)

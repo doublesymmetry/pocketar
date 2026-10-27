@@ -33,14 +33,14 @@ dependencies {
 }
 
 val copyExtension by tasks.registering(Copy::class) {
-    from("../../demo/addons/pocketar/pocketar.gdextension")
+    from("../../harness/addons/pocketar/pocketar.gdextension")
     into(layout.buildDirectory.dir("generated/assets/addons/pocketar"))
 }
 
 tasks.named("preBuild") { dependsOn(copyExtension) }
 for ((variant, target) in listOf("debug" to "template_debug", "release" to "template_release")) {
     val capitalized = variant.replaceFirstChar { it.uppercase() }
-    val library = file("../../demo/addons/pocketar/bin/android/$target/arm64/libpocketar.so")
+    val library = file("../../harness/addons/pocketar/bin/android/$target/arm64/libpocketar.so")
     val copyNative = tasks.register<Copy>("copy${capitalized}Native") {
         from(library)
         into(layout.buildDirectory.dir("generated/jni/$variant/arm64-v8a"))
@@ -49,7 +49,7 @@ for ((variant, target) in listOf("debug" to "template_debug", "release" to "temp
     tasks.matching { it.name == "pre${capitalized}Build" }.configureEach { dependsOn(copyNative) }
     val copyAar = tasks.register("copy${capitalized}Aar") {
         val source = layout.buildDirectory.file("outputs/aar/plugin-$variant.aar")
-        val destination = file("../../demo/addons/pocketar/bin/android/pocketar-$variant.aar")
+        val destination = file("../../harness/addons/pocketar/bin/android/pocketar-$variant.aar")
         inputs.file(source)
         outputs.file(destination)
         doLast {

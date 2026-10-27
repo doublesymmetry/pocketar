@@ -22,7 +22,7 @@ supported engine; `stock <command>` runs a command against it, for example
 from `.devenv/state/godot-stock`. godot-cpp is pinned to `b051e69` with `api_version=4.7`.
 Android uses compile/target SDK 36, build tools 35.0.0 (Godot 4.8's Gradle template)
 and 36.1.0, NDK 29.0.14206865, Kotlin 2.1.21 and Java 17. `SConstruct` derives `IOS_TOOLCHAIN_PATH` from `xcode-select -p`, so Xcode need
-not be named `Xcode.app`. iOS signing team: `L7G7TF62MC`. Both demo package IDs:
+not be named `Xcode.app`. iOS signing team: `L7G7TF62MC`. Both harness package IDs:
 `org.doublesymmetry.pocketar.demo`.
 
 The certified iOS deployment target stays 16.0 in SConstruct and the preset.
@@ -54,21 +54,21 @@ avoid the shell builtin with the same name.
 | Android APK | `env export android debug` or `env export android release` |
 | Desktop rendering harness | `harness desktop -harness-out /tmp/pocketar-captures` |
 | Selected rendering checks | `harness desktop -harness-steps projection,transparency` |
-| Installed iPhone demo | `IOS_DEVICE=<id> harness ios` |
-| Android demo installation and harness | `ADB=<host-binary> ANDROID_SERIAL=<serial> harness android` |
+| Installed iPhone harness | `IOS_DEVICE=<id> harness ios` |
+| Android harness installation and run | `ADB=<host-binary> ANDROID_SERIAL=<serial> harness android` |
 | Native math, retirement, YUV/GPU and fixture parser tests; Python fixture tests | `TMPDIR=/tmp tools/test-native.sh` |
 | Headless packet, facade, scripted, arguments, exporter and thread tests | `tools/test-headless.sh` |
 | ARCore native lifecycle/status, GPU completion lifetime and query/recording fixtures | `TMPDIR=/tmp tools/test-arcore.sh` |
 | All Python tool tests | `python3 -m unittest discover -s tests/tools` |
 | Kotlin launch argument and AR request tests | `gradle -p android :plugin:testDebugUnitTest` |
-| Generate landscape fixture | `python3 tools/fixtures.py --output demo/harness/fixtures/table.jsonl --loss-at 1 --reset-at 1.5 --pause-at 1.75 --tap-at 0.6 --drag-to 0.1 -0.7 -2 --plane-examples` |
-| Generate portrait fixture | Use the preceding command with `--output demo/harness/fixtures/table-portrait.jsonl --view-size 1080 1920` |
+| Generate landscape fixture | `python3 tools/fixtures.py --output harness/suites/fixtures/table.jsonl --loss-at 1 --reset-at 1.5 --pause-at 1.75 --tap-at 0.6 --drag-to 0.1 -0.7 -2 --plane-examples` |
+| Generate portrait fixture | Use the preceding command with `--output harness/suites/fixtures/table-portrait.jsonl --view-size 1080 1920` |
 
 `JOBS` controls build concurrency, default 8. `ARCH` defaults to arm64; macOS can
 also build x86_64. `build all` stops on the first failed target. Build both mobile
 variants before both exports. Gradle's wrapper downloads its distribution and
 dependencies on first use. Godot's matching export templates must be installed;
-`tools/export.sh android` installs their Gradle build template into the demo automatically.
+`tools/export.sh android` installs their Gradle build template into the harness project automatically.
 Release Android signing comes from the user's Godot export credentials.
 
 The iOS preset exports a loose Xcode project and supporting files under
@@ -86,14 +86,17 @@ settings/cache or reading system certificates are separate from script errors.
 
 ## Layout
 
+`harness/` is the test project; `samples/tap_to_place/` is the example game.
+Source checkouts contain no compiled libraries. Build before opening either project.
+
 - `src/core/`: frame packets, simulated XR providers, shared singleton, projection and ray math.
 - `src/platform/android/`: ARCore session owner, JNI bridge, CPU upload, GPU camera submission and live queries.
 - `src/platform/ios/`: ARKit session, Metal imports and swap-based retirement.
-- `demo/ar/`: runtime-selected AR demo and device diagnostics.
+- `harness/ar/`: runtime-selected AR demo and device diagnostics.
 - `thirdparty/arcore/`: C API header and provenance.
-- `demo/addons/pocketar/`: ARView, shaders, extension descriptor, plane visualizer and editor export plugin.
-- `demo/addons/pocketar/bin/`: generated libraries, XCFrameworks and AARs; ignored by Git.
-- `demo/harness/`: rendering assertions and scripted replay fixtures.
+- `harness/addons/pocketar/`: ARView, shaders, extension descriptor, plane visualizer and editor export plugin.
+- `harness/addons/pocketar/bin/`: generated libraries, XCFrameworks and AARs; ignored by Git.
+- `harness/suites/`: rendering assertions and scripted replay fixtures.
 - `samples/tap_to_place/`: standalone game example, with a relative symlink to the addon and its own desktop table fixture.
 - `android/`: Godot v2 Kotlin plugin and AAR Gradle project.
 - `tests/native/`: standalone C++ numerical, resource and fixture parser tests.
@@ -269,7 +272,7 @@ in-scene camera comparison allows up to eight byte levels of pointwise error for
 normalized storage and dithering; isolated retains its two-level threshold.
 
 The adb version rule also applies to scripts and manual one-liners. Always use
-`"$ADB"`. `harness android` installs only this demo, launches its exported
+`"$ADB"`. `harness android` installs the harness project, launches its exported
 `GodotAppLauncher` alias and filters logcat by its PID. The underlying GodotApp
 activity is not exported in 4.7.2. Debug captures are retrieved through `run-as`
 into `build/harness/<platform>/android-userdata.tar`; release builds cannot use
@@ -287,13 +290,13 @@ result or duplicate result makes the host monitor fail. A subset PASS certifies
 only the selected steps. Phones run all checks automatically on launch.
 
 Readback can lower measured render rate; consistency thresholds and capture details
-live in `demo/harness/harness.gd`.
+live in `harness/suites/harness.gd`.
 
 ## ARCore backend and Android diagnostics
 
 `ARCoreInterface` implements the same packet/presentation methods as the synthetic
 interface. `ARView.backend` defaults to synthetic;
-`demo/ar/ar_demo.tscn` chooses ARCore on Android and synthetic on desktop. The
+`harness/ar/ar_demo.tscn` chooses ARCore on Android and synthetic on desktop. The
 native interface name is `PocketARCore`. The Kotlin singleton is
 `PocketARPlugin`; `PocketAR` remains the shared native raycast API.
 
@@ -307,7 +310,7 @@ alone does not retry denied prompts. `reset()` only resets the native session.
 The tap-to-place sample creates its ARView from Start AR and offers Retry setup;
 repeated camera denials may require app settings. Native code starts only after the JNI
 bridge reports installation and permission. CAMERA permission denial is exposed,
-including denial after an app-settings change. The demo exports as AR Optional;
+including denial after an app-settings change. The harness exports as AR Optional;
 set the Android export option `pocketar/ar_required` to add the AR hardware
 requirement and change the ARCore manifest metadata to required.
 
@@ -384,7 +387,7 @@ selection happens in GDScript because official templates disable path overrides.
 
 The ARCore steps are `arcore-session`, `no-gl`, `camera-image`, `gpu-vs-cpu`,
 `projection-form`, `display-transform`, `composite`, `packet-retention`, `lifecycle`,
-`tracking` and `plane-finding`; thresholds live in `demo/ar/ar_harness.gd` and details in
+`tracking` and `plane-finding`; thresholds live in `harness/ar/ar_harness.gd` and details in
 `diagnostics.json`.
 
 HARNESS and ARCORE lines stay below 1000 bytes. Step lines contain summaries;
@@ -407,7 +410,7 @@ out of the repository.
 
 The demo accepts `-harness-camera-config <index>` before session creation;
 `-harness-record <name.mp4>` and `-harness-playback <name.mp4>` are mutually exclusive,
-basename-only dataset options whose checks live in `demo/ar/ar_demo.gd`.
+basename-only dataset options whose checks live in `harness/ar/ar_demo.gd`.
 Keep ordinary live-camera runs separate from dataset runs.
 
 Device telemetry is saved to `device-<phase>.json`; USB charging affects power
@@ -445,7 +448,7 @@ image; GPU validation acquires its CPU comparison image explicitly.
 
 The explicit YUV color model stays BT.601 full, matching Camera2's YUV_420_888
 (JFIF) definition and the CPU camera shader; `-harness-gpu-validate` runs the
-`gpu-vs-cpu` check in `demo/ar/ar_harness.gd` and saves details in `diagnostics.json`.
+`gpu-vs-cpu` check in `harness/ar/ar_harness.gd` and saves details in `diagnostics.json`.
 
 Both camera paths report RenderingServer frame setup CPU p50/p95; keep validation
 runs separate from throughput measurements because synchronous readback adds stalls.
@@ -560,7 +563,7 @@ It is a live query; copied packet polygons remain the placement API.
 
 `get_diagnostics()` reports device/session, projection and texture-retirement
 details, plus `thermal_state` (`NSProcessInfo.thermalState`, 0 nominal to 3 critical); the ARKit
-step thresholds live in `demo/ar/ios_ar_harness.gd`.
+step thresholds live in `harness/ar/ios_ar_harness.gd`.
 
 Follow [docs/ios-device.md](docs/ios-device.md) for iOS preflight, installation
 and harness transport. Run `ios-ar` with `-harness-duration 60`, then
@@ -597,7 +600,7 @@ The game API contract is in `docs/api.md`; onboarding and public-engine setup
 are in `README.md`. Native class help lives in `doc_classes/*.xml` and is embedded
 by `GodotCPPDocData` only for editor/template_debug targets. Generated C++ stays
 under `build/`. ARView and the addon scripts use `##` comments for editor help.
-Generate native signatures with `godot --headless --path demo --doctool <scratch-dir>
+Generate native signatures with `godot --headless --path harness --doctool <scratch-dir>
 --gdextension-docs`; this lists only classes registered on the running platform.
 Keep mobile-only XML when refreshing docs on macOS.
 
@@ -607,7 +610,7 @@ Collection contracts are in [ARCoreInterface](doc_classes/ARCoreInterface.xml) a
 separate opt-in. Statistics sampling times are collected only while diagnostics
 are enabled.
 
-The demo enables material debanding. The desktop harness allows eight byte levels
+The harness project enables material debanding. The desktop harness allows eight byte levels
 for dithered in-scene camera landmarks and MSAA edges, retaining the stricter
 undithered/isolated bounds. `camera-precision` measures pointwise and column-mean
 error with material and viewport dithering independently.
@@ -617,12 +620,12 @@ error with material and viewport dithering independently.
 For ARCore CPU uploads, use
 `rendering/rendering_device/staging_buffer/block_size_kb=4096` and
 `rendering/rendering_device/staging_buffer/texture_upload_region_size_px=1024`.
-A region must fit in one staging block. The demo sets both; the library reads and
+A region must fit in one staging block. The harness project sets both; the library reads and
 reports the effective values but never changes a game's settings. It warns once
 per session start if the region is below 512 pixels.
 
 Both device suites run `tracking` before `lifecycle`; the shared packet-retention
-check and its thresholds live in `demo/ar/packet_retention.gd`. `tracking` also samples
+check and its thresholds live in `harness/ar/packet_retention.gd`. `tracking` also samples
 the screen centre 20 times, 0.1 s apart, and reports `native_agreement`: the distance
 between `ARView.raycast` and the platform's own `live_hit_test` on the same plane
 (median, max, sample count, plane mismatches). It is INFO; the two hit tests can read
@@ -669,7 +672,7 @@ counts and saves snapshots to `plane-finding.json`. With no observed plane chang
 after re-enabling it reports INFO; exercise discovery by moving over textured surfaces.
 
 Backend selection and replay methods are documented in
-[ARView's editor help](demo/addons/pocketar/ar_view.gd),
+[ARView's editor help](harness/addons/pocketar/ar_view.gd),
 [PocketAR](doc_classes/PocketAR.xml) and
 [ScriptedARInterface](doc_classes/ScriptedARInterface.xml).
 
@@ -757,7 +760,7 @@ this addon node instead of maintaining its own meshes.
 `OS.get_cmdline_user_args()`. Debug iOS builds read the `POCKETAR_ARGS` JSON array
 when present; malformed JSON/non-string elements return a transport error. Release
 iOS ignores that environment variable. Harness-specific validation and capture
-cleanup stay in the demo's `ar/harness_args.gd`.
+cleanup stay in `harness/ar/harness_args.gd`.
 
 Android accepts two string-array intent extras in debuggable builds only, guarded
 by `ApplicationInfo.FLAG_DEBUGGABLE`: `pocketar_harness_args` retains the harness

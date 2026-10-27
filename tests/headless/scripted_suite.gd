@@ -1,6 +1,6 @@
 extends SceneTree
 
-const SUITE: Script = preload("res://harness/scripted_suite.gd")
+const SUITE: Script = preload("res://suites/scripted_suite.gd")
 
 
 func _initialize() -> void:

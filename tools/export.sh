@@ -16,6 +16,6 @@ extra=()
 if [[ "$platform" == android ]]; then
     extra+=(--install-android-build-template)
 fi
-godot --headless --path demo --editor --import
-exec godot --headless --path demo "${extra[@]}" "--export-$mode" "$preset" \
+godot --headless --path harness --editor --import
+exec godot --headless --path harness "${extra[@]}" "--export-$mode" "$preset" \
     "../$output/pocketar-$mode.$suffix"

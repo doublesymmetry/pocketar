@@ -22,6 +22,6 @@ run test_timing_samples tests/native/test_timing_samples.cpp
 run test_yuv tests/native/test_yuv.cpp
 run test_gpu_camera tests/native/test_gpu_camera.cpp
 run test_scripted_session tests/native/test_scripted_session.cpp src/core/scripted_session.cpp
-build/tests/test_scripted_session demo/harness/fixtures/table.jsonl
-build/tests/test_scripted_session demo/harness/fixtures/table-portrait.jsonl
+build/tests/test_scripted_session harness/suites/fixtures/table.jsonl
+build/tests/test_scripted_session harness/suites/fixtures/table-portrait.jsonl
 python3 -m unittest discover -s tests/tools -p test_fixtures.py
