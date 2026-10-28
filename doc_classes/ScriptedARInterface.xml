@@ -4,7 +4,7 @@
 		Advanced deterministic AR fixture replay for desktop tests.
 	</brief_description>
 	<description>
-		Load a version-1 PocketAR JSON-lines fixture, call advance_to(0), then assign this interface to a Scripted ARView before adding it to the tree. Time moves only through advance_to(); camera pixels are generated bars. Fixture schema lives in AGENTS.md. Replay/diagnostic methods are outside the stable game API.
+		Load a version-1 PocketAR JSON-lines fixture, call advance_to(0), then assign this interface to a Scripted ARView before adding it to the tree. Time moves only through advance_to(); camera pixels are generated bars. Fixture schema lives in .claude/skills/scripted-sessions/references/fixtures.md in the source repository. Replay/diagnostic methods are outside the stable game API.
 	</description>
 	<methods>
 		<method name="advance_to">
