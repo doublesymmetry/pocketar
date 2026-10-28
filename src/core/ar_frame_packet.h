@@ -2,6 +2,7 @@
 
 #include "projection.h"
 #include "ar_plane_snapshot.h"
+#include "ar_anchor_tracker.h"
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
@@ -21,6 +22,7 @@ class ARKitInterface;
 class ARFramePacket : public RefCounted {
 	GDCLASS(ARFramePacket, RefCounted)
 	friend class SimulatedARInterface;
+	friend class ARAnchorRegistry;
 	friend class SyntheticARInterface;
 	friend class ScriptedARInterface;
 	friend class ARCoreInterface;
@@ -44,6 +46,8 @@ class ARFramePacket : public RefCounted {
 	ARIntrinsics intrinsics;
 	int quarter_turns = 0;
 	std::vector<ARPlaneSnapshot> planes;
+	std::vector<ARAnchorSnapshot> anchors;
+	uint64_t anchor_epoch = 0;
 	mutable std::shared_ptr<TypedArray<Dictionary>> plane_values;
 	void reuse_plane_values(const Ref<ARFramePacket> &p_previous);
 

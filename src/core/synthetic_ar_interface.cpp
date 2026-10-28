@@ -26,6 +26,7 @@ bool SyntheticARInterface::_initialize() {
 	reset_debug_plane();
 #endif
 	generation = next_ar_id();
+	anchors.clear();
 	sequence = 0;
 	if (!is_paused()) make_packet(Time::get_singleton()->get_ticks_usec());
 	call_deferred("emit_signal", "session_generation_changed", generation);
@@ -39,6 +40,7 @@ void SyntheticARInterface::reset() {
 	reset_debug_plane();
 #endif
 	generation = next_ar_id();
+	anchors.clear();
 	sequence = 0;
 	current_packet.unref();
 	presented_packet.unref();
@@ -77,6 +79,7 @@ void SyntheticARInterface::set_frame_id_pose(bool p_enabled) {
 
 void SyntheticARInterface::activity_changed() {
 	if (is_paused()) {
+		anchors.pause();
 #ifdef DEBUG_ENABLED
 		debug_plane.pause();
 #endif
@@ -112,6 +115,7 @@ void SyntheticARInterface::make_packet(uint64_t p_tick) {
 		packet->camera_transform = display_oriented_pose(packet->physical_camera_transform, quarter_turns);
 	}
 	packet->tracking_valid = true;
+	sample_anchors(packet);
 #ifdef DEBUG_ENABLED
 	publish_debug_plane(packet, true);
 #endif

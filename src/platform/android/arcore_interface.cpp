@@ -14,6 +14,10 @@
 
 namespace godot {
 
+ARCoreInterface::ARCoreInterface() {
+	anchors.configure(this, [this](int64_t p_id) { release_anchor(p_id); });
+}
+
 #ifdef DEBUG_ENABLED
 int64_t ARCoreInterface::set_debug_plane(const Transform3D &p_transform, const Vector2 &p_extents) {
 	ERR_FAIL_COND_V(initialized && !on_owner_thread(), 0);
@@ -32,6 +36,10 @@ void ARCoreInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("clear_debug_plane"), &ARCoreInterface::clear_debug_plane);
 #endif
 	ClassDB::bind_method(D_METHOD("get_session_state"), &ARCoreInterface::get_session_state);
+	ClassDB::bind_method(D_METHOD("create_anchor", "pose"), &ARCoreInterface::create_anchor);
+	ClassDB::bind_method(D_METHOD("create_anchor_from_hit", "hit"), &ARCoreInterface::create_anchor_from_hit);
+	ClassDB::bind_method(D_METHOD("remove_anchor", "anchor"), &ARCoreInterface::remove_anchor);
+	ClassDB::bind_method(D_METHOD("owns_anchor", "anchor"), &ARCoreInterface::owns_anchor);
 	ClassDB::bind_method(D_METHOD("get_tracking_reason"), &ARCoreInterface::get_tracking_reason);
 	ClassDB::bind_method(D_METHOD("get_session_generation"), &ARCoreInterface::get_session_generation);
 	ClassDB::bind_method(D_METHOD("get_diagnostics"), &ARCoreInterface::get_diagnostics);
@@ -64,6 +72,7 @@ void ARCoreInterface::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("tracking_reason_changed", PropertyInfo(Variant::INT, "reason")));
 	ADD_SIGNAL(MethodInfo("session_generation_changed", PropertyInfo(Variant::INT, "generation")));
 	ADD_SIGNAL(MethodInfo("planes_changed"));
+	ADD_SIGNAL(MethodInfo("anchors_changed"));
 }
 
 bool ARCoreInterface::on_owner_thread() const { return std::this_thread::get_id() == owner_thread; }
@@ -71,6 +80,7 @@ void ARCoreInterface::increment(const char *p_key, int64_t p_amount) { diagnosti
 void ARCoreInterface::set_state(PocketAR::SessionState p_state) {
 	const bool changed = state != p_state;
 	if (!changed && !state_history.is_empty()) return;
+	const bool lost_tracking = state == PocketAR::TRACKING && p_state != PocketAR::TRACKING;
 #ifdef DEBUG_ENABLED
 	if (p_state != PocketAR::TRACKING) {
 		debug_plane.pause();
@@ -81,6 +91,9 @@ void ARCoreInterface::set_state(PocketAR::SessionState p_state) {
 	state_history.append(int(state));
 	UtilityFunctions::print("ARCORE state=", int(state), " generation=", generation, " reason=", int(reason));
 	if (changed) call_deferred("emit_signal", "session_state_changed", int(state));
+	if (p_state == PocketAR::FAILED || p_state == PocketAR::UNSUPPORTED) {
+		anchors.clear(false);
+	} else if (lost_tracking) anchors.pause();
 }
 void ARCoreInterface::set_reason(PocketAR::TrackingReason p_reason) {
 	if (reason == p_reason) return;
@@ -362,10 +375,14 @@ void ARCoreInterface::clear_planes() {
 }
 
 void ARCoreInterface::release_session() {
+	if (releasing_session) return;
+	releasing_session = true;
+	anchors.clear();
 	if (!session) {
 #ifdef DEBUG_ENABLED
 		clear_planes();
 #endif
+		releasing_session = false;
 		return;
 	}
 	pause_session();
@@ -396,10 +413,13 @@ void ARCoreInterface::release_session() {
 		__android_log_print(ANDROID_LOG_INFO, "godot", "ARCORE destroy %.3f ms attached=%d", elapsed / 1000.0, jni.env != nullptr);
 	}).detach();
 	diagnostics["configured"] = false;
+	releasing_session = false;
 }
 
 void ARCoreInterface::reset() {
 	ERR_FAIL_COND(!initialized || !on_owner_thread());
+	if (releasing_session || resetting) return;
+	resetting = true;
 	generation = next_ar_id();
 	increment("reset_count");
 	reset_tick = tick_usec();
@@ -412,6 +432,7 @@ void ARCoreInterface::reset() {
 	}
 	current_packet.unref(); presented_packet.unref();
 	release_session();
+	if (!initialized) { resetting = false; return; }
 	last_timestamp = 0;
 	sequence = 0;
 	plane_sequence = 0;
@@ -421,6 +442,7 @@ void ARCoreInterface::reset() {
 	tracking_status = XR_UNKNOWN_TRACKING;
 	call_deferred("emit_signal", "session_generation_changed", generation);
 	create_session();
+	resetting = false;
 }
 void ARCoreInterface::application_pause() {
 	if (!initialized) return;
@@ -511,6 +533,7 @@ void ARCoreInterface::mark_applied(const Ref<ARFramePacket> &p_packet) {
 	ERR_FAIL_COND(!on_owner_thread());
 	ERR_FAIL_COND(p_packet.is_valid() && p_packet != current_packet);
 	applied_packet = p_packet;
+	anchors.apply(p_packet, generation);
 }
 void ARCoreInterface::mark_presented() {
 	if (suspended || application_suspended) return;
@@ -559,6 +582,7 @@ Dictionary ARCoreInterface::get_diagnostics() const {
 	result["state_history"] = state_history.duplicate();
 	result["update_status_counts"] = update_counts.duplicate();
 	result["plane_count"] = int64_t(planes.size());
+	result["anchor_count"] = int64_t(native_anchors.size());
 	int stale_trackers = 0;
 	const Dictionary trackers = XRServer::get_singleton()->get_trackers(XRServer::TRACKER_ANCHOR);
 	const Array tracker_names = trackers.keys();

@@ -26,6 +26,20 @@
 				Internal debug/editor-only harness control. Requests removal of the injected plane.
 			</description>
 		</method>
+		<method name="create_anchor">
+			<return type="ARAnchorTracker" />
+			<param index="0" name="pose" type="Transform3D" />
+			<description>
+				Internal ARView protocol. Creates a world anchor at a finite rigid pose in metres; returns null with a reason warning on failure. Prefer ARView.create_anchor. See [ARAnchorTracker] for lifecycle and ownership.
+			</description>
+		</method>
+		<method name="create_anchor_from_hit">
+			<return type="ARAnchorTracker" />
+			<param index="0" name="hit" type="ARRaycastHit" />
+			<description>
+				Internal ARView protocol. Requires a fresh presented hit. Adds an ordinary ARAnchor at the hit pose. Prefer ARView.create_anchor_from_hit.
+			</description>
+		</method>
 		<method name="debug_check_camera_material">
 			<return type="bool" />
 			<param index="0" name="material" type="RID" />
@@ -42,7 +56,7 @@
 		<method name="get_diagnostics" qualifiers="const">
 			<return type="Dictionary" />
 			<description>
-				Advanced diagnostics dictionary with counters, configuration and collected samples. Keys are platform-specific and outside the stable game API.
+				Advanced diagnostics dictionary with counters, configuration and collected samples. [code]native_anchor_count[/code] counts all anchors in the native frame, including detected planes. Keys are platform-specific and outside the stable game API.
 			</description>
 		</method>
 		<method name="get_native_plane_identifiers" qualifiers="const">
@@ -92,13 +106,27 @@
 			<return type="void" />
 			<param index="0" name="packet" type="ARFramePacket" />
 			<description>
-				Internal ARView protocol. Protects the packet still used by the camera material, or clears that protection with null. Do not call on a view-owned interface.
+				Internal ARView protocol. Protects the packet still used by the camera material, or clears that protection with null. Applies its private anchor snapshots before packet_applied; invalidated samples cannot restore tracking. Do not call on a view-owned interface.
 			</description>
 		</method>
 		<method name="mark_presented">
 			<return type="void" />
 			<description>
 				Internal ARView protocol, called after draw to advance presentation. Do not call on a view-owned interface.
+			</description>
+		</method>
+		<method name="owns_anchor" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="anchor" type="ARAnchorTracker" />
+			<description>
+				Internal ARView protocol. Returns whether this interface currently owns the exact tracker object. Stopped and foreign trackers return false.
+			</description>
+		</method>
+		<method name="remove_anchor">
+			<return type="void" />
+			<param index="0" name="anchor" type="ARAnchorTracker" />
+			<description>
+				Internal ARView protocol. Stops and unregisters an owned anchor and releases native ownership. Idempotent for an already stopped tracker from this owner. Does not free game nodes.
 			</description>
 		</method>
 		<method name="reset">
@@ -162,6 +190,11 @@
 		</method>
 	</methods>
 	<signals>
+		<signal name="anchors_changed">
+			<description>
+				Deferred membership notification forwarded by ARView. Pose changes use inherited tracker signals and ARView.packet_applied.
+			</description>
+		</signal>
 		<signal name="planes_changed">
 			<description>
 				Deferred notification that the current plane snapshot/tracker set changed. This is not a presentation notification.

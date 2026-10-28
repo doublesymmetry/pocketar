@@ -60,6 +60,9 @@ void ARCoreInterface::_process() {
 	increment("successful_updates");
 	refresh_planes();
 	extras.on_tick(frame);
+	const int64_t update_generation = generation;
+	refresh_anchor_states();
+	if (generation != update_generation || !session || !running || suspended || application_suspended) return;
 	int64_t timestamp = 0;
 	api.ArFrame_getTimestamp(session, frame, &timestamp);
 	if (timestamp == 0 || timestamp == last_timestamp) {
@@ -112,8 +115,6 @@ void ARCoreInterface::inspect_intrinsics(const ArCamera *p_camera, ARFramePacket
 }
 
 void ARCoreInterface::build_packet(int64_t p_timestamp) {
-	if (gpu_validation_pending) increment("gpu_validation_skipped_submissions");
-	else if (gpu_texture.is_valid() && !submit_gpu_camera()) return;
 	ArCamera *camera = nullptr;
 	api.ArFrame_acquireCamera(session, frame, &camera);
 	if (!camera) { fail(AR_ERROR_FATAL, "acquire camera"); return; }
@@ -121,17 +122,6 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	ArTrackingFailureReason failure;
 	api.ArCamera_getTrackingState(session, camera, &tracking);
 	api.ArCamera_getTrackingFailureReason(session, camera, &failure);
-	set_reason(PocketAR::TrackingReason(failure));
-	tracking_status = tracking == AR_TRACKING_STATE_TRACKING ? XR_NORMAL_TRACKING :
-		tracking == AR_TRACKING_STATE_PAUSED && failure == AR_TRACKING_FAILURE_REASON_NONE ? XR_UNKNOWN_TRACKING :
-		tracking == AR_TRACKING_STATE_PAUSED && failure == AR_TRACKING_FAILURE_REASON_EXCESSIVE_MOTION ? XR_EXCESSIVE_MOTION :
-		tracking == AR_TRACKING_STATE_PAUSED && failure == AR_TRACKING_FAILURE_REASON_INSUFFICIENT_FEATURES ? XR_INSUFFICIENT_FEATURES : XR_NOT_TRACKING;
-	set_state(tracking == AR_TRACKING_STATE_TRACKING ? PocketAR::TRACKING : PocketAR::INITIALIZING);
-	if (tracking == AR_TRACKING_STATE_TRACKING && !first_tracking_tick) {
-		first_tracking_tick = tick_usec();
-		diagnostics["first_tracking_usec"] = int64_t(first_tracking_tick);
-		if (reset_tick) timings["reset_to_tracking"] = (first_tracking_tick - reset_tick) / 1000.0;
-	}
 	Ref<ARFramePacket> packet;
 	packet.instantiate();
 	packet->session_generation = generation;
@@ -150,6 +140,20 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 	if (diagnostics_enabled) inspect_projection(camera, matrix);
 	inspect_intrinsics(camera, **packet);
 	api.ArCamera_release(camera);
+	set_reason(PocketAR::TrackingReason(failure));
+	tracking_status = tracking == AR_TRACKING_STATE_TRACKING ? XR_NORMAL_TRACKING :
+		tracking == AR_TRACKING_STATE_PAUSED && failure == AR_TRACKING_FAILURE_REASON_NONE ? XR_UNKNOWN_TRACKING :
+		tracking == AR_TRACKING_STATE_PAUSED && failure == AR_TRACKING_FAILURE_REASON_EXCESSIVE_MOTION ? XR_EXCESSIVE_MOTION :
+		tracking == AR_TRACKING_STATE_PAUSED && failure == AR_TRACKING_FAILURE_REASON_INSUFFICIENT_FEATURES ? XR_INSUFFICIENT_FEATURES : XR_NOT_TRACKING;
+	if (tracking == AR_TRACKING_STATE_TRACKING && !first_tracking_tick) {
+		first_tracking_tick = tick_usec();
+		diagnostics["first_tracking_usec"] = int64_t(first_tracking_tick);
+		if (reset_tick) timings["reset_to_tracking"] = (first_tracking_tick - reset_tick) / 1000.0;
+	}
+	set_state(tracking == AR_TRACKING_STATE_TRACKING ? PocketAR::TRACKING : PocketAR::INITIALIZING);
+	if (generation != packet->session_generation || !session || suspended || application_suspended) return;
+	if (gpu_validation_pending) increment("gpu_validation_skipped_submissions");
+	else if (gpu_texture.is_valid() && !submit_gpu_camera()) { anchors.invalidate_samples(); return; }
 	const float corners[] = {0,0, 1,0, 0,1, 1,1};
 	float mapped[8];
 	api.ArFrame_transformCoordinates2d(session, frame, AR_COORDINATES_2D_VIEW_NORMALIZED, 4, corners, gpu_active ? AR_COORDINATES_2D_TEXTURE_NORMALIZED : AR_COORDINATES_2D_IMAGE_NORMALIZED, mapped);
@@ -176,6 +180,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		const ArStatus status = api.ArFrame_acquireCameraImage(session, frame, &image);
 		sample_timing(acquire_times, acquire_cursor, double(tick_usec() - acquire_start));
 		if (status != AR_SUCCESS) {
+			anchors.invalidate_samples();
 			if (status == AR_ERROR_NOT_YET_AVAILABLE) increment("image_not_yet_available");
 			else if (status == AR_ERROR_RESOURCE_EXHAUSTED) increment("image_resource_exhausted");
 			else if (status == AR_ERROR_DEADLINE_EXCEEDED) { increment("image_deadline_exceeded"); fail(status, "acquireCameraImage latest-frame invariant"); }
@@ -345,6 +350,7 @@ void ARCoreInterface::build_packet(int64_t p_timestamp) {
 		}
 	}
 	packet->reuse_plane_values(current_packet);
+	copy_anchors(**packet);
 	current_packet = packet;
 	head->set_pose("default", last_good_pose, Vector3(), Vector3(), packet->tracking_valid ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_NONE);
 	increment("packets_published");

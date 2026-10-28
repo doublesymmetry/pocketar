@@ -13,6 +13,20 @@
 				Internal debug/editor-only harness control. Requests removal of the injected plane.
 			</description>
 		</method>
+		<method name="create_anchor">
+			<return type="ARAnchorTracker" />
+			<param index="0" name="pose" type="Transform3D" />
+			<description>
+				Internal ARView protocol. Creates a world anchor at a finite rigid pose in metres; returns null with a reason warning on failure. Prefer ARView.create_anchor. See [ARAnchorTracker] for lifecycle and ownership.
+			</description>
+		</method>
+		<method name="create_anchor_from_hit">
+			<return type="ARAnchorTracker" />
+			<param index="0" name="hit" type="ARRaycastHit" />
+			<description>
+				Internal ARView protocol. Requires a fresh presented hit on a tracking debug or fixture plane. Prefer ARView.create_anchor_from_hit.
+			</description>
+		</method>
 		<method name="get_current_packet" qualifiers="const">
 			<return type="ARFramePacket" />
 			<description>
@@ -37,10 +51,31 @@
 				Returns the current process-wide unique session identity. Old plane and query identities cannot be reused after reset.
 			</description>
 		</method>
+		<method name="mark_applied">
+			<return type="void" />
+			<param index="0" name="packet" type="ARFramePacket" />
+			<description>
+				Internal ARView protocol. Applies private anchor snapshots from the current camera packet before packet_applied. Old generations and invalidated samples cannot restore tracking. Do not call on a view-owned interface.
+			</description>
+		</method>
 		<method name="mark_presented">
 			<return type="void" />
 			<description>
 				Internal ARView protocol, called after draw to advance presentation. Do not call on a view-owned interface.
+			</description>
+		</method>
+		<method name="owns_anchor" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="anchor" type="ARAnchorTracker" />
+			<description>
+				Internal ARView protocol. Returns whether this interface currently owns the exact tracker object. Stopped and foreign trackers return false.
+			</description>
+		</method>
+		<method name="remove_anchor">
+			<return type="void" />
+			<param index="0" name="anchor" type="ARAnchorTracker" />
+			<description>
+				Internal ARView protocol. Stops and unregisters an owned anchor and releases native ownership. Idempotent for an already stopped tracker from this owner. Does not free game nodes.
 			</description>
 		</method>
 		<method name="set_debug_plane">
@@ -89,6 +124,11 @@
 		</method>
 	</methods>
 	<signals>
+		<signal name="anchors_changed">
+			<description>
+				Deferred membership notification forwarded by ARView. Pose changes use inherited tracker signals and ARView.packet_applied.
+			</description>
+		</signal>
 		<signal name="planes_changed">
 			<description>
 				Deferred notification that the current plane snapshot/tracker set changed. This is not a presentation notification.

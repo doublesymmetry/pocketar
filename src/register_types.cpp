@@ -1,5 +1,6 @@
 #include "core/pocketar.h"
 #include "core/ar_plane_tracker.h"
+#include "core/ar_anchor_tracker.h"
 #include "core/ar_raycast_hit.h"
 #include "core/synthetic_ar_interface.h"
 #include "core/scripted_ar_interface.h"
@@ -24,6 +25,7 @@ static void initialize_pocketar(ModuleInitializationLevel p_level) {
 	}
 	GDREGISTER_CLASS(ARFramePacket);
 	GDREGISTER_CLASS(ARPlaneTracker);
+	GDREGISTER_CLASS(ARAnchorTracker);
 	GDREGISTER_CLASS(ARRaycastHit);
 	GDREGISTER_CLASS(PocketAR);
 	GDREGISTER_ABSTRACT_CLASS(SimulatedARInterface);

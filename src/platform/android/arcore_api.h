@@ -23,6 +23,8 @@
 	F(ArCamera_getImageIntrinsics) F(ArCameraIntrinsics_create) F(ArCameraIntrinsics_destroy) \
 	F(ArCameraIntrinsics_getFocalLength) F(ArCameraIntrinsics_getPrincipalPoint) F(ArCameraIntrinsics_getImageDimensions) \
 	F(ArPose_create) F(ArPose_destroy) F(ArPose_getPoseRaw) \
+	F(ArSession_acquireNewAnchor) F(ArTrackable_acquireNewAnchor) \
+	F(ArAnchor_getPose) F(ArAnchor_getTrackingState) F(ArAnchor_detach) F(ArAnchor_release) \
 	F(ArImage_getFormat) F(ArImage_getWidth) F(ArImage_getHeight) F(ArImage_getNumberOfPlanes) \
 	F(ArImage_getPlaneData) F(ArImage_getPlanePixelStride) F(ArImage_getPlaneRowStride) F(ArImage_getTimestamp) F(ArImage_release) \
 	F(ArTrackableList_create) F(ArTrackableList_destroy) F(ArTrackableList_getSize) F(ArTrackableList_acquireItem) \

@@ -122,9 +122,10 @@ display-oriented camera pose; `set_pose()` and `physical_camera_transform` remai
 in the physical image-camera basis. Rays invert the full projection, never camera half-extents.
 Calibration, UVs and coordinate conventions follow [ARFramePacket](doc_classes/ARFramePacket.xml).
 
-The current packet is applied during `frame_pre_draw`, and becomes the presented
-packet at `frame_post_draw`. Touch rays use the presented packet. This backend
-requires Godot's effective Safe rendering mode: initialization must run on both
+The current packet is applied on `SceneTree.process_frame` before node `_process`
+callbacks, with another check at `frame_pre_draw` for packets replaced later in
+the frame. It becomes the presented packet at `frame_post_draw`. Touch rays use
+the presented packet. This backend requires Godot's effective Safe rendering mode: initialization must run on both
 the main thread and the render thread (`RenderingServer.is_on_render_thread()`).
 Separate is rejected even with a command-line override. Godot 4.7.2 maps the
 deprecated Unsafe option to Safe. XROrigin and XR world scale

@@ -16,13 +16,16 @@ Keep backend implementation details in [arcore](../arcore/SKILL.md) or [arkit](.
 - Read [application arguments](references/arguments.md) for launch transport and validation on any platform.
 - Read [debug planes](references/debug-plane.md) for injection, release exclusion and exported API probes.
 
-Scripted replay freezes existing plane snapshots while disabled, including their
-tracking state, and adds no new planes. Horizontal mode keeps existing vertical
-planes frozen and excludes new ones. Re-enabling applies the latest recorded plane
-set on the next fixture frame, including when that frame omits `planes`. Reset
-discards that remembered set. Fixture version 1 already expresses additions and
-geometry changes, so no format extension is needed. Synthetic produces no planes
+Scripted replay freezes existing plane geometry and tracking state while disabled,
+and adds no new planes. Horizontal mode keeps existing vertical planes frozen and
+excludes new ones. Re-enabling applies the latest recorded plane set on the next
+fixture frame, including when that frame omits `planes`. Reset discards that
+remembered set. Version 2 map corrections still transform retained map-space
+planes and anchors while plane finding is disabled. Synthetic produces no planes
 and remembers the mode across reset and stop/start.
+
+Both fixture versions support plane additions and geometry changes. Version 2
+adds `map_transform` and `anchor_updates`; read the fixture reference.
 
 Backend selection and replay methods are documented in
 [ARView's editor help](../../../harness/addons/pocketar/ar_view.gd),
@@ -31,7 +34,8 @@ Backend selection and replay methods are documented in
 
 Session state and notifications follow [the frame contract](../../../docs/api.md#frames-signals-and-lifetime)
 and [PocketAR](../../../doc_classes/PocketAR.xml). Replay comparisons must normalize
-process-wide unique generation IDs relative to each run.
+process-wide unique generation IDs relative to each run, and compare anchor IDs
+relative to successful creation order.
 
 - Synthetic reports TRACKING/NONE while initialized and PAUSED when stopped.
   Reset immediately changes generation and invalidates presentation.
@@ -42,6 +46,13 @@ Placement follows [coordinates and placement](../../../docs/api.md#coordinates-a
 and `PocketAR.AlignmentMask` in [PocketAR.xml](../../../doc_classes/PocketAR.xml).
 `view_point(event_position)` converts viewport event positions with the inverse
 of `get_global_transform_with_canvas()`, including canvas scaling and rotation.
+
+Anchors follow [the anchor contract](../../../docs/api.md#anchors). Use
+`ARAnchorTracker` and stock `XRAnchor3D`; inspect applied `ARAnchorTracker` values
+in `packet_applied`.
+The desktop `anchors` step checks map corrections, rigid child offsets and
+lifecycle in both compositions and orientations; it requires rendered PNG
+evidence, not only headless state checks.
 
 `ARPlaneVisualizer` is a Node3D with an `ar_view` export; use `visible` to hide it.
 Place it in `view.scene_root`; it draws applied-packet polygons and excludes old

@@ -134,6 +134,48 @@ The synthetic backend has no planes; placement needs a phone or scripted fixture
 The [tap-to-place sample](samples/tap_to_place/README.md) includes that fixture,
 Start AR, session messages, reset and plane display.
 
+## Anchors
+
+Use one anchor for a nearby rigid group so the native SDK can correct its world
+pose as tracking improves. Create it when the user taps a fresh hit, then keep
+the same anchor through preview and confirmation:
+
+```gdscript
+var anchor: ARAnchorTracker
+var anchor_node: XRAnchor3D
+
+func place(hit: ARRaycastHit, content: Node3D) -> void:
+	anchor = ar.create_anchor_from_hit(hit)
+	if anchor == null:
+		return
+	anchor_node = ar.add_anchor_node(anchor)
+	anchor_node.visible = anchor.tracking_state == ARAnchorTracker.TRACKING
+	anchor_node.tracking_changed.connect(_tracking_changed)
+	anchor_node.add_child(content)
+	content.transform = Transform3D.IDENTITY
+
+func _tracking_changed(tracked: bool) -> void:
+	anchor_node.visible = tracked
+
+func clear_anchor() -> void:
+	if anchor != null:
+		ar.remove_anchor(anchor)
+	anchor = null
+	if is_instance_valid(anchor_node):
+		anchor_node.queue_free()
+```
+
+Call `clear_anchor()` before replacing this placement. The tracker starts paused
+until its first usable camera packet is applied. Put scale, yaw and offsets on
+children; the stock `XRAnchor3D` follows the anchor. Gate game input and physics
+on tracking too, since hiding content does not disable them. Free-pose placement
+uses `ar.create_anchor(world_pose)`.
+
+Android attaches hit-created anchors to the native plane; iOS creates an
+independent ordinary `ARAnchor` at the hit pose. Anchors do not persist across
+reset or session recreation and do not guarantee zero drift. See the
+[anchor contract](docs/api.md#anchors) for freshness, lifecycle and ownership.
+
 ## Session cost controls
 
 Plane discovery defaults to disabled. Use `ar.suspended` for menus; hiding or
@@ -190,7 +232,7 @@ Native class help is embedded in editor/debug libraries; ARView has tooltips and
 script help. See the [API contract](docs/api.md) for placement and packet lifetimes:
 retaining packets does not preserve native camera pixels.
 
-There is no anchors API, depth occlusion, image/face tracking, light estimation,
+There is no depth occlusion, image/face tracking, light estimation,
 cloud/geospatial anchors or persistent world map API. Live queries, Android
 datasets and diagnostics are [advanced](docs/api.md#advanced-and-internal-surfaces).
 Simultaneous ARViews and mixing AR sessions with Godot CameraServer feeds are unsupported.
