@@ -24,6 +24,9 @@ signal session_generation_changed(generation: int)
 ## The current plane snapshot/tracker set changed. Placement still uses the last presented packet.
 signal planes_changed()
 
+## Emitted after anchors are added or removed.
+signal anchors_changed()
+
 ## How camera pixels and virtual objects are combined.
 enum Composition {
 	## Camera and objects share scene colour, grading and screen reads. Enable material debanding.
@@ -212,6 +215,7 @@ func _ready() -> void:
 	interface.connect("tracking_reason_changed", _on_tracking_reason_changed)
 	interface.connect("session_generation_changed", _on_session_generation_changed)
 	interface.connect("planes_changed", planes_changed.emit)
+	interface.connect("anchors_changed", anchors_changed.emit)
 	XRServer.add_interface(interface)
 	_update_geometry()
 	if not interface.initialize():
@@ -350,6 +354,8 @@ func _apply_packet() -> void:
 	applied_packet = packet
 	if interface.has_method("mark_applied"):
 		interface.call("mark_applied", packet)
+	if packet != applied_packet or packet != interface.call("get_current_packet"):
+		return
 	_check_camera_material(shader)
 	if waiting_for_packet:
 		waiting_for_packet = false
@@ -450,3 +456,42 @@ func _unhandled_input(event: InputEvent) -> void:
 	if Rect2(Vector2.ZERO, size).has_point(point):
 		screen_pressed.emit(point, screen_to_ray(point))
 		get_viewport().set_input_as_handled()
+
+
+## Create a tracked physical location at a finite rigid world pose in metres.
+## Starts PAUSED until a camera packet applies its pose. Failure returns null and warns.
+func create_anchor(pose: Transform3D) -> ARAnchorTracker:
+	if interface == null or not interface.is_initialized():
+		push_warning("Cannot create anchor: not tracking.")
+		return null
+	return interface.call("create_anchor", pose) as ARAnchorTracker
+
+
+## Create from a hit in the currently presented frame and uninterrupted tracking interval.
+## Android attaches to the current plane; iOS adds an ordinary world anchor at the hit pose.
+## The hit pose is submitted to the current native map; historical placement is approximate.
+func create_anchor_from_hit(hit: ARRaycastHit) -> ARAnchorTracker:
+	if interface == null or not interface.is_initialized():
+		push_warning("Cannot create anchor: not tracking.")
+		return null
+	return interface.call("create_anchor_from_hit", hit) as ARAnchorTracker
+
+
+## Stop and unregister this view's anchor, releasing native ownership. Does not free nodes.
+func remove_anchor(anchor: ARAnchorTracker) -> void:
+	if interface != null:
+		interface.call("remove_anchor", anchor)
+
+
+## Parent a stock tracker-following node under the private XROrigin3D.
+## The node does not own the anchor. Use tracking_changed for visibility and interaction policy.
+func add_anchor_node(anchor: ARAnchorTracker) -> XRAnchor3D:
+	if interface == null or not interface.call("owns_anchor", anchor):
+		push_warning("Cannot add anchor node: foreign or stopped anchor.")
+		return null
+	var node := XRAnchor3D.new()
+	node.tracker = anchor.get_tracker_name()
+	node.show_when_tracked = false
+	node.transform = anchor.transform
+	scene_root.get_parent().add_child(node)
+	return node

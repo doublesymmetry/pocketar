@@ -35,6 +35,7 @@ fixture() {
         "tests/headless/arcore_${name}_fixture.cpp" "$@" src/platform/android/arcore_extras.cpp \
         src/platform/android/arcore_api.cpp src/core/ar_frame_packet.cpp src/core/ar_raycast_hit.cpp \
         src/core/ar_plane_geometry.cpp src/core/projection.cpp \
+        src/core/ar_anchor_tracker.cpp src/core/ar_anchor_registry.cpp \
         "godot-cpp/bin/libgodot-cpp.macos.template_debug.$arch.a" -o "$fixture_dir/libfixture.dylib"
     cat > "$fixture_dir/project.godot" <<PROJECT
 config_version=5
@@ -60,11 +61,11 @@ EXTENSION
 fixture session arcore_session_fixture_init SESSION \
     -DDEBUG_ENABLED -fno-access-control -DCLOCK_BOOTTIME=CLOCK_MONOTONIC \
     -I"$work_dir" -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/darwin" \
-    src/platform/android/arcore_interface.cpp src/platform/android/arcore_frame.cpp src/platform/android/arcore_gpu.cpp \
+    src/platform/android/arcore_interface.cpp src/platform/android/arcore_frame.cpp src/platform/android/arcore_gpu.cpp src/platform/android/arcore_anchors.cpp \
     src/core/ar_plane_tracker.cpp src/core/debug_plane.cpp
 fixture session arcore_session_fixture_init SESSION \
     -fno-access-control -DCLOCK_BOOTTIME=CLOCK_MONOTONIC \
     -I"$work_dir" -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/darwin" \
-    src/platform/android/arcore_interface.cpp src/platform/android/arcore_frame.cpp src/platform/android/arcore_gpu.cpp \
+    src/platform/android/arcore_interface.cpp src/platform/android/arcore_frame.cpp src/platform/android/arcore_gpu.cpp src/platform/android/arcore_anchors.cpp \
     src/core/ar_plane_tracker.cpp
 fixture extras arcore_extras_fixture_init EXTRAS

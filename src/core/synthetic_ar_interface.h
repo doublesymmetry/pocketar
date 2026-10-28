@@ -21,7 +21,7 @@ protected:
 
 public:
 	void reset();
-	PocketAR::SessionState get_session_state() const { return initialized && !is_paused() ? PocketAR::TRACKING : PocketAR::PAUSED; }
+	PocketAR::SessionState get_session_state() const override { return initialized && !is_paused() ? PocketAR::TRACKING : PocketAR::PAUSED; }
 	PocketAR::TrackingReason get_tracking_reason() const { return PocketAR::NONE; }
 	void set_intrinsics(double p_fx, double p_fy, double p_cx, double p_cy, const Vector2i &p_image_size);
 	void set_pose(const Transform3D &p_pose);

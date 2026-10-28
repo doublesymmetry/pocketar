@@ -1,5 +1,6 @@
 #include "arkit_interface.h"
 #include "arkit_math.h"
+#include "arkit_anchors.h"
 #include "core/ar_ids.h"
 #include <godot_cpp/classes/display_server.hpp>
 #include <godot_cpp/classes/os.hpp>
@@ -54,12 +55,14 @@ struct ARKitInterface::Impl {
 	ARWorldTrackingConfiguration *config = nil;
 	HARSessionDelegate *delegate = nil;
 	bool running = false, interrupted = false, permission_requested = false;
+	bool anchor_tracking = false;
 	bool reset_pending = false;
 	double last_timestamp = 0, reset_cutoff = 0;
 	uint64_t start_tick = 0;
 	bool first_frame = false;
 	UIInterfaceOrientation orientation = UIInterfaceOrientationUnknown;
 	ARKitOrientationTransition orientation_transition;
+	pocketar::ARKitAnchors<ARAnchor *, Transform3D> anchors;
 };
 
 static uint64_t tick_usec() { return Time::get_singleton()->get_ticks_usec(); }
@@ -72,6 +75,16 @@ void shutdown_arkit_interfaces() {
 static Transform3D from_simd(const simd_float4x4 &p_matrix) {
 	const auto &c = p_matrix.columns;
 	return Transform3D(Basis(Vector3(c[0].x, c[0].y, c[0].z), Vector3(c[1].x, c[1].y, c[1].z), Vector3(c[2].x, c[2].y, c[2].z)), Vector3(c[3].x, c[3].y, c[3].z));
+}
+
+static simd_float4x4 to_simd(const Transform3D &p_transform) {
+	simd_float4x4 result = matrix_identity_float4x4;
+	for (int column = 0; column < 3; ++column) {
+		const Vector3 axis = p_transform.basis.get_column(column);
+		result.columns[column] = simd_make_float4(axis.x, axis.y, axis.z, 0);
+	}
+	result.columns[3] = simd_make_float4(p_transform.origin.x, p_transform.origin.y, p_transform.origin.z, 1);
+	return result;
 }
 
 static Projection from_projection(const simd_float4x4 &p_matrix) {
@@ -102,7 +115,11 @@ static AVAuthorizationStatus camera_authorization(Dictionary &r_diagnostics) {
 	return authorization;
 }
 
-ARKitInterface::ARKitInterface() : impl(new Impl) {}
+ARKitInterface::ARKitInterface() : impl(new Impl) {
+	anchors.configure(this, [this](int64_t p_id) {
+		impl->anchors.remove(p_id, [this](ARAnchor *p_anchor) { [impl->session removeAnchor:p_anchor]; });
+	});
+}
 ARKitInterface::~ARKitInterface() { if (initialized) _uninitialize(); }
 
 #ifdef DEBUG_ENABLED
@@ -129,6 +146,10 @@ void ARKitInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_diagnostics_enabled", "enabled"), &ARKitInterface::set_diagnostics_enabled);
 	ClassDB::bind_method(D_METHOD("get_native_plane_identifiers"), &ARKitInterface::get_native_plane_identifiers);
 	ClassDB::bind_method(D_METHOD("reset"), &ARKitInterface::reset);
+	ClassDB::bind_method(D_METHOD("create_anchor", "pose"), &ARKitInterface::create_anchor);
+	ClassDB::bind_method(D_METHOD("create_anchor_from_hit", "hit"), &ARKitInterface::create_anchor_from_hit);
+	ClassDB::bind_method(D_METHOD("remove_anchor", "anchor"), &ARKitInterface::remove_anchor);
+	ClassDB::bind_method(D_METHOD("owns_anchor", "anchor"), &ARKitInterface::owns_anchor);
 	ClassDB::bind_method(D_METHOD("set_plane_finding_mode", "mode"), &ARKitInterface::set_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("get_plane_finding_mode"), &ARKitInterface::get_plane_finding_mode);
 	ClassDB::bind_method(D_METHOD("set_suspended", "suspended"), &ARKitInterface::set_suspended);
@@ -147,6 +168,7 @@ void ARKitInterface::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("tracking_reason_changed", PropertyInfo(Variant::INT, "reason")));
 	ADD_SIGNAL(MethodInfo("session_generation_changed", PropertyInfo(Variant::INT, "generation")));
 	ADD_SIGNAL(MethodInfo("planes_changed"));
+	ADD_SIGNAL(MethodInfo("anchors_changed"));
 }
 
 bool ARKitInterface::on_owner_thread() const { return [NSThread isMainThread] && RenderingServer::get_singleton()->is_on_render_thread(); }
@@ -154,15 +176,21 @@ void ARKitInterface::increment(const char *p_key) { diagnostics[p_key] = int64_t
 void ARKitInterface::set_state(PocketAR::SessionState p_state) {
 	const bool changed = state != p_state;
 	if (!changed && !state_history.is_empty()) return;
+	const int64_t state_generation = generation;
+	state = p_state;
+	state_history.append(int(state));
+	if (changed) call_deferred("emit_signal", "session_state_changed", int(state));
 #ifdef DEBUG_ENABLED
 	if (p_state != PocketAR::TRACKING) {
 		debug_plane.pause();
 		if (debug_plane.active()) presented_packet.unref();
 	}
 #endif
-	state = p_state;
-	state_history.append(int(state));
-	if (changed) call_deferred("emit_signal", "session_state_changed", int(state));
+	if (generation != state_generation || state != p_state) return;
+	if (changed && state != PocketAR::TRACKING) {
+		impl->anchor_tracking = false;
+		anchors.pause();
+	}
 }
 void ARKitInterface::set_reason(PocketAR::TrackingReason p_reason) {
 	if (reason == p_reason) return;
@@ -171,6 +199,7 @@ void ARKitInterface::set_reason(PocketAR::TrackingReason p_reason) {
 }
 
 bool ARKitInterface::_initialize() {
+	if (uninitializing) return false;
 	if (initialized) return true;
 	impl.reset(new Impl);
 	geometry_dirty = true;
@@ -236,9 +265,13 @@ bool ARKitInterface::_initialize() {
 void ARKitInterface::_uninitialize() {
 	if (!initialized) return;
 	ERR_FAIL_COND(!on_owner_thread());
+	uninitializing = true;
+	initialized = false;
 	impl->delegate.owner = nullptr;
 	impl->session.delegate = nil;
 	[impl->session pause];
+	impl->running = false;
+	anchors.clear();
 	impl->session = nil;
 	impl->config = nil;
 	impl->delegate = nil;
@@ -251,9 +284,9 @@ void ARKitInterface::_uninitialize() {
 	XRServer::get_singleton()->remove_tracker(head);
 	head.unref();
 	set_primary(false);
-	initialized = false;
 	set_state(PocketAR::PAUSED);
 	active_interfaces.erase(this);
+	uninitializing = false;
 }
 
 void ARKitInterface::run_session() {
@@ -297,7 +330,9 @@ void ARKitInterface::run_session() {
 	config["height"] = int(impl->config.videoFormat.imageResolution.height);
 	config["fps"] = int(impl->config.videoFormat.framesPerSecond);
 	diagnostics["config"] = config;
+	const int64_t run_generation = generation;
 	set_state(PocketAR::READY);
+	if (!initialized || generation != run_generation || suspended || application_suspended) return;
 	const uint64_t started = tick_usec();
 	if (!bool(diagnostics["configured"])) impl->start_tick = started;
 	if (impl->reset_pending) impl->reset_cutoff = CACurrentMediaTime();
@@ -314,6 +349,7 @@ void ARKitInterface::run_session() {
 }
 
 void ARKitInterface::pause_session() {
+	const int64_t paused_generation = generation;
 	const uint64_t started = tick_usec();
 	[impl->session pause];
 	timings["pause_ms"] = (tick_usec() - started) / 1000.0;
@@ -321,9 +357,10 @@ void ARKitInterface::pause_session() {
 	clear_packets();
 	impl->interrupted = false;
 	tracking_status = XR_NOT_TRACKING;
-	head->invalidate_pose("default");
 	increment("pause_count");
 	set_state(PocketAR::PAUSED);
+	if (!initialized || generation != paused_generation) return;
+	head->invalidate_pose("default");
 }
 
 void ARKitInterface::set_suspended(bool p_suspended) {
@@ -400,11 +437,16 @@ void ARKitInterface::session_interrupted(bool p_interrupted) {
 }
 
 void ARKitInterface::session_failed(int p_code, const String &p_message) {
+	const int64_t failed_generation = generation;
+	[impl->session pause];
 	impl->running = false;
 	diagnostics["last_error"] = p_message;
 	diagnostics["arkit_error_code"] = p_code;
 	clear_packets();
+	if (p_code != 103) anchors.clear(false);
+	if (!initialized || generation != failed_generation) return;
 	head->invalidate_pose("default");
+	if (!initialized || generation != failed_generation) return;
 	tracking_status = XR_NOT_TRACKING;
 	set_reason(p_code == 103 ? PocketAR::CAMERA_UNAVAILABLE : PocketAR::BAD_STATE);
 	set_state(p_code == 103 ? PocketAR::PERMISSION_DENIED : p_code == 100 ? PocketAR::UNSUPPORTED : PocketAR::FAILED);
@@ -417,31 +459,95 @@ void ARKitInterface::clear_packets() {
 
 void ARKitInterface::clear_planes() {
 	const bool changed = !published_planes.empty();
-#ifdef DEBUG_ENABLED
-	debug_plane.clear();
-#endif
-	for (auto &entry : planes) { XRServer::get_singleton()->remove_tracker(entry.second); increment("retired_tracker_count"); }
+	auto retired = std::move(planes);
 	planes.clear();
 	published_planes.clear();
 	native_anchor_count = 0;
+#ifdef DEBUG_ENABLED
+	debug_plane.clear();
+#endif
+	for (auto &entry : retired) { XRServer::get_singleton()->remove_tracker(entry.second); increment("retired_tracker_count"); }
 	if (changed) call_deferred("emit_signal", "planes_changed");
 }
 
 void ARKitInterface::reset() {
 	ERR_FAIL_COND(!initialized || !on_owner_thread());
+	[impl->session pause];
+	impl->running = false;
 	generation = next_ar_id();
+	const int64_t reset_generation = generation;
+	impl->reset_pending = true;
 	clear_packets();
+	anchors.clear();
+	if (!initialized || generation != reset_generation) return;
 	clear_planes();
+	if (!initialized || generation != reset_generation) return;
 	head->invalidate_pose("default");
+	if (!initialized || generation != reset_generation) return;
 	tracking_status = XR_UNKNOWN_TRACKING;
 	last_good_pose = Transform3D();
 	impl->last_timestamp = 0;
-	impl->reset_pending = true;
 	set_reason(PocketAR::NONE);
 	geometry_dirty = true;
 	increment("reset_count");
 	call_deferred("emit_signal", "session_generation_changed", generation);
 	run_session();
+}
+
+bool ARKitInterface::can_create_anchor() {
+	if (!initialized || !impl->running || impl->interrupted || suspended || application_suspended || state != PocketAR::TRACKING) return false;
+	if (current_packet.is_null() || current_packet->session_generation != generation || current_packet->anchor_epoch != anchors.get_epoch()) return false;
+	ARFrame *frame = impl->session.currentFrame;
+	if (!frame || frame.timestamp <= impl->reset_cutoff) return false;
+	if (frame.camera.trackingState == ARTrackingStateNormal) return true;
+	impl->anchor_tracking = false;
+	frame = nil;
+	anchors.pause();
+	return false;
+}
+
+Ref<ARAnchorTracker> ARKitInterface::create_native_anchor(const Transform3D &p_pose, int64_t p_source_plane_id) {
+	ARAnchor *native = [[ARAnchor alloc] initWithTransform:to_simd(p_pose)];
+	if (!native) { WARN_PRINT("Cannot create anchor: native refusal."); return {}; }
+	impl->anchors.add(anchors.next_id(), anchor_key(native.identifier), native, p_pose,
+		[this](ARAnchor *p_anchor) { [impl->session addAnchor:p_anchor]; });
+	native = nil;
+	return anchors.add(generation, p_pose, p_source_plane_id);
+}
+
+Ref<ARAnchorTracker> ARKitInterface::create_anchor(const Transform3D &p_pose) {
+	ERR_FAIL_COND_V(initialized && !on_owner_thread(), {});
+	if (!ARAnchorRegistry::valid_pose(p_pose)) { WARN_PRINT("Cannot create anchor: invalid pose."); return {}; }
+	if (!can_create_anchor()) { WARN_PRINT("Cannot create anchor: not tracking."); return {}; }
+	return create_native_anchor(p_pose, 0);
+}
+
+Ref<ARAnchorTracker> ARKitInterface::create_anchor_from_hit(const Ref<ARRaycastHit> &p_hit) {
+	ERR_FAIL_COND_V(initialized && !on_owner_thread(), {});
+	if (!anchors.fresh_hit(p_hit, presented_packet, generation)) { WARN_PRINT("Cannot create anchor: stale hit."); return {}; }
+	if (!can_create_anchor()) { WARN_PRINT("Cannot create anchor: not tracking."); return {}; }
+	const int64_t plane_id = p_hit->get_plane_id();
+	bool tracking_plane = false;
+#ifdef DEBUG_ENABLED
+	if (plane_id < 0) tracking_plane = debug_plane.get_plane_id() == plane_id && debug_plane.is_tracking();
+#endif
+	if (plane_id > 0) {
+		for (const auto &entry : planes) {
+			if (entry.second->get_plane_id() != plane_id || entry.second->get_tracking_state() != ARPlaneTracker::TRACKING) continue;
+			for (ARAnchor *native in impl->session.currentFrame.anchors) {
+				if (anchor_key(native.identifier) == entry.first) { tracking_plane = true; break; }
+			}
+			break;
+		}
+	}
+	if (!tracking_plane) { WARN_PRINT("Cannot create anchor: stale hit."); return {}; }
+	if (!ARAnchorRegistry::valid_pose(p_hit->get_pose())) { WARN_PRINT("Cannot create anchor: invalid pose."); return {}; }
+	return create_native_anchor(p_hit->get_pose(), plane_id);
+}
+
+void ARKitInterface::remove_anchor(const Ref<ARAnchorTracker> &p_anchor) {
+	ERR_FAIL_COND(initialized && !on_owner_thread());
+	anchors.remove(p_anchor);
 }
 
 static_assert(NSUInteger(PocketAR::PLANE_FINDING_DISABLED) == ARPlaneDetectionNone && NSUInteger(PocketAR::PLANE_FINDING_HORIZONTAL) == ARPlaneDetectionHorizontal &&
@@ -469,14 +575,22 @@ void ARKitInterface::set_display_geometry(const Vector2i &p_size, int, double p_
 void ARKitInterface::anchors_changed(void *p_session, void *p_anchors, bool p_removed) {
 	if (!initialized || (__bridge ARSession *)p_session != impl->session || impl->reset_pending || (impl->reset_cutoff > 0 && impl->session.currentFrame.timestamp <= impl->reset_cutoff)) return;
 	ERR_FAIL_COND(!on_owner_thread());
+	const int64_t callback_generation = generation;
+	std::vector<int64_t> stopped;
 	for (ARAnchor *anchor in (__bridge NSArray<ARAnchor *> *)p_anchors) {
-		if (![anchor isKindOfClass:[ARPlaneAnchor class]]) continue;
 		const auto key = anchor_key(anchor.identifier);
+		if (![anchor isKindOfClass:[ARPlaneAnchor class]]) {
+			const int64_t id = impl->anchors.changed(key, p_removed);
+			if (id) stopped.push_back(id);
+			continue;
+		}
 		auto found = planes.find(key);
 		if (p_removed) {
 			if (found != planes.end()) {
-				XRServer::get_singleton()->remove_tracker(found->second);
+				const Ref<ARPlaneTracker> tracker = found->second;
 				planes.erase(found);
+				XRServer::get_singleton()->remove_tracker(tracker);
+				if (!initialized || generation != callback_generation) return;
 				increment("retired_tracker_count");
 			}
 			continue;
@@ -513,16 +627,21 @@ void ARKitInterface::anchors_changed(void *p_session, void *p_anchors, bool p_re
 			increment("plane_geometry_rebuilds");
 		}
 		snapshot.extents = Vector2(plane.planeExtent.width, plane.planeExtent.height);
-		found->second->update(snapshot);
-		if (added) XRServer::get_singleton()->add_tracker(found->second);
+		const Ref<ARPlaneTracker> tracker = found->second;
+		tracker->update(snapshot);
+		if (!initialized || generation != callback_generation) return;
+		if (added) XRServer::get_singleton()->add_tracker(tracker);
+		if (!initialized || generation != callback_generation) return;
 		increment("plane_updates");
+	}
+	for (int64_t id : stopped) {
+		anchors.stop(id);
+		if (!initialized || generation != callback_generation) return;
 	}
 }
 
-bool ARKitInterface::copy_planes(void *p_frame, ARFramePacket &r_packet) {
-	ARFrame *frame = (__bridge ARFrame *)p_frame;
-	native_anchor_count = int64_t(frame.anchors.count);
-	const int tracking = frame.camera.trackingState == ARTrackingStateNormal ? ARPlaneTracker::TRACKING : ARPlaneTracker::PAUSED;
+bool ARKitInterface::copy_planes(bool p_tracking, ARFramePacket &r_packet) {
+	const int tracking = p_tracking ? ARPlaneTracker::TRACKING : ARPlaneTracker::PAUSED;
 	for (const auto &entry : planes) {
 		ARPlaneSnapshot snapshot = entry.second->get_snapshot();
 		if (snapshot.tracking_state != tracking) {
@@ -539,6 +658,17 @@ bool ARKitInterface::copy_planes(void *p_frame, ARFramePacket &r_packet) {
 	return changed;
 }
 
+void ARKitInterface::copy_anchors(void *p_frame, ARFramePacket &r_packet) {
+	ARFrame *frame = (__bridge ARFrame *)p_frame;
+	impl->anchors.sample(frame.camera.trackingState == ARTrackingStateNormal, [&](auto p_observe) {
+		for (ARAnchor *native in frame.anchors) {
+			p_observe(anchor_key(native.identifier), [&] { return from_simd(native.transform); });
+		}
+	}, [&](int64_t p_id, const Transform3D &p_pose, int p_state) {
+		r_packet.anchors.push_back({ p_id, p_pose, p_state, anchors.get_revision(p_id) });
+	});
+}
+
 void ARKitInterface::_process() {
 	if (!initialized || suspended || application_suspended) return;
 	ERR_FAIL_COND(!on_owner_thread());
@@ -548,6 +678,16 @@ void ARKitInterface::_process() {
 			if (state != PocketAR::FAILED && state != PocketAR::UNSUPPORTED) run_session();
 			if (!impl->running) return;
 		}
+		const int64_t frame_generation = generation;
+		ARFrame *frame = impl->session.currentFrame;
+		if (!frame || frame.timestamp <= impl->reset_cutoff) return;
+		const bool camera_tracking = frame.camera.trackingState == ARTrackingStateNormal;
+		if (!camera_tracking && impl->anchor_tracking) {
+			impl->anchor_tracking = false;
+			anchors.pause();
+			if (!initialized || generation != frame_generation || !impl->running || suspended || application_suspended) return;
+		}
+		impl->anchor_tracking = camera_tracking;
 		UIView *view = (__bridge UIView *)(void *)DisplayServer::get_singleton()->window_get_native_handle(DisplayServer::WINDOW_VIEW);
 		const CGSize bounds = view.window.bounds.size;
 		const Vector2 window_size(bounds.width, bounds.height);
@@ -560,8 +700,6 @@ void ARKitInterface::_process() {
 			return;
 		}
 		if (orientation != impl->orientation) geometry_dirty = true;
-		ARFrame *frame = impl->session.currentFrame;
-		if (!frame || frame.timestamp <= impl->reset_cutoff) return;
 		if (frame.timestamp < impl->last_timestamp) { increment("timestamp_regressions"); return; }
 		const bool new_frame = frame.timestamp != impl->last_timestamp;
 		if (!new_frame && (impl->interrupted || !geometry_dirty)) { increment("repeated_updates"); return; }
@@ -575,7 +713,10 @@ void ARKitInterface::_process() {
 		const int64_t timestamp = llround(frame.timestamp * 1e9);
 		ARKitTexturePool::Import imported;
 		const bool repeated = current_packet.is_valid() && current_packet->timestamp_ns == timestamp;
+		bool camera_acquired = repeated;
+		const uint64_t acquisition_epoch = anchors.get_epoch();
 		if (!repeated && textures->import_image((void *)frame.capturedImage, imported)) {
+			camera_acquired = true;
 			packet->y_texture = imported.y;
 			packet->cbcr_texture = imported.cbcr;
 		} else {
@@ -586,12 +727,17 @@ void ARKitInterface::_process() {
 					[impl->session pause];
 					impl->running = false;
 					tracking_status = XR_NOT_TRACKING;
-					head->invalidate_pose("default");
 					clear_packets();
+					anchors.clear(false);
+					if (!initialized || generation != frame_generation) return;
+					head->invalidate_pose("default");
+					if (!initialized || generation != frame_generation) return;
 					set_reason(PocketAR::BAD_STATE);
 					set_state(PocketAR::UNSUPPORTED);
 					return;
 				}
+				anchors.invalidate_samples();
+				if (!anchors.empty()) return;
 			}
 			if (current_packet.is_valid()) {
 				packet->y_texture = current_packet->y_texture;
@@ -659,10 +805,24 @@ void ARKitInterface::_process() {
 		tracking_status = camera.trackingState == ARTrackingStateNormal ? XR_NORMAL_TRACKING :
 			reason == PocketAR::EXCESSIVE_MOTION ? XR_EXCESSIVE_MOTION : reason == PocketAR::INSUFFICIENT_FEATURES ? XR_INSUFFICIENT_FEATURES :
 			reason == PocketAR::NONE ? XR_UNKNOWN_TRACKING : XR_NOT_TRACKING;
-		if (packet->tracking_valid) head->set_pose("default", packet->camera_transform, Vector3(), Vector3(), camera.trackingState == ARTrackingStateNormal ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_LOW);
+		native_anchor_count = int64_t(frame.anchors.count);
+		if (camera_acquired) copy_anchors((__bridge void *)frame, *packet.ptr());
+		camera = nil;
+		frame = nil;
+		const uint64_t frame_epoch = anchors.get_epoch();
+		for (const ARAnchorSnapshot &anchor : packet->anchors) {
+			if (anchor.tracking_state == ARAnchorTracker::STOPPED) anchors.stop(anchor.anchor_id);
+			if (!initialized || generation != frame_generation || anchors.get_epoch() != frame_epoch) return;
+		}
+		if (packet->tracking_valid) head->set_pose("default", packet->camera_transform, Vector3(), Vector3(), camera_tracking ? XRPose::XR_TRACKING_CONFIDENCE_HIGH : XRPose::XR_TRACKING_CONFIDENCE_LOW);
 		else head->invalidate_pose("default");
-		set_state(camera.trackingState == ARTrackingStateNormal ? PocketAR::TRACKING : PocketAR::INITIALIZING);
-		const bool changed_planes = copy_planes((__bridge void *)frame, *packet.ptr());
+		if (!initialized || generation != frame_generation || anchors.get_epoch() != frame_epoch) return;
+		set_state(camera_tracking ? PocketAR::TRACKING : PocketAR::INITIALIZING);
+		if (!initialized || generation != frame_generation || !impl->running || suspended || application_suspended) return;
+		const uint64_t publish_epoch = anchors.get_epoch();
+		packet->anchor_epoch = camera_acquired ? publish_epoch : acquisition_epoch;
+		const bool changed_planes = copy_planes(camera_tracking, *packet.ptr());
+		if (!initialized || generation != frame_generation || anchors.get_epoch() != publish_epoch) return;
 		if (!impl->first_frame) { timings["first_frame_ms"] = (tick_usec() - impl->start_tick) / 1000.0; impl->first_frame = true; }
 		impl->orientation = orientation;
 		geometry_dirty = false;
@@ -715,6 +875,7 @@ void ARKitInterface::mark_applied(const Ref<ARFramePacket> &p_packet) {
 	ERR_FAIL_COND(p_packet.is_valid() && (p_packet->y_texture.is_valid() || p_packet->cbcr_texture.is_valid()) && !textures->check_sample(p_packet));
 	applied_packet = p_packet;
 	textures->set_active_packets(current_packet, presented_packet, applied_packet);
+	anchors.apply(p_packet, generation);
 }
 
 void ARKitInterface::mark_presented() {

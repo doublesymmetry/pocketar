@@ -19,6 +19,8 @@ public:
 	void pause();
 	void merge(std::vector<ARPlaneSnapshot> &r_planes, int64_t p_generation, bool p_tracking);
 	bool presentation_paused() const { return paused; }
+	int64_t get_plane_id() const { return plane.plane_id; }
+	bool is_tracking() const { return plane.plane_id != 0 && !paused && plane.tracking_state == ARPlaneTracker::TRACKING; }
 	bool active() const { return plane.plane_id != 0 || tracker.is_valid(); }
 };
 

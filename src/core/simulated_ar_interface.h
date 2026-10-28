@@ -5,6 +5,7 @@
 #endif
 
 #include "ar_frame_packet.h"
+#include "ar_anchor_registry.h"
 #include "pocketar.h"
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/xr_interface_extension.hpp>
@@ -22,6 +23,16 @@ protected:
 	void publish_debug_plane(const Ref<ARFramePacket> &p_packet, bool p_tracking);
 	void reset_debug_plane();
 #endif
+	struct SimulatedAnchor {
+		Transform3D local_pose;
+		int state = ARAnchorTracker::TRACKING;
+	};
+	ARAnchorRegistry anchors;
+	std::map<int64_t, SimulatedAnchor> simulated_anchors;
+	Transform3D map_transform;
+	Ref<ARAnchorTracker> create_anchor_at(const Transform3D &p_pose, int64_t p_source_plane);
+	virtual bool anchor_plane_tracking(int64_t p_id) const;
+	void sample_anchors(const Ref<ARFramePacket> &p_packet);
 	bool initialized = false;
 	bool suspended = false;
 	bool application_suspended = false;
@@ -47,6 +58,13 @@ protected:
 	void fill_packet(const Ref<ARFramePacket> &p_packet, const Transform3D &p_pose);
 
 public:
+	SimulatedARInterface();
+	virtual PocketAR::SessionState get_session_state() const = 0;
+	Ref<ARAnchorTracker> create_anchor(const Transform3D &p_pose);
+	Ref<ARAnchorTracker> create_anchor_from_hit(const Ref<ARRaycastHit> &p_hit);
+	void remove_anchor(const Ref<ARAnchorTracker> &p_anchor);
+	bool owns_anchor(const Ref<ARAnchorTracker> &p_anchor) const { return anchors.owns(p_anchor); }
+	void mark_applied(const Ref<ARFramePacket> &p_packet);
 #ifdef DEBUG_ENABLED
 	int64_t set_debug_plane(const Transform3D &p_transform, const Vector2 &p_extents);
 	void clear_debug_plane();

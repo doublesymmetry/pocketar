@@ -5,6 +5,7 @@
 #endif
 
 #include "core/ar_frame_packet.h"
+#include "core/ar_anchor_registry.h"
 #include "core/ar_plane_tracker.h"
 #include "core/pocketar.h"
 #include "arkit_texture_pool.h"
@@ -23,6 +24,7 @@ class ARKitInterface : public XRInterfaceExtension {
 	Ref<ARKitTexturePool> textures;
 	Ref<XRPositionalTracker> head;
 	Ref<ARFramePacket> current_packet, presented_packet, applied_packet;
+	ARAnchorRegistry anchors;
 	std::map<std::array<uint8_t, 16>, Ref<ARPlaneTracker>> planes;
 	std::vector<ARPlaneSnapshot> published_planes;
 	std::vector<Vector2> plane_polygon;
@@ -32,6 +34,7 @@ class ARKitInterface : public XRInterfaceExtension {
 	DebugPlane debug_plane;
 #endif
 	bool initialized = false;
+	bool uninitializing = false;
 	bool suspended = false;
 	bool application_suspended = false;
 	PocketAR::CameraQuality camera_quality = PocketAR::HIGHEST;
@@ -55,7 +58,10 @@ class ARKitInterface : public XRInterfaceExtension {
 	void choose_camera_format();
 	void clear_packets();
 	void clear_planes();
-	bool copy_planes(void *p_frame, ARFramePacket &r_packet);
+	bool copy_planes(bool p_tracking, ARFramePacket &r_packet);
+	void copy_anchors(void *p_frame, ARFramePacket &r_packet);
+	Ref<ARAnchorTracker> create_native_anchor(const Transform3D &p_pose, int64_t p_source_plane_id);
+	bool can_create_anchor();
 	bool on_owner_thread() const;
 
 protected:
@@ -75,6 +81,10 @@ public:
 	void set_diagnostics_enabled(bool p_enabled);
 	Dictionary get_native_plane_identifiers() const;
 	void reset();
+	Ref<ARAnchorTracker> create_anchor(const Transform3D &p_pose);
+	Ref<ARAnchorTracker> create_anchor_from_hit(const Ref<ARRaycastHit> &p_hit);
+	void remove_anchor(const Ref<ARAnchorTracker> &p_anchor);
+	bool owns_anchor(const Ref<ARAnchorTracker> &p_anchor) const { return anchors.owns(p_anchor); }
 	void set_plane_finding_mode(PocketAR::PlaneFindingMode p_mode);
 	PocketAR::PlaneFindingMode get_plane_finding_mode() const { return plane_finding_mode; }
 	void set_suspended(bool p_suspended);

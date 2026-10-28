@@ -74,6 +74,17 @@ void ScriptedARInterface::_uninitialize() {
 	set_state(PocketAR::PAUSED);
 }
 
+bool ScriptedARInterface::anchor_plane_tracking(int64_t p_id) const {
+	if (p_id < 0) return SimulatedARInterface::anchor_plane_tracking(p_id);
+	for (size_t attempts = 0; attempts < planes.size(); ++attempts) {
+		const auto entry = plane_trackers.find(p_id);
+		if (entry == plane_trackers.end() || entry->second->get_tracking_state() != ARPlaneTracker::TRACKING) return false;
+		if (!entry->second->get_subsumed_by()) return true;
+		p_id = entry->second->get_subsumed_by();
+	}
+	return false;
+}
+
 void ScriptedARInterface::set_state(PocketAR::SessionState p_state) {
 	if (state == p_state) return;
 #ifdef DEBUG_ENABLED
@@ -83,6 +94,8 @@ void ScriptedARInterface::set_state(PocketAR::SessionState p_state) {
 	}
 #endif
 	state = p_state;
+	if (state == PocketAR::FAILED || state == PocketAR::UNSUPPORTED) anchors.clear(false);
+	else if (state != PocketAR::TRACKING) anchors.pause();
 	call_deferred("emit_signal", "session_state_changed", int(state));
 }
 
@@ -107,7 +120,10 @@ void ScriptedARInterface::clear_planes() {
 }
 
 void ScriptedARInterface::reset() {
+	replay_failed = false;
 	generation = next_ar_id();
+	anchors.clear();
+	map_transform = Transform3D();
 	current_packet.unref();
 	presented_packet.unref();
 	latest_frame_index = -1;
@@ -186,7 +202,7 @@ void ScriptedARInterface::apply_planes(const std::vector<pocketar::FixturePlane>
 
 void ScriptedARInterface::advance_to(int64_t p_t_usec) {
 	ERR_FAIL_COND_MSG(p_t_usec < playback_time, "Scripted time cannot move backwards; reload the fixture to rewind.");
-	if (is_paused()) return;
+	if (is_paused() || replay_failed) return;
 	if (initialized) advance_records(p_t_usec);
 	else playback_time = p_t_usec;
 }
@@ -211,14 +227,35 @@ void ScriptedARInterface::advance_records(int64_t p_t_usec) {
 				pending_inputs.push_back(input);
 				break;
 			}
-			case pocketar::FixtureRecord::FRAME:
+			case pocketar::FixtureRecord::FRAME: {
+				const int64_t frame_generation = generation;
+				if (record.has_map_transform) map_transform = fixture_transform(record.map_transform);
 				latest_frame_index = int64_t(index);
 				set_reason(PocketAR::TrackingReason(record.tracking_reason));
 				set_state(PocketAR::SessionState(record.session_state));
+				if (generation != frame_generation || !initialized || is_paused()) return;
+				for (const pocketar::FixtureAnchorUpdate &update : record.anchor_updates) {
+					const auto entry = simulated_anchors.find(update.slot);
+					if (entry == simulated_anchors.end()) {
+						ERR_PRINT("Anchor update targets an unknown or stopped slot.");
+						replay_failed = true;
+						current_packet.unref();
+						presented_packet.unref();
+						set_state(PocketAR::FAILED);
+						return;
+					}
+					entry->second.state = update.tracking_state;
+					if (update.tracking_state == ARAnchorTracker::STOPPED) anchors.stop(update.slot);
+					else if (update.tracking_state == ARAnchorTracker::PAUSED) anchors.pause(update.slot);
+					if (generation != frame_generation) return;
+				}
+				frame_anchor_epoch = anchors.get_epoch();
 				if (record.has_planes) latest_planes_index = int64_t(index);
 				if (latest_planes_index >= 0) apply_planes(session.records[size_t(latest_planes_index)].planes);
+				if (generation != frame_generation) return;
 				new_frame = true;
 				break;
+			}
 		}
 	}
 	playback_time = p_t_usec;
@@ -239,9 +276,17 @@ void ScriptedARInterface::make_packet() {
 	packet->frame_id = frame.frame_id;
 	packet->timestamp_usec = frame.t_usec;
 	packet->timestamp_ns = frame.t_usec * 1000;
-	fill_packet(packet, fixture_transform(frame.camera_transform));
+	fill_packet(packet, map_transform * fixture_transform(frame.camera_transform));
 	packet->tracking_valid = frame.tracking_valid;
 	packet->planes = planes;
+	if (session.version == 2) for (ARPlaneSnapshot &plane : packet->planes) {
+		plane.transform = map_transform * plane.transform;
+		const auto entry = plane_trackers.find(plane.plane_id);
+		if (entry != plane_trackers.end()) entry->second->update(plane);
+		if (packet->session_generation != generation) return;
+	}
+	sample_anchors(packet);
+	packet->anchor_epoch = frame_anchor_epoch;
 #ifdef DEBUG_ENABLED
 	publish_debug_plane(packet, frame.tracking_valid && state == PocketAR::TRACKING);
 #endif
@@ -252,7 +297,7 @@ void ScriptedARInterface::make_packet() {
 }
 
 void ScriptedARInterface::_process() {
-	if (!initialized || is_paused()) return;
+	if (!initialized || is_paused() || replay_failed) return;
 	if (latest_frame_index < 0) advance_records(playback_time);
 	if (geometry_dirty && latest_frame_index >= 0) make_packet();
 }

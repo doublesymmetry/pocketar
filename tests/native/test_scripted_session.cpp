@@ -39,6 +39,25 @@ int main(int p_argc, char **p_argv) {
 	require(session.image_size[0] == 640 && session.intrinsics[1] == 510, "calibration lost");
 	require(session.records[0].frame_id == 1 && session.records[0].camera_transform[15] == 1, "frame pose lost");
 	require(!session.records[0].has_planes && session.records[0].session_state == 7 && session.records[0].tracking_reason == 0, "frame state lost");
+	std::string header_v2 = header;
+	header_v2.replace(header_v2.find("\"version\":1"), 11, "\"version\":2");
+	std::string corrected = frame;
+	corrected.insert(corrected.size() - 1, ",\"map_transform\":" + pose + ",\"anchor_updates\":[{\"slot\":1,\"tracking_state\":\"paused\"}]");
+	require(parse_scripted_session(header_v2 + '\n' + corrected, session, error), "v2 anchor controls rejected: " + error);
+	require(session.version == 2 && session.records[0].has_map_transform && session.records[0].map_transform[15] == 1, "v2 map lost");
+	require(session.records[0].anchor_updates.size() == 1 && session.records[0].anchor_updates[0].slot == 1 && session.records[0].anchor_updates[0].tracking_state == 1, "v2 slot state lost");
+	reject(header + '\n' + corrected, 2);
+	for (const auto &change : std::vector<std::pair<std::string, std::string>>{{"\"slot\":1", "\"slot\":0"}, {"\"slot\":1", "\"slot\":1.5"}, {"\"paused\"", "\"unknown\""}, {pose, "[2,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]"}}) {
+		std::string invalid = corrected;
+		const size_t start = change.first == pose ? invalid.find("\"map_transform\"") : 0;
+		invalid.replace(invalid.find(change.first, start), change.first.size(), change.second);
+		reject(header_v2 + '\n' + invalid, 2);
+	}
+	std::string ordered = frame;
+	ordered.insert(ordered.size() - 1, ",\"anchor_updates\":[{\"slot\":3,\"tracking_state\":\"paused\"},{\"slot\":3,\"tracking_state\":\"tracking\"},{\"slot\":1,\"tracking_state\":\"stopped\"}]");
+	require(parse_scripted_session(header_v2 + '\n' + ordered, session, error), error);
+	require(session.records[0].anchor_updates.size() == 3 && session.records[0].anchor_updates[1].tracking_state == 0 && session.records[0].anchor_updates[2].tracking_state == 2, "slot update file order lost");
+
 	const std::string plane = "{\"id\":7,\"alignment\":\"horizontal_upward_facing\",\"transform\":" + pose + ",\"extents\":[2,2],\"polygon\":[[-1,-1],[1,-1],[1,1],[-1,1]],\"tracking_state\":\"tracking\",\"subsumed_by\":0}";
 	std::string with_planes = frame;
 	with_planes.insert(with_planes.size() - 1, ",\"planes\":[" + plane + "]");
@@ -68,7 +87,7 @@ int main(int p_argc, char **p_argv) {
 		invalid.replace(invalid.find("\"t_usec\":0"), 10, "\"t_usec\":" + fractional_time);
 		reject(header + '\n' + invalid, 2);
 	}
-	for (const auto &change : std::vector<std::pair<std::string, std::string>>{{"\"version\":1", "\"version\":2"}, {"\"arkit\"", "\"unknown\""}, {"520", "0"}, {"640", "640.5"}, {"520", "1e309"}, {"\"version\":1", "\"version\":1,\"version\":1"}}) {
+	for (const auto &change : std::vector<std::pair<std::string, std::string>>{{"\"version\":1", "\"version\":3"}, {"\"arkit\"", "\"unknown\""}, {"520", "0"}, {"640", "640.5"}, {"520", "1e309"}, {"\"version\":1", "\"version\":1,\"version\":1"}}) {
 		std::string invalid = header;
 		invalid.replace(invalid.find(change.first), change.first.size(), change.second);
 		reject(invalid + '\n' + frame, 1);
