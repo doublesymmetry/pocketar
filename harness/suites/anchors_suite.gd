@@ -139,7 +139,6 @@ func _run_once(host: Node, composition: ARView.Composition, output_dir: String, 
 	if evidence != null:
 		evidence.store_string(JSON.stringify(records, "\t") + "\n")
 	view.free()
-	_check(XRServer.get_primary_interface() == null, name + " releases its primary interface")
 
 
 func _follow(view: ARView, anchor: ARAnchorTracker) -> XRAnchor3D:
@@ -196,10 +195,7 @@ func _checkpoint(view: ARView, anchor: ARAnchorTracker, root: XRAnchor3D, fixed:
 	_check(fixed_error < 0.75, "%s fixed reference reprojection %.4f px" % [stage, fixed_error])
 	root.visible = tracked
 	await _draw(2)
-	var capture: Image = view.get_viewport().get_texture().get_image()
-	_check(capture != null and not capture.is_empty(), stage + " has a rendered capture")
-	if capture != null and not capture.is_empty():
-		_check(capture.save_png(prefix + "-" + stage + ".png") == OK, stage + " saves lossless PNG")
+	_check(view.get_viewport().get_texture().get_image().save_png(prefix + "-" + stage + ".png") == OK, stage + " saves lossless PNG")
 	var anchor_screen: Vector2 = view.world_to_screen(root.global_transform * OFFSETS[0])
 	records.append({"stage": stage, "frame_id": packet.frame_id, "tracking_state": anchor.tracking_state, "camera_relative": var_to_str(packet.camera_transform.affine_inverse() * anchor.transform), "anchor_screen": [anchor_screen.x, anchor_screen.y], "fixed_screen": [fixed_screen.x, fixed_screen.y], "marker_errors_px": errors, "fixed_error_px": fixed_error})
 

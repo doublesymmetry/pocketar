@@ -20,12 +20,10 @@ Scripted replay freezes existing plane geometry and tracking state while disable
 and adds no new planes. Horizontal mode keeps existing vertical planes frozen and
 excludes new ones. Re-enabling applies the latest recorded plane set on the next
 fixture frame, including when that frame omits `planes`. Reset discards that
-remembered set. Version 2 map corrections still transform retained map-space
-planes and anchors while plane finding is disabled. Synthetic produces no planes
-and remembers the mode across reset and stop/start.
+remembered set. Synthetic produces no planes and remembers the mode across reset
+and stop/start.
 
-Both fixture versions support plane additions and geometry changes. Version 2
-adds `map_transform` and `anchor_updates`; read the fixture reference.
+Version 2 adds `map_transform` and `anchor_updates`; read the fixture reference.
 
 Backend selection and replay methods are documented in
 [ARView's editor help](../../../harness/addons/pocketar/ar_view.gd),

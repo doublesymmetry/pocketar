@@ -495,7 +495,5 @@ func add_anchor_node(anchor: ARAnchorTracker) -> XRAnchor3D:
 		return null
 	var node := XRAnchor3D.new()
 	node.tracker = anchor.get_tracker_name()
-	node.show_when_tracked = false
-	node.transform = anchor.transform
 	scene_root.get_parent().add_child(node)
 	return node

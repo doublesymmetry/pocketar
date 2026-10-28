@@ -16,7 +16,7 @@ SimulatedARInterface::SimulatedARInterface() {
 
 bool SimulatedARInterface::anchor_plane_tracking(int64_t p_id) const {
 #ifdef DEBUG_ENABLED
-	return debug_plane.get_plane_id() == p_id && debug_plane.is_tracking();
+	return debug_plane.tracks(p_id);
 #else
 	return false;
 #endif

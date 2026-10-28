@@ -30,7 +30,7 @@
 			<return type="ARAnchorTracker" />
 			<param index="0" name="pose" type="Transform3D" />
 			<description>
-				Internal ARView protocol. Creates a world anchor at a finite rigid pose in metres; returns null with a reason warning on failure. Prefer ARView.create_anchor. See [ARAnchorTracker] for lifecycle and ownership.
+				Internal ARView protocol. Prefer ARView.create_anchor.
 			</description>
 		</method>
 		<method name="create_anchor_from_hit">
@@ -126,7 +126,7 @@
 			<return type="void" />
 			<param index="0" name="anchor" type="ARAnchorTracker" />
 			<description>
-				Internal ARView protocol. Stops and unregisters an owned anchor and releases native ownership. Idempotent for an already stopped tracker from this owner. Does not free game nodes.
+				Internal ARView protocol. Prefer ARView.remove_anchor.
 			</description>
 		</method>
 		<method name="reset">

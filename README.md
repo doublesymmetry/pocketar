@@ -165,16 +165,14 @@ func clear_anchor() -> void:
 		anchor_node.queue_free()
 ```
 
-Call `clear_anchor()` before replacing this placement. The tracker starts paused
-until its first usable camera packet is applied. Put scale, yaw and offsets on
+Call `clear_anchor()` before replacing this placement. Put scale, yaw and offsets on
 children; the stock `XRAnchor3D` follows the anchor. Gate game input and physics
 on tracking too, since hiding content does not disable them. Free-pose placement
 uses `ar.create_anchor(world_pose)`.
 
-Android attaches hit-created anchors to the native plane; iOS creates an
-independent ordinary `ARAnchor` at the hit pose. Anchors do not persist across
-reset or session recreation and do not guarantee zero drift. See the
-[anchor contract](docs/api.md#anchors) for freshness, lifecycle and ownership.
+Anchors do not persist across reset or session recreation and do not guarantee
+zero drift. See the [anchor contract](docs/api.md#anchors) for platform differences,
+freshness, lifecycle and ownership.
 
 ## Session cost controls
 

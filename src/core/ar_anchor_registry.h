@@ -20,7 +20,7 @@ class ARAnchorRegistry {
 public:
 	void configure(Object *p_owner, std::function<void(int64_t)> p_release);
 	int64_t next_id() const { return sequence + 1; }
-	Ref<ARAnchorTracker> add(int64_t p_generation, const Transform3D &p_pose, int64_t p_source_plane_id = 0);
+	Ref<ARAnchorTracker> add(int64_t p_generation, const Transform3D &p_pose, int64_t p_source_plane_id);
 	bool owns(const Ref<ARAnchorTracker> &p_anchor) const;
 	void remove(const Ref<ARAnchorTracker> &p_anchor);
 	void stop(int64_t p_id);
@@ -29,7 +29,6 @@ public:
 	void pause(int64_t p_id);
 	void invalidate_samples() { ++epoch; }
 	uint64_t get_epoch() const { return epoch; }
-	const std::map<int64_t, Ref<ARAnchorTracker>> &get_trackers() const { return trackers; }
 	bool empty() const { return trackers.empty(); }
 	void apply(const Ref<ARFramePacket> &p_packet, int64_t p_generation);
 	bool fresh_hit(const Ref<ARRaycastHit> &p_hit, const Ref<ARFramePacket> &p_presented, int64_t p_generation) const;

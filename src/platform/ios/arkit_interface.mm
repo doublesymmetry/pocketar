@@ -492,8 +492,7 @@ void ARKitInterface::reset() {
 }
 
 bool ARKitInterface::can_create_anchor(void *p_frame) {
-	if (!initialized || !impl->running || impl->interrupted || suspended || application_suspended || state != PocketAR::TRACKING) return false;
-	if (current_packet.is_null() || current_packet->session_generation != generation || current_packet->anchor_epoch != anchors.get_epoch()) return false;
+	if (state != PocketAR::TRACKING || current_packet.is_null() || current_packet->session_generation != generation || current_packet->anchor_epoch != anchors.get_epoch()) return false;
 	ARFrame *frame = (__bridge ARFrame *)p_frame;
 	if (!frame || frame.timestamp <= impl->reset_cutoff) return false;
 	return frame.camera.trackingState == ARTrackingStateNormal;
@@ -525,7 +524,7 @@ Ref<ARAnchorTracker> ARKitInterface::create_anchor_from_hit(const Ref<ARRaycastH
 		const int64_t plane_id = p_hit->get_plane_id();
 		bool tracking_plane = false;
 #ifdef DEBUG_ENABLED
-		if (plane_id < 0) tracking_plane = debug_plane.get_plane_id() == plane_id && debug_plane.is_tracking();
+		if (plane_id < 0) tracking_plane = debug_plane.tracks(plane_id);
 #endif
 		if (plane_id > 0) {
 			for (const auto &entry : planes) {

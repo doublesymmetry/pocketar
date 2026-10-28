@@ -10,7 +10,7 @@ Ref<ARAnchorTracker> ARCoreInterface::create_anchor(const Transform3D &p_transfo
 
 Ref<ARAnchorTracker> ARCoreInterface::create_anchor_from_hit(const Ref<ARRaycastHit> &p_hit) {
 	ERR_FAIL_COND_V(initialized && !on_owner_thread(), Ref<ARAnchorTracker>());
-	if (!anchors.fresh_hit(p_hit, presented_packet, generation) || p_hit->get_plane_id() == 0) {
+	if (!anchors.fresh_hit(p_hit, presented_packet, generation)) {
 		UtilityFunctions::push_warning("Cannot create ARCore anchor: stale hit.");
 		return Ref<ARAnchorTracker>();
 	}
@@ -48,16 +48,13 @@ Ref<ARAnchorTracker> ARCoreInterface::create_native_anchor(const Transform3D &p_
 			UtilityFunctions::push_warning("Cannot create ARCore anchor: stale hit plane.");
 			return Ref<ARAnchorTracker>();
 		}
-	} else if (p_plane_id < 0) {
-#ifdef DEBUG_ENABLED
-		if (debug_plane.get_plane_id() != p_plane_id || !debug_plane.is_tracking()) {
-#endif
-			UtilityFunctions::push_warning("Cannot create ARCore anchor: stale hit plane.");
-			return Ref<ARAnchorTracker>();
-#ifdef DEBUG_ENABLED
-		}
-#endif
 	}
+#ifdef DEBUG_ENABLED
+	if (p_plane_id < 0 && !debug_plane.tracks(p_plane_id)) {
+		UtilityFunctions::push_warning("Cannot create ARCore anchor: stale hit plane.");
+		return Ref<ARAnchorTracker>();
+	}
+#endif
 	const Quaternion rotation = p_transform.basis.get_rotation_quaternion();
 	const float raw[] = { float(rotation.x), float(rotation.y), float(rotation.z), float(rotation.w),
 		float(p_transform.origin.x), float(p_transform.origin.y), float(p_transform.origin.z) };
@@ -113,10 +110,8 @@ void ARCoreInterface::copy_anchors(ARFramePacket &r_packet) {
 	if (native_anchors.empty()) return;
 	r_packet.anchors.reserve(native_anchors.size());
 	for (const auto &entry : native_anchors) {
-		const Ref<ARAnchorTracker> tracker = anchors.get_trackers().at(entry.first);
 		ARAnchorSnapshot snapshot;
 		snapshot.anchor_id = entry.first;
-		snapshot.transform = tracker->get_transform();
 		snapshot.tracking_state = r_packet.tracking_valid ? int(entry.second.tracking) : int(ARAnchorTracker::PAUSED);
 		if (snapshot.tracking_state == ARAnchorTracker::TRACKING) {
 			api.ArAnchor_getPose(session, entry.second.anchor, scratch_pose);

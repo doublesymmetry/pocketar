@@ -29,7 +29,7 @@
 		<signal name="tracking_state_changed">
 			<param index="0" name="state" type="int" />
 			<description>
-				Deferred notification coalesced to the latest state. Inherited pose signals and XRAnchor3D.tracking_changed remain synchronous. ARView.anchors_changed reports deferred membership changes; use ARView.packet_applied for a matching camera/anchor pair.
+				Deferred notification coalesced to the latest state. Inherited pose signals and XRAnchor3D.tracking_changed remain synchronous. Use ARView.packet_applied for a matching camera/anchor pair.
 			</description>
 		</signal>
 	</signals>

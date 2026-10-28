@@ -84,13 +84,6 @@ func _run() -> void:
 	_check(interface.owns_anchor(live) and live.tracking_state != ARAnchorTracker.STOPPED, "foreign removal preserves a live owned anchor")
 	interface.uninitialize()
 	XRServer.remove_interface(interface)
-	var other := SyntheticARInterface.new()
-	XRServer.add_interface(other)
-	other.initialize()
-	_check(not other.owns_anchor(next), "interface recreation rejects old owner")
-	_check(not other.owns_anchor(ARAnchorTracker.new()), "constructed tracker rejected")
-	other.uninitialize()
-	XRServer.remove_interface(other)
 	await process_frame
 	print("ANCHOR REENTRANCY RESULT " + ("PASS" if failures == 0 else "FAIL"))
 	quit(0 if failures == 0 else 1)

@@ -85,10 +85,7 @@ presented camera packet.
 
 Android hit creation uses `ArTrackable_acquireNewAnchor` on the current native
 plane; free creation uses `ArSession_acquireNewAnchor`. iOS creates a dedicated
-ordinary `ARAnchor` at the requested pose for either method. `source_plane_id`
-records the originally hit plane as provenance, including when a subsumed
-replacement was used, and is zero for free creation. Negative IDs come from
-debug-plane hits.
+ordinary `ARAnchor` at the requested pose for either method.
 
 ### Ownership and scene nodes
 
@@ -98,10 +95,9 @@ make it `TRACKING`.
 
 `add_anchor_node(anchor)` returns a stock `XRAnchor3D`, bound to that tracker and
 parented directly under the view's private `XROrigin3D`. It starts at the anchor's
-transform and rejects foreign/stopped anchors. Keep the origin at identity and
-world scale at one. Put game scale, animation, yaw and offsets below the helper;
-do not overwrite its transform each frame. For a chosen world pose, set the
-content's local transform to `anchor.transform.affine_inverse() * desired_pose`.
+transform and rejects foreign/stopped anchors. Put game scale, animation, yaw and
+offsets below the helper; do not overwrite its transform each frame. For a chosen
+world pose, set the content's local transform to `anchor.transform.affine_inverse() * desired_pose`.
 
 The helper leaves `show_when_tracked=false`. Choose visibility explicitly through
 `tracking_changed`, as in the [README example](https://github.com/doublesymmetry/pocketar#anchors), and gate
@@ -116,25 +112,18 @@ rejected. It does not free game nodes. Retained stopped trackers remain readable
 and own no native handle.
 
 Tracker names are `pocketar/anchor/<generation>/<id>`. IDs are opaque and never
-reused within a generation. Enumerate through XRServer and filter for
-`ARAnchorTracker`. Do not call inherited setters on provider-owned trackers or
-remove them through XRServer.
+reused within a generation. Do not call inherited setters on provider-owned
+trackers or remove them through XRServer.
 
 ### Tracking, timing and lifecycle
 
 `TRACKING=0` means a usable applied pose; `PAUSED=1` means tracking is unavailable;
-`STOPPED=2` is terminal. The inherited `default` pose has high confidence while
-tracking and zero velocities. ARKit ordinary anchors have no independent native
+`STOPPED=2` is terminal. ARKit ordinary anchors have no independent native
 confidence: usability comes from camera/session state and membership in the
 sampled frame.
 
-Trackers update in `mark_applied` from the same packet as the camera,
-before `packet_applied` and drawing. ARView applies the current packet on
-`SceneTree.process_frame`, before node `_process` callbacks, then checks again
-at `frame_pre_draw` for packets replaced later in the frame. Native estimates from
-dropped acquisitions do not advance the tracker. A repeated camera timestamp
-repeats its complete packet; anchor-only estimate changes do not publish extra
-packets.
+Trackers update from the same packet as the camera, before `packet_applied` and
+drawing. Anchor-only estimate changes do not publish extra packets.
 
 `tracking_state_changed(state)` is deferred and coalesced to the latest state,
 so a queued tracking notification cannot follow a terminal stop.
@@ -167,10 +156,7 @@ Use one anchor per nearby rigid group and remove it when no longer needed.
 There is no count cap; native tracking cost is device-dependent. With zero
 anchors PocketAR makes no anchor queries or allocations.
 
-Persistence across reset/process death, saved world maps, cloud/geospatial/shared
-anchors, cross-device physical alignment, moving-object tracking, editable native
-poses and automatic smoothing
-are outside this API.
+Saved world maps and cloud, geospatial or shared anchors are outside this API.
 
 ## Frames, signals and lifetime
 
@@ -180,7 +166,8 @@ At camera rates below the render rate a complete packet repeats. Geometry or
 calibration changes produce a new packet.
 
 `packet_applied(packet)` fires when ARView applies a different packet at startup,
-`SceneTree.process_frame` or `frame_pre_draw`, but not for repeats or clearing.
+`SceneTree.process_frame` (before node `_process` callbacks) or `frame_pre_draw`,
+but not for repeats or clearing.
 `screen_pressed(point, ray)` fires for an unconsumed touch/left mouse press
 inside the view when `handle_presses` is true; HUD Controls receive input first.
 It marks input handled and ignores touch-emulated mouse presses.
