@@ -1,6 +1,6 @@
 extends Node
 
-const STEPS: Array[String] = ["loaded", "xr-mono-2d", "projection", "camera-transform", "color-invariance", "transparency", "composition", "camera-precision", "frame-consistency", "resize", "scripted"]
+const STEPS: Array[String] = ["loaded", "xr-mono-2d", "projection", "camera-transform", "color-invariance", "transparency", "composition", "camera-precision", "frame-consistency", "resize", "scripted", "anchors"]
 const BARS: Array[Color] = [Color.RED, Color.BLUE, Color.GREEN, Color.YELLOW, Color.CYAN, Color.MAGENTA, Color.WHITE, Color.BLACK]
 const DEFAULT_K := Vector4(520.0, 510.0, 301.0, 227.0)
 const IMAGE_SIZE := Vector2i(640, 480)
@@ -21,6 +21,7 @@ var timeout_seconds: float = 240.0
 func _ready() -> void:
 	if OS.get_name() in ["Android", "iOS"]:
 		selected_steps.remove_at(selected_steps.find("scripted"))
+		selected_steps.remove_at(selected_steps.find("anchors"))
 	var launch: Dictionary = PocketARArgs.read()
 	if OS.get_name() == "iOS" and String(launch["error"]).is_empty():
 		launch = preload("res://ar/harness_args.gd").validate(launch["args"])
@@ -100,15 +101,20 @@ func _run() -> void:
 				"frame-consistency": ok = await _frame_consistency()
 				"resize": ok = await _resize()
 				"scripted": ok = await _scripted()
+				"anchors": ok = await _scripted(true)
 			_step(name, ok, "%s: %s" % [ARView.Composition.keys()[mode], detail])
 	_finish()
 
 
-func _scripted() -> bool:
+func _scripted(anchors: bool = false) -> bool:
 	var mode: ARView.Composition = view.composition
 	view.free()
 	view = null
-	var result: Dictionary = await preload("res://suites/scripted_suite.gd").new().run(self, mode)
+	var result: Dictionary
+	if anchors:
+		result = await preload("res://suites/anchors_suite.gd").new().run(self, mode, output_dir)
+	else:
+		result = await preload("res://suites/scripted_suite.gd").new().run(self, mode)
 	detail = result["detail"]
 	view = preload("res://addons/pocketar/ar_view.tscn").instantiate() as ARView
 	view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL

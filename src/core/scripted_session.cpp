@@ -178,10 +178,11 @@ bool transform(const JsonValue &p_value, FixtureTransform &r_matrix) {
 
 bool parse_header(const JsonValue &p_header, ScriptedSession &r_session, std::string &r_error) {
 	int64_t version;
-	if (field(p_header, "format").string != "pocketar-session" || !integer(field(p_header, "version"), 1, 1, version)) {
-		r_error = "expected pocketar-session version 1 header";
+	if (field(p_header, "format").string != "pocketar-session" || !integer(field(p_header, "version"), 1, 2, version)) {
+		r_error = "expected pocketar-session version 1 or 2 header";
 		return false;
 	}
+	r_session.version = int(version);
 	r_session.semantics = field(p_header, "semantics").string;
 	if (r_session.semantics != "arkit" && r_session.semantics != "arcore") {
 		r_error = "semantics must be arkit or arcore";
@@ -235,7 +236,7 @@ bool parse_planes(const JsonValue &p_planes, std::vector<FixturePlane> &r_planes
 	return true;
 }
 
-bool parse_record(const JsonValue &p_value, FixtureRecord &r_record, std::string &r_error) {
+bool parse_record(const JsonValue &p_value, FixtureRecord &r_record, int p_version, std::string &r_error) {
 	if (!integer(field(p_value, "t_usec"), 0, 9007199254740991LL, r_record.t_usec)) {
 		r_error = "t_usec must be a nonnegative exact integer";
 		return false;
@@ -285,6 +286,29 @@ bool parse_record(const JsonValue &p_value, FixtureRecord &r_record, std::string
 		r_error = "unknown session_state or tracking_reason";
 		return false;
 	}
+	r_record.has_map_transform = p_value.object.count("map_transform") != 0;
+	const bool has_updates = p_value.object.count("anchor_updates") != 0;
+	if (p_version < 2 && (r_record.has_map_transform || has_updates)) {
+		r_error = "anchor controls require fixture version 2";
+		return false;
+	}
+	if (r_record.has_map_transform && !transform(field(p_value, "map_transform"), r_record.map_transform)) {
+		r_error = "map_transform must be rigid";
+		return false;
+	}
+	if (has_updates) {
+		const JsonValue &updates = field(p_value, "anchor_updates");
+		if (updates.type != JsonValue::ARRAY) { r_error = "anchor_updates must be an array"; return false; }
+		for (const JsonValue &value : updates.array) {
+			FixtureAnchorUpdate update;
+			update.tracking_state = named(field(value, "tracking_state"), { "tracking", "paused", "stopped" });
+			if (!integer(field(value, "slot"), 1, 9007199254740991LL, update.slot) || update.tracking_state < 0) {
+				r_error = "anchor update requires positive slot and tracking, paused or stopped state";
+				return false;
+			}
+			r_record.anchor_updates.push_back(update);
+		}
+	}
 	r_record.has_planes = p_value.object.count("planes") != 0;
 	if (r_record.has_planes && !parse_planes(field(p_value, "planes"), r_record.planes)) {
 		r_error = "invalid full plane list";
@@ -317,7 +341,7 @@ bool parse_scripted_session(const std::string &p_jsonl, ScriptedSession &r_sessi
 		if (valid && line_number == 1) valid = parse_header(value, session, r_error);
 		else if (valid) {
 			FixtureRecord record;
-			valid = parse_record(value, record, r_error);
+			valid = parse_record(value, record, session.version, r_error);
 			if (valid && record.t_usec < last_time) {
 				r_error = "t_usec must be nondecreasing";
 				valid = false;

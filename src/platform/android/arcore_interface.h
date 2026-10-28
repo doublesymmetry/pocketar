@@ -9,6 +9,7 @@
 #include "arcore_bridge.h"
 #include "gpu_camera_validation.h"
 #include "core/ar_frame_packet.h"
+#include "core/ar_anchor_registry.h"
 #include "core/ar_plane_tracker.h"
 #include "core/pocketar.h"
 #include "core/timing_samples.h"
@@ -43,6 +44,10 @@ private:
 		std::atomic<int64_t> last_usec{0};
 		std::atomic<int64_t> active{0};
 	};
+	struct AnchorEntry {
+		ArAnchor *anchor = nullptr;
+		ArTrackingState tracking = AR_TRACKING_STATE_TRACKING;
+	};
 	ARCoreApi &api = arcore_api();
 	ARCoreExtras extras;
 	String playback_dataset;
@@ -54,6 +59,11 @@ private:
 	ArCameraIntrinsics *camera_intrinsics = nullptr;
 	ArTrackableList *trackable_list = nullptr;
 	std::map<ArPlane *, PlaneEntry> planes;
+	ARAnchorRegistry anchors;
+	std::map<int64_t, AnchorEntry> native_anchors;
+	std::vector<std::pair<int64_t, ArTrackingState>> anchor_transitions;
+	bool releasing_session = false;
+	bool resetting = false;
 	std::vector<ArPlane *> pending_planes;
 	std::vector<float> plane_polygon;
 	std::vector<TextureSlot> texture_slots;
@@ -131,6 +141,10 @@ private:
 	void pause_session();
 	void release_session();
 	void clear_planes();
+	void release_anchor(int64_t p_id);
+	void refresh_anchor_states();
+	void copy_anchors(ARFramePacket &r_packet);
+	Ref<ARAnchorTracker> create_native_anchor(const Transform3D &p_transform, int64_t p_plane_id);
 	void refresh_planes();
 	bool copy_planes(ARFramePacket &r_packet);
 	int64_t ensure_plane(ArPlane *p_plane);
@@ -152,6 +166,11 @@ protected:
 	static void _bind_methods();
 
 public:
+	ARCoreInterface();
+	Ref<ARAnchorTracker> create_anchor(const Transform3D &p_transform);
+	Ref<ARAnchorTracker> create_anchor_from_hit(const Ref<ARRaycastHit> &p_hit);
+	void remove_anchor(const Ref<ARAnchorTracker> &p_anchor);
+	bool owns_anchor(const Ref<ARAnchorTracker> &p_anchor) const { return anchors.owns(p_anchor); }
 #ifdef DEBUG_ENABLED
 	int64_t set_debug_plane(const Transform3D &p_transform, const Vector2 &p_extents);
 	void clear_debug_plane();

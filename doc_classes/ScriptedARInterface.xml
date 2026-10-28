@@ -4,7 +4,8 @@
 		Advanced deterministic AR fixture replay for desktop tests.
 	</brief_description>
 	<description>
-		Load a version-1 PocketAR JSON-lines fixture, call advance_to(0), then assign this interface to a Scripted ARView before adding it to the tree. Time moves only through advance_to(); camera pixels are generated bars. Fixture schema lives in .claude/skills/scripted-sessions/references/fixtures.md in the source repository. Replay/diagnostic methods are outside the stable game API.
+		Load a version-1 or version-2 PocketAR JSON-lines fixture, call advance_to(0), then assign this interface to a Scripted ARView before adding it to the tree. Time moves only through advance_to(); camera pixels are generated bars. Replay/diagnostic methods are outside the stable game API.
+		The fixture schema is documented in .claude/skills/scripted-sessions/references/fixtures.md in the source repository.
 	</description>
 	<methods>
 		<method name="advance_to">
@@ -54,7 +55,7 @@
 		<method name="reset">
 			<return type="void" />
 			<description>
-				Changes generation, clears packets/trackers and keeps the fixture cursor. Planes remain absent until a later frame supplies them again. Does not rewind.
+				Changes generation, clears packets/plane trackers, permanently stops anchors, clears creation slots and any replay failure, and restores the map transform to identity. Keeps the fixture cursor; planes remain absent until a later frame supplies them again. Does not rewind.
 			</description>
 		</method>
 		<method name="get_plane_geometry_rebuild_count" qualifiers="const">

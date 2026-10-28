@@ -10,6 +10,61 @@
 
 namespace godot {
 
+SimulatedARInterface::SimulatedARInterface() {
+	anchors.configure(this, [this](int64_t p_id) { simulated_anchors.erase(p_id); });
+}
+
+bool SimulatedARInterface::anchor_plane_tracking(int64_t p_id) const {
+#ifdef DEBUG_ENABLED
+	return debug_plane.tracks(p_id);
+#else
+	return false;
+#endif
+}
+
+Ref<ARAnchorTracker> SimulatedARInterface::create_anchor_at(const Transform3D &p_pose, int64_t p_source_plane) {
+	if (!ARAnchorRegistry::valid_pose(p_pose)) { WARN_PRINT("Cannot create anchor: invalid pose."); return Ref<ARAnchorTracker>(); }
+	if (!initialized || is_paused() || get_session_state() != PocketAR::TRACKING || current_packet.is_null() || !current_packet->tracking_valid || current_packet->session_generation != generation || current_packet->anchor_epoch != anchors.get_epoch()) {
+		WARN_PRINT("Cannot create anchor: not tracking.");
+		return Ref<ARAnchorTracker>();
+	}
+	simulated_anchors.emplace(anchors.next_id(), SimulatedAnchor{map_transform.affine_inverse() * p_pose, ARAnchorTracker::TRACKING});
+	return anchors.add(generation, p_pose, p_source_plane);
+}
+
+Ref<ARAnchorTracker> SimulatedARInterface::create_anchor(const Transform3D &p_pose) {
+	ERR_FAIL_COND_V(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id(), Ref<ARAnchorTracker>());
+	return create_anchor_at(p_pose, 0);
+}
+
+Ref<ARAnchorTracker> SimulatedARInterface::create_anchor_from_hit(const Ref<ARRaycastHit> &p_hit) {
+	ERR_FAIL_COND_V(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id(), Ref<ARAnchorTracker>());
+	if (!anchors.fresh_hit(p_hit, presented_packet, generation) || !anchor_plane_tracking(p_hit->get_plane_id())) {
+		WARN_PRINT("Cannot create anchor: stale hit.");
+		return Ref<ARAnchorTracker>();
+	}
+	return create_anchor_at(p_hit->get_pose(), p_hit->get_plane_id());
+}
+
+void SimulatedARInterface::remove_anchor(const Ref<ARAnchorTracker> &p_anchor) {
+	ERR_FAIL_COND(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id());
+	anchors.remove(p_anchor);
+}
+
+void SimulatedARInterface::sample_anchors(const Ref<ARFramePacket> &p_packet) {
+	p_packet->anchor_epoch = anchors.get_epoch();
+	for (const auto &entry : simulated_anchors) {
+		const bool tracking = get_session_state() == PocketAR::TRACKING && p_packet->tracking_valid;
+		p_packet->anchors.push_back({entry.first, map_transform * entry.second.local_pose, tracking ? entry.second.state : ARAnchorTracker::PAUSED});
+	}
+}
+
+void SimulatedARInterface::mark_applied(const Ref<ARFramePacket> &p_packet) {
+	ERR_FAIL_COND(OS::get_singleton()->get_thread_caller_id() != OS::get_singleton()->get_main_thread_id());
+	if (!initialized || is_paused() || p_packet != current_packet) return;
+	anchors.apply(p_packet, generation);
+}
+
 static void fill_synthetic_camera_image(int p_width, int p_height, int64_t p_sequence, Ref<Image> &r_y_image, Ref<Image> &r_cbcr_image) {
 	PackedByteArray y_data;
 	PackedByteArray cbcr_data;
@@ -67,6 +122,12 @@ void SimulatedARInterface::reset_debug_plane() {
 #endif
 
 void SimulatedARInterface::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("create_anchor", "pose"), &SimulatedARInterface::create_anchor);
+	ClassDB::bind_method(D_METHOD("create_anchor_from_hit", "hit"), &SimulatedARInterface::create_anchor_from_hit);
+	ClassDB::bind_method(D_METHOD("remove_anchor", "anchor"), &SimulatedARInterface::remove_anchor);
+	ClassDB::bind_method(D_METHOD("owns_anchor", "anchor"), &SimulatedARInterface::owns_anchor);
+	ClassDB::bind_method(D_METHOD("mark_applied", "packet"), &SimulatedARInterface::mark_applied);
+	ADD_SIGNAL(MethodInfo("anchors_changed"));
 #ifdef DEBUG_ENABLED
 	ClassDB::bind_method(D_METHOD("set_debug_plane", "transform", "extents"), &SimulatedARInterface::set_debug_plane);
 	ClassDB::bind_method(D_METHOD("clear_debug_plane"), &SimulatedARInterface::clear_debug_plane);
@@ -124,6 +185,9 @@ bool SimulatedARInterface::start(const String &p_description) {
 }
 
 void SimulatedARInterface::stop() {
+	initialized = false;
+	anchors.clear();
+	map_transform = Transform3D();
 #ifdef DEBUG_ENABLED
 	reset_debug_plane();
 #endif
@@ -132,7 +196,6 @@ void SimulatedARInterface::stop() {
 	head.unref();
 	current_packet.unref();
 	presented_packet.unref();
-	initialized = false;
 }
 
 void SimulatedARInterface::fill_packet(const Ref<ARFramePacket> &p_packet, const Transform3D &p_pose) {

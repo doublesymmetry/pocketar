@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="ARAnchorTracker" inherits="XRPositionalTracker" api_type="extension" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Game-created world anchor applied with the camera packet being drawn.
+	</brief_description>
+	<description>
+		Trackers have type XRServer.TRACKER_ANCHOR and names pocketar/anchor/&lt;generation&gt;/&lt;id&gt;. The inherited default pose is valid in [constant TRACKING], with high confidence and zero velocities. [constant PAUSED] retains the last transform with an invalid pose; [constant STOPPED] is terminal.
+		Android hit creation attaches to the native plane through ArTrackable_acquireNewAnchor; free creation uses ArSession_acquireNewAnchor. iOS creates an ordinary ARAnchor at the requested pose for either method. Call ARView.remove_anchor(anchor) to unregister and release native ownership.
+		See the [url=https://github.com/doublesymmetry/pocketar/blob/main/docs/api.md#anchors]anchor contract[/url] for creation freshness, scene nodes and lifecycle.
+	</description>
+	<members>
+		<member name="anchor_id" type="int" setter="" getter="get_anchor_id" default="0">
+			Opaque identity, never reused within [member session_generation].
+		</member>
+		<member name="session_generation" type="int" setter="" getter="get_session_generation" default="0">
+			Owning session generation. A generation change permanently stops old anchors.
+		</member>
+		<member name="source_plane_id" type="int" setter="" getter="get_source_plane_id" default="0">
+			Originally requested plane ID, including when creation resolves a subsumed replacement; zero for free creation. Negative IDs come from debug-plane hits.
+		</member>
+		<member name="tracking_state" type="int" setter="" getter="get_tracking_state" default="1">
+			Current [enum TrackingState]. Lifecycle invalidation is immediate even without a new camera packet.
+		</member>
+		<member name="transform" type="Transform3D" setter="" getter="get_transform" default="Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)">
+			Requested world-from-anchor pose at creation, then the last usable applied pose. Preserved while paused/stopped but invalid for new interactions in those states.
+		</member>
+	</members>
+	<signals>
+		<signal name="tracking_state_changed">
+			<param index="0" name="state" type="int" />
+			<description>
+				Deferred notification coalesced to the latest state. Inherited pose signals and XRAnchor3D.tracking_changed remain synchronous. Use ARView.packet_applied for a matching camera/anchor pair.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="TRACKING" value="0" enum="TrackingState">
+			The applied camera packet contains a usable anchor pose.
+		</constant>
+		<constant name="PAUSED" value="1" enum="TrackingState">
+			The anchor retains identity and its last transform but has no usable pose. Includes accepted creations awaiting their first eligible packet.
+		</constant>
+		<constant name="STOPPED" value="2" enum="TrackingState">
+			The anchor is permanently stopped, unregistered and released from native ownership.
+		</constant>
+	</constants>
+</class>

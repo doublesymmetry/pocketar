@@ -17,6 +17,11 @@ not disable injection. Native queries, handle/UUID maps, diagnostic counts and n
 recording/playback remain native-only; datasets do not serialize the debug plane.
 Keep virtual-plane runs separate from dataset and native-agreement checks.
 
+On a phone, a debug-plane hit creates a free native anchor at the requested pose,
+retaining the negative plane ID as provenance. Clearing or replacing the injected
+plane leaves the anchor alive. This does not certify placement on a detected
+surface.
+
 Bindings, state, implementation, snapshot marker and publication hooks are excluded
 from `template_release` by `DEBUG_ENABLED`. After building both library variants,
 run `python3 tools/probe-debug-plane.py macos --output <empty-directory>` for exported
