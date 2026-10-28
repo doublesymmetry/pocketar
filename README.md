@@ -1,5 +1,7 @@
 # PocketAR
 
+<img src="docs/icon.svg" width="96" align="right" alt="">
+
 PocketAR is a handheld AR GDExtension for Godot.
 
 ## Why PocketAR
