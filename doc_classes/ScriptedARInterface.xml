@@ -5,8 +5,7 @@
 	</brief_description>
 	<description>
 		Load a version-1 or version-2 PocketAR JSON-lines fixture, call advance_to(0), then assign this interface to a Scripted ARView before adding it to the tree. Time moves only through advance_to(); camera pixels are generated bars. Replay/diagnostic methods are outside the stable game API.
-		Version 1 keeps created anchors at fixed world poses. Version 2 adds optional frame fields map_transform and anchor_updates. map_transform is a finite rigid 16-number column-major world-from-fixture-map matrix, retained when omitted and restored to identity on reset. Camera and plane transforms in the fixture are map-space values; the map transform is applied before display orientation. An anchor created at world pose A with current map transform M retains local pose inverse(M) * A; later frames apply their map transform to that local pose. Plane geometry edits alone do not move it, and disabling plane finding does not stop anchor map corrections.
-		anchor_updates is an array of objects with slot (positive integer) and tracking_state (tracking, paused or stopped). Slots number successful game creation calls from 1 within each generation. Failed attempts consume no slot; removal never recycles one. Updates apply in file order and persist until changed/reset. Unknown or stopped slot targets are rejected at replay time. Omission or an empty list leaves states unchanged; updates never create anchors. Reset clears slots. The remaining fixture schema is documented in .claude/skills/scripted-sessions/references/fixtures.md in the source repository.
+		The fixture schema is documented in .claude/skills/scripted-sessions/references/fixtures.md in the source repository.
 	</description>
 	<methods>
 		<method name="advance_to">
@@ -56,7 +55,7 @@
 		<method name="reset">
 			<return type="void" />
 			<description>
-				Changes generation, clears packets/plane trackers, permanently stops anchors, clears creation slots and restores the map transform to identity. Keeps the fixture cursor; planes remain absent until a later frame supplies them again. Does not rewind.
+				Changes generation, clears packets/plane trackers, permanently stops anchors, clears creation slots and any replay failure, and restores the map transform to identity. Keeps the fixture cursor; planes remain absent until a later frame supplies them again. Does not rewind.
 			</description>
 		</method>
 		<method name="get_plane_geometry_rebuild_count" qualifiers="const">

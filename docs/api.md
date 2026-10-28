@@ -74,33 +74,27 @@ uninterrupted tracking interval, and a source plane that is still tracking in
 current state. A subsumed plane can resolve to its current tracking replacement.
 A hit retained across later presentation, tracking loss or reset remains readable
 but cannot create an anchor. Create a preview anchor at the tap and retain it on
-Confirm; do not save the hit for later creation. Raycasting itself creates no anchor.
+Confirm; do not save the hit for later creation.
 
 The native session can be newer than the presented image when creation runs.
 PocketAR submits the hit's requested world pose to that current session. It does
 not reconstruct a historical map or guarantee an initial placement error bound.
 If acquisition or tracking recovery invalidates the hit, let the user tap again.
+An individual anchor pause also invalidates older hit samples; wait for a fresh
+presented camera packet.
 
 Android hit creation uses `ArTrackable_acquireNewAnchor` on the current native
 plane; free creation uses `ArSession_acquireNewAnchor`. iOS creates a dedicated
-ordinary `ARAnchor` at the requested pose for either method. iOS has no portable
-plane-parent relationship here. `source_plane_id` records the originally hit
-plane, including when a subsumed replacement was used, and is zero for free
-creation. It is provenance, not an ongoing parent. Plane extent/centre changes
-do not drag content through a saved plane offset.
-
-On a phone, a debug-plane hit creates a real free native anchor at the requested
-pose, retaining the negative debug plane ID as provenance. Clearing/replacing
-that injected plane leaves the anchor alive. This does not certify placement on
-a detected surface. Debug-plane controls are absent from release libraries;
-the anchor API is present in both debug and release.
+ordinary `ARAnchor` at the requested pose for either method. `source_plane_id`
+records the originally hit plane as provenance, including when a subsumed
+replacement was used, and is zero for free creation. Negative IDs come from
+debug-plane hits.
 
 ### Ownership and scene nodes
 
 Accepted creation returns a tracker in `PAUSED`, with the requested transform
 and an invalid inherited `default` pose. Its first eligible applied packet can
-make it `TRACKING`. Acceptance is not proof of usable tracking, and pending
-anchors have no automatic replacement timeout.
+make it `TRACKING`.
 
 `add_anchor_node(anchor)` returns a stock `XRAnchor3D`, bound to that tracker and
 parented directly under the view's private `XROrigin3D`. It starts at the anchor's
@@ -110,9 +104,8 @@ do not overwrite its transform each frame. For a chosen world pose, set the
 content's local transform to `anchor.transform.affine_inverse() * desired_pose`.
 
 The helper leaves `show_when_tracked=false`. Choose visibility explicitly through
-`tracking_changed`, as in the [README example](../README.md#anchors), and gate
-input/physics too. A hidden node still participates in physics. A paused anchor's
-frozen transform remains readable but is not valid for new interactions.
+`tracking_changed`, as in the [README example](https://github.com/doublesymmetry/pocketar#anchors), and gate
+input/physics too. A hidden node still participates in physics.
 
 The backend owns the anchor until removal, terminal native loss or session end.
 Freeing the helper or dropping a game reference does not remove it, because the
@@ -129,34 +122,33 @@ remove them through XRServer.
 
 ### Tracking, timing and lifecycle
 
-`TRACKING=0` means a usable applied pose; `PAUSED=1` retains identity and the last
-usable transform with an invalid pose; `STOPPED=2` is terminal. The inherited
-`default` pose has high confidence while tracking and zero velocities. Map
-corrections do not imply physical velocity. ARKit ordinary anchors have no
-independent native confidence: usability comes from camera/session state and
-membership in the sampled frame.
+`TRACKING=0` means a usable applied pose; `PAUSED=1` means tracking is unavailable;
+`STOPPED=2` is terminal. The inherited `default` pose has high confidence while
+tracking and zero velocities. ARKit ordinary anchors have no independent native
+confidence: usability comes from camera/session state and membership in the
+sampled frame.
 
-Anchor snapshots are private packet values. `ARFramePacket` has no public anchor
-collection. Trackers update in `mark_applied` from the same packet as the camera,
-before `packet_applied` and drawing. The next input/physics phase therefore sees
-the last presented anchor pose. Native estimates from dropped acquisitions do
-not advance the tracker. A repeated camera timestamp repeats its complete
-packet; anchor-only estimate changes do not publish extra packets.
+Trackers update in `mark_applied` from the same packet as the camera,
+before `packet_applied` and drawing. ARView applies the current packet on
+`SceneTree.process_frame`, before node `_process` callbacks, then checks again
+at `frame_pre_draw` for packets replaced later in the frame. Native estimates from
+dropped acquisitions do not advance the tracker. A repeated camera timestamp
+repeats its complete packet; anchor-only estimate changes do not publish extra
+packets.
 
 `tracking_state_changed(state)` is deferred and coalesced to the latest state,
 so a queued tracking notification cannot follow a terminal stop.
 `ARView.anchors_changed()` is a deferred membership notification, not a per-frame
 pose notification. Inherited tracker pose signals and `XRAnchor3D.tracking_changed`
 remain synchronous. Use `packet_applied` to inspect a matching camera/anchor pair.
-Lifecycle invalidation is immediate, even without a new camera packet, and old
-packets or delayed callbacks cannot restore stopped anchors.
+Lifecycle invalidation is immediate, even without a new camera packet.
 
 | Event | Behavior |
 | --- | --- |
 | Map refinement | Apply the corrected pose with its camera packet; preserve identity and child-local transforms. |
 | Tracking loss, suspension, application pause or interruption | Keep native ownership and identity, report `PAUSED`, invalidate the pose and retain its last transform. Reject creation. |
-| Resume or relocalization | Keep identity while the session survives; remain paused until a fresh usable sample. Do not automatically place at the frozen coordinate. |
-| Native terminal loss, explicit removal or terminal session failure | Stop, unregister and release. The object never revives; the game can offer re-placement. Recoverable permission denial pauses anchors while the native session survives. |
+| Resume or relocalization | Keep identity while the session survives; remain paused until a fresh usable sample. |
+| Native terminal loss, explicit removal or terminal session failure | Stop, unregister and release. Recoverable permission denial pauses anchors while the native session survives. |
 | Reset, recreation, generation change or uninitialize | Synchronously stop every old anchor and release native owners. Game nodes remain and lose tracking. |
 | Source plane subsumption/removal or disabled plane finding | Preserve the anchor's own lifecycle. Android follows native anchor state; iOS's dedicated anchor is independent of plane membership. |
 
@@ -167,26 +159,17 @@ Recovery is not guaranteed; provide a re-placement path after permanent loss.
 
 Synthetic anchors keep their world pose as the simulated camera moves. Scripted
 v1 does the same. Scripted v2 can correct the map and change individual anchor
-states; see [ScriptedARInterface](../doc_classes/ScriptedARInterface.xml).
+states; see ScriptedARInterface's class help.
 
 ### Cost and limits
 
 Use one anchor per nearby rigid group and remove it when no longer needed.
-PocketAR sets no arbitrary count cap. Native tracking work and memory are
-device-dependent; sampling, packet storage and application grow with active
-anchor count. Each retained distinct packet keeps copied values, never native
-anchor owners. Retain the tracker for normal play instead of keeping frame history.
-Moving a helper also updates its descendant transforms, so subtree cost matters.
-Anchors add no camera texture, GPU buffer, draw call or readback of their own.
+There is no count cap; native tracking cost is device-dependent. With zero
+anchors PocketAR makes no anchor queries or allocations.
 
-With zero anchors, PocketAR makes no native anchor queries and allocates no
-anchor pose/list resources or per-frame snapshots. There is still constant empty
-registry/object-layout overhead. Measure 0, 1, 8 and 32 anchors as workloads,
-not promised limits.
-
-Anchors do not guarantee zero drift. Persistence across reset/process death,
-saved world maps, cloud/geospatial/shared anchors, cross-device physical
-alignment, moving-object tracking, editable native poses and automatic smoothing
+Persistence across reset/process death, saved world maps, cloud/geospatial/shared
+anchors, cross-device physical alignment, moving-object tracking, editable native
+poses and automatic smoothing
 are outside this API.
 
 ## Frames, signals and lifetime
@@ -196,8 +179,8 @@ marks it presented after drawing. Touch placement uses the presented packet.
 At camera rates below the render rate a complete packet repeats. Geometry or
 calibration changes produce a new packet.
 
-`packet_applied(packet)` fires before draw when ARView applies a different packet,
-including startup, but not for repeats or clearing.
+`packet_applied(packet)` fires when ARView applies a different packet at startup,
+`SceneTree.process_frame` or `frame_pre_draw`, but not for repeats or clearing.
 `screen_pressed(point, ray)` fires for an unconsumed touch/left mouse press
 inside the view when `handle_presses` is true; HUD Controls receive input first.
 It marks input handled and ignores touch-emulated mouse presses.

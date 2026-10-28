@@ -153,16 +153,19 @@ int64_t ScriptedARInterface::get_plane_count() const {
 }
 
 void ScriptedARInterface::apply_planes(const std::vector<pocketar::FixturePlane> &p_planes) {
-	if (plane_finding_mode == PocketAR::PLANE_FINDING_DISABLED) return;
-	if (applied_planes_index == latest_planes_index && applied_plane_mode == plane_finding_mode) return;
+	if (applied_planes_index == latest_planes_index && applied_plane_mode == plane_finding_mode && applied_plane_map == map_transform) return;
+	const bool map_changed = applied_plane_map != map_transform;
 	applied_planes_index = latest_planes_index;
 	applied_plane_mode = plane_finding_mode;
+	applied_plane_map = map_transform;
 	std::vector<ARPlaneSnapshot> snapshots;
 	std::map<int64_t, Ref<ARPlaneTracker>> trackers;
-	if (plane_finding_mode == PocketAR::PLANE_FINDING_HORIZONTAL) {
+	if (plane_finding_mode == PocketAR::PLANE_FINDING_DISABLED) snapshots = planes;
+	else if (plane_finding_mode == PocketAR::PLANE_FINDING_HORIZONTAL) {
 		for (const ARPlaneSnapshot &plane : planes) if (plane.alignment == ARPlaneTracker::VERTICAL) snapshots.push_back(plane);
 	}
 	for (const pocketar::FixturePlane &plane : p_planes) {
+		if (plane_finding_mode == PocketAR::PLANE_FINDING_DISABLED) break;
 		if (plane_finding_mode == PocketAR::PLANE_FINDING_HORIZONTAL && plane.alignment == ARPlaneTracker::VERTICAL) continue;
 		ARPlaneSnapshot snapshot;
 		snapshot.plane_id = plane.id;
@@ -189,13 +192,15 @@ void ScriptedARInterface::apply_planes(const std::vector<pocketar::FixturePlane>
 		Ref<ARPlaneTracker> tracker;
 		if (existing != plane_trackers.end()) tracker = existing->second;
 		else tracker.instantiate();
-		tracker->update(snapshot);
+		ARPlaneSnapshot mapped = snapshot;
+		mapped.transform = map_transform * snapshot.transform;
+		tracker->update(mapped);
 		if (existing == plane_trackers.end()) XRServer::get_singleton()->add_tracker(tracker);
 		trackers.emplace(snapshot.plane_id, tracker);
 	}
 	for (const auto &entry : plane_trackers) if (trackers.count(entry.first) == 0) XRServer::get_singleton()->remove_tracker(entry.second);
 	plane_trackers = std::move(trackers);
-	const bool changed = snapshots != planes;
+	const bool changed = snapshots != planes || (map_changed && !snapshots.empty());
 	planes = std::move(snapshots);
 	if (changed) call_deferred("emit_signal", "planes_changed");
 }
@@ -252,7 +257,7 @@ void ScriptedARInterface::advance_records(int64_t p_t_usec) {
 				frame_anchor_epoch = anchors.get_epoch();
 				if (record.has_planes) latest_planes_index = int64_t(index);
 				if (latest_planes_index >= 0) apply_planes(session.records[size_t(latest_planes_index)].planes);
-				if (generation != frame_generation) return;
+				if (generation != frame_generation || !initialized || is_paused()) return;
 				new_frame = true;
 				break;
 			}
@@ -279,12 +284,7 @@ void ScriptedARInterface::make_packet() {
 	fill_packet(packet, map_transform * fixture_transform(frame.camera_transform));
 	packet->tracking_valid = frame.tracking_valid;
 	packet->planes = planes;
-	if (session.version == 2) for (ARPlaneSnapshot &plane : packet->planes) {
-		plane.transform = map_transform * plane.transform;
-		const auto entry = plane_trackers.find(plane.plane_id);
-		if (entry != plane_trackers.end()) entry->second->update(plane);
-		if (packet->session_generation != generation) return;
-	}
+	for (ARPlaneSnapshot &plane : packet->planes) plane.transform = map_transform * plane.transform;
 	sample_anchors(packet);
 	packet->anchor_epoch = frame_anchor_epoch;
 #ifdef DEBUG_ENABLED

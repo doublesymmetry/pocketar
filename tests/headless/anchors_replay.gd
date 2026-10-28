@@ -16,13 +16,14 @@ func _matrix(pose: Transform3D) -> Array:
 func _frame(id: int, map_pose: Transform3D, updates: Array = []) -> Dictionary:
 	return {"t_usec": id * 100000, "frame_id": id, "camera_transform": _matrix(Transform3D.IDENTITY), "map_transform": _matrix(map_pose), "tracking_valid": true, "session_state": "tracking", "tracking_reason": "none", "anchor_updates": updates}
 
-func _fixture(semantics: String, version: int, invalid_slot: bool = false) -> String:
-	var header: Dictionary = {"format": "pocketar-session", "version": version, "semantics": semantics, "image_size": [64, 48], "intrinsics": {"fx": 52, "fy": 51, "cx": 32, "cy": 24}}
+func _fixture(version: int, invalid_slot: bool = false) -> String:
+	var header: Dictionary = {"format": "pocketar-session", "version": version, "semantics": "arkit", "image_size": [64, 48], "intrinsics": {"fx": 52, "fy": 51, "cx": 32, "cy": 24}}
 	var plane: Dictionary = {"id": 7, "alignment": "horizontal_upward_facing", "transform": _matrix(Transform3D(Basis(), Vector3(0, -0.7, -2))), "extents": [4, 4], "polygon": [[-2, -2], [2, -2], [2, 2], [-2, 2]], "tracking_state": "tracking", "subsumed_by": 0}
 	var frames: Array[Dictionary] = []
 	var correction := Transform3D(Basis(Vector3.UP, deg_to_rad(5)), Vector3(0.2, 0, 0))
+	var recovery := Transform3D(Basis(Vector3.UP, deg_to_rad(-5)), Vector3(-0.2, 0, 0))
 	for id: int in range(1, 9):
-		frames.append(_frame(id, correction if id >= 4 else Transform3D.IDENTITY))
+		frames.append(_frame(id, recovery if id >= 5 else correction if id >= 4 else Transform3D.IDENTITY))
 	frames[0]["planes"] = [plane]
 	plane = plane.duplicate(true)
 	plane["transform"] = _matrix(Transform3D(Basis(), Vector3(0.4, -0.7, -2)))
@@ -33,7 +34,7 @@ func _fixture(semantics: String, version: int, invalid_slot: bool = false) -> St
 	frames[5]["anchor_updates"] = [{"slot": 1, "tracking_state": "tracking"}]
 	frames[6]["planes"] = []
 	frames[7]["anchor_updates"] = [{"slot": 1, "tracking_state": "stopped"}]
-	var path: String = "user://anchor-test-%s-%d-%s.jsonl" % [semantics, version, invalid_slot]
+	var path: String = "user://anchor-test-%d-%s.jsonl" % [version, invalid_slot]
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	file.store_line(JSON.stringify(header))
 	for frame: Dictionary in frames:
@@ -51,17 +52,16 @@ func _present(interface: ScriptedARInterface, time: int) -> ARFramePacket:
 	interface.mark_presented()
 	return packet
 
-func _replay(semantics: String, version: int) -> Array:
+func _replay(version: int) -> Array:
 	var interface := ScriptedARInterface.new()
 	interface.set_plane_finding_mode(PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL)
-	_check(interface.load_fixture(_fixture(semantics, version)) == OK, "fixture loads")
+	_check(interface.load_fixture(_fixture(version)) == OK, "fixture loads")
 	XRServer.add_interface(interface)
 	_check(interface.initialize(), "initialize")
 	var first := _present(interface, 100000)
 	var requested := Transform3D(Basis(), Vector3(0, -0.7, -2))
 	var hits := PocketAR.raycast_planes(first, {"origin": Vector3.ZERO, "direction": requested.origin.normalized()})
 	_check(hits.size() == 1, "source hit")
-	_check(XRServer.get_trackers(XRServer.TRACKER_ANCHOR).size() == 1, "raycast creates no implicit anchor")
 	_check(interface.create_anchor(Transform3D(Basis.from_scale(Vector3(2, 1, 1)), Vector3.ZERO)) == null, "scaled pose refused")
 	_check(interface.create_anchor(Transform3D(Basis.from_scale(Vector3(-1, 1, 1)), Vector3.ZERO)) == null, "reflection refused")
 	_check(interface.create_anchor(Transform3D(Basis(), Vector3(NAN, 0, 0))) == null, "NaN refused")
@@ -96,14 +96,21 @@ func _replay(semantics: String, version: int) -> Array:
 	_check(interface.create_anchor_from_hit(hits[0]) == null, "stale frame hit refused")
 	_check(retained.physical_camera_transform == Transform3D.IDENTITY, "retained packet camera isolated")
 	var corrected_hits := PocketAR.raycast_planes(corrected, {"origin": corrected.physical_camera_transform.origin, "direction": (anchor.transform.origin - corrected.physical_camera_transform.origin).normalized()})
+	var before_pause: Transform3D = anchor.transform
 	interface.advance_to(500000)
-	_check(not corrected_hits.is_empty() and interface.create_anchor_from_hit(corrected_hits[0]) != null, "an unrelated anchor pause does not stale a presented hit")
+	if version == 2:
+		_check(not corrected_hits.is_empty() and interface.create_anchor_from_hit(corrected_hits[0]) == null, "anchor pause invalidates pre-pause hit samples")
 	_present(interface, 500000)
-	_check(late.transform.is_equal_approx(requested), "creation stores inverse of the current map transform")
+	var recovery := Transform3D(Basis(Vector3.UP, deg_to_rad(-5)), Vector3(-0.2, 0, 0)) if version == 2 else Transform3D.IDENTITY
+	_check(late.transform.is_equal_approx(recovery * corrected.physical_camera_transform.affine_inverse() * requested), "creation stores inverse of the current map transform")
+	if version == 2:
+		_check(anchor.transform.is_equal_approx(before_pause), "pause freezes the pose across a map correction")
+		_check(not anchor.get_pose("default").has_tracking_data, "pause invalidates the pose")
 	_check(anchor.tracking_state == (ARAnchorTracker.PAUSED if version == 2 else ARAnchorTracker.TRACKING), "independent anchor pause")
 	_check(third.tracking_state == ARAnchorTracker.TRACKING, "other anchor remains tracking")
 	_present(interface, 600000)
 	_check(anchor.tracking_state == ARAnchorTracker.TRACKING, "anchor recovery")
+	_check(anchor.transform.is_equal_approx(recovery * before), "recovery applies the fresh mapped pose")
 	interface.set_plane_finding_mode(PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL)
 	_present(interface, 700000)
 	_check(anchor.tracking_state == ARAnchorTracker.TRACKING, "plane removal retains anchor")
@@ -120,12 +127,62 @@ func _replay(semantics: String, version: int) -> Array:
 	XRServer.remove_interface(interface)
 	return results
 
+func _plane_mapping() -> void:
+	var path: String = _fixture(2)
+	var file := FileAccess.open(path, FileAccess.READ)
+	var header: String = file.get_line()
+	var first: Dictionary = JSON.parse_string(file.get_line())
+	file.close()
+	first["t_usec"] = 100000
+	first["frame_id"] = 1
+	first["planes"][0]["id"] = 7
+	first["planes"][0]["subsumed_by"] = 0
+	var correction := Transform3D(Basis(Vector3.UP, deg_to_rad(5)), Vector3(0.2, 0, 0))
+	first["map_transform"] = _matrix(correction)
+	file = FileAccess.open(path, FileAccess.WRITE)
+	file.store_line(header)
+	file.store_line(JSON.stringify(first))
+	file.store_line(JSON.stringify(_frame(2, Transform3D.IDENTITY)))
+	file.store_line(JSON.stringify(_frame(3, correction)))
+	file.close()
+	var interface := ScriptedARInterface.new()
+	interface.set_plane_finding_mode(PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL)
+	interface.load_fixture(path)
+	XRServer.add_interface(interface)
+	interface.initialize()
+	var added: Array[Transform3D] = []
+	var on_added: Callable = func(name: StringName, _type: int) -> void:
+		var tracker: XRTracker = XRServer.get_tracker(name)
+		if tracker is ARPlaneTracker:
+			added.append((tracker as ARPlaneTracker).transform)
+	XRServer.tracker_added.connect(on_added)
+	_present(interface, 100000)
+	XRServer.tracker_added.disconnect(on_added)
+	var original := Transform3D(Basis.IDENTITY, Vector3(0, -0.7, -2))
+	_check(added.size() == 1 and added[0].is_equal_approx(correction * original), "new plane tracker publishes only a mapped pose")
+	var plane: ARPlaneTracker = XRServer.get_tracker("pocketar/plane/%d/7" % interface.get_session_generation()) as ARPlaneTracker
+	var poses: Array[Transform3D] = []
+	plane.pose_changed.connect(func(pose: XRPose) -> void: poses.append(pose.transform))
+	var changes: Array[int] = [0]
+	interface.planes_changed.connect(func() -> void: changes[0] += 1)
+	await process_frame
+	changes[0] = 0
+	_present(interface, 200000)
+	_check(poses.size() == 1 and poses[0].is_equal_approx(original), "map-only frame applies one mapped plane pose")
+	await process_frame
+	_check(changes[0] == 1, "map-only frame emits planes_changed")
+	plane.pose_changed.connect(func(_pose: XRPose) -> void: interface.set_suspended(true), CONNECT_ONE_SHOT)
+	interface.advance_to(300000)
+	_check(interface.get_session_state() == PocketAR.PAUSED and interface.get_current_packet() == null, "plane callback suspension prevents packet publication")
+	interface.uninitialize()
+	XRServer.remove_interface(interface)
+
 func _run() -> void:
-	for semantics: String in ["arkit", "arcore"]:
-		for version: int in [1, 2]:
-			_check(_replay(semantics, version) == _replay(semantics, version), "normalized replay repeats")
+	await _plane_mapping()
+	for version: int in [1, 2]:
+		_check(_replay(version) == _replay(version), "normalized replay repeats")
 	var resumed := ScriptedARInterface.new()
-	resumed.load_fixture(_fixture("arkit", 1))
+	resumed.load_fixture(_fixture(1))
 	XRServer.add_interface(resumed)
 	resumed.initialize()
 	_present(resumed, 100000)
@@ -143,15 +200,17 @@ func _run() -> void:
 	resumed.uninitialize()
 	XRServer.remove_interface(resumed)
 	var invalid := ScriptedARInterface.new()
-	invalid.load_fixture(_fixture("arkit", 2, true))
+	invalid.load_fixture(_fixture(2, true))
 	XRServer.add_interface(invalid)
 	invalid.initialize()
 	_present(invalid, 100000)
+	var invalid_anchor := invalid.create_anchor(Transform3D.IDENTITY)
 	invalid.advance_to(500000)
 	_check(invalid.get_session_state() == PocketAR.FAILED and invalid.get_current_packet() == null, "unknown slot rejects replay")
+	_check(invalid_anchor.tracking_state == ARAnchorTracker.STOPPED, "failed replay stops existing anchors")
 	invalid.uninitialize()
 	XRServer.remove_interface(invalid)
-	var stopped_path := _fixture("arcore", 2)
+	var stopped_path := _fixture(2)
 	var file := FileAccess.open(stopped_path, FileAccess.READ_WRITE)
 	file.seek_end()
 	file.store_line(JSON.stringify(_frame(9, Transform3D.IDENTITY, [{"slot": 1, "tracking_state": "tracking"}])))

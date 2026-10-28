@@ -40,6 +40,7 @@ func _run() -> void:
 	_check(anchor.get("transform") == pose, "camera motion does not move world anchor")
 	interface.set_suspended(true)
 	_check(anchor.get("tracking_state") == 1, "pause invalidates synchronously")
+	_check(not anchor.get_pose("default").has_tracking_data, "pause invalidates the pose")
 	interface.call("mark_applied", packet)
 	_check(anchor.get("tracking_state") == 1, "old packet cannot revive paused anchor")
 	interface.set_suspended(false)

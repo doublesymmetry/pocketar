@@ -55,7 +55,7 @@ void SimulatedARInterface::sample_anchors(const Ref<ARFramePacket> &p_packet) {
 	p_packet->anchor_epoch = anchors.get_epoch();
 	for (const auto &entry : simulated_anchors) {
 		const bool tracking = get_session_state() == PocketAR::TRACKING && p_packet->tracking_valid;
-		p_packet->anchors.push_back({entry.first, map_transform * entry.second.local_pose, tracking ? entry.second.state : ARAnchorTracker::PAUSED, anchors.get_revision(entry.first)});
+		p_packet->anchors.push_back({entry.first, map_transform * entry.second.local_pose, tracking ? entry.second.state : ARAnchorTracker::PAUSED});
 	}
 }
 
@@ -196,7 +196,6 @@ void SimulatedARInterface::stop() {
 	head.unref();
 	current_packet.unref();
 	presented_packet.unref();
-	initialized = false;
 }
 
 void SimulatedARInterface::fill_packet(const Ref<ARFramePacket> &p_packet, const Transform3D &p_pose) {

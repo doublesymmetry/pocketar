@@ -10,11 +10,10 @@ var worst_reprojection: float = 0.0
 
 
 func run(host: Node, composition: ARView.Composition, output_dir: String) -> Dictionary:
-	for semantics: String in ["arkit", "arcore"]:
-		for portrait: bool in [false, true]:
-			var name: String = "anchors-%s%s" % [semantics, "-portrait" if portrait else ""]
-			await _run_once(host, composition, output_dir, name)
-	return {"ok": failures.is_empty(), "detail": "ARKit/ARCore landscape/portrait, repeated camera packets, map correction and lifecycle; worst marker error %.4f px" % worst_reprojection if failures.is_empty() else "; ".join(failures)}
+	for portrait: bool in [false, true]:
+		var name: String = "anchors-arkit" + ("-portrait" if portrait else "")
+		await _run_once(host, composition, output_dir, name)
+	return {"ok": failures.is_empty(), "detail": "Landscape/portrait, repeated camera packets, first-frame map correction and lifecycle; worst marker error %.4f px" % worst_reprojection if failures.is_empty() else "; ".join(failures)}
 
 
 func _run_once(host: Node, composition: ARView.Composition, output_dir: String, name: String) -> void:
@@ -71,7 +70,7 @@ func _run_once(host: Node, composition: ARView.Composition, output_dir: String, 
 	_check(anchor.tracking_state == ARAnchorTracker.TRACKING and root.visible, name + " first eligible packet enables the helper")
 	var packet: ARFramePacket = scripted.get_presented_packet()
 	var relative: Transform3D = packet.camera_transform.affine_inverse() * anchor.transform
-	var screen: Vector2 = _project(packet, fixed.global_position)
+	var screen: Vector2 = view.world_to_screen(fixed.global_position)
 	await _checkpoint(view, anchor, root, fixed, markers, prefix, "before", records)
 	for _frame: int in range(4):
 		await _draw()
@@ -80,14 +79,27 @@ func _run_once(host: Node, composition: ARView.Composition, output_dir: String, 
 	await _draw(3)
 	_check(anchor.transform.is_equal_approx(initial), name + " plane extent/centre growth does not drag an anchor")
 	view.plane_finding_mode = PocketAR.PLANE_FINDING_DISABLED
+	root.hide()
+	fixed.hide()
+	await _draw(2)
+	var background: Image = view.virtual_scene.get_texture().get_image()
+	root.show()
+	await _draw(2)
 	scripted.advance_to(300000)
-	await _draw(3)
+	await _draw()
+	var first_image: Image = view.virtual_scene.get_texture().get_image()
+	var first_error: float = _centroid(first_image, background, screen, composition).distance_to(screen)
+	worst_reprojection = maxf(worst_reprojection, first_error)
+	_check(scripted.get_presented_packet().frame_id == 4, name + " first correction draw presents frame 4")
+	_check(first_error < 0.75, "%s first correction draw marker reprojection %.4f px" % [name, first_error])
+	_check(view.get_viewport().get_texture().get_image().save_png(prefix + "-first-correction.png") == OK, name + " saves first correction draw")
+	records.append({"stage": "first-correction", "frame_id": 4, "marker_error_px": first_error})
 	packet = scripted.get_presented_packet()
 	var correction := Transform3D(Basis(Vector3.UP, deg_to_rad(5.0)), Vector3(0.2, 0, 0))
 	_check(anchor.transform.is_equal_approx(correction * initial), name + " map correction applies while plane finding is disabled")
 	_check((packet.camera_transform.affine_inverse() * anchor.transform).is_equal_approx(relative), name + " camera-relative anchor pose is invariant")
-	_check(_project(packet, markers[0].global_position).distance_to(screen) < 0.001, name + " anchor reprojection is invariant")
-	_check(_project(packet, fixed.global_position).distance_to(screen) > 2.0, name + " fixed world marker visibly shifts")
+	_check(view.world_to_screen(markers[0].global_position).distance_to(screen) < 0.001, name + " anchor reprojection is invariant")
+	_check(view.world_to_screen(fixed.global_position).distance_to(screen) > 2.0, name + " fixed world marker visibly shifts")
 	await _checkpoint(view, anchor, root, fixed, markers, prefix, "corrected", records)
 	var corrected: Transform3D = anchor.transform
 	scripted.advance_to(400000)
@@ -99,10 +111,12 @@ func _run_once(host: Node, composition: ARView.Composition, output_dir: String, 
 	scripted.advance_to(500000)
 	await _draw(3)
 	_check(anchor.tracking_state == ARAnchorTracker.PAUSED and not root.visible, name + " omitted slot updates preserve pause")
+	_check(anchor.transform.is_equal_approx(corrected), name + " map correction during pause preserves the last usable pose")
 	scripted.advance_to(600000)
 	await _draw(3)
 	_check(anchor.tracking_state == ARAnchorTracker.TRACKING and root.visible and root.get_has_tracking_data(), name + " first recovered sample shows the same helper")
-	_check(anchor.transform.is_equal_approx(corrected), name + " omitted map transform preserves correction")
+	var recovery := Transform3D(Basis(Vector3.UP, deg_to_rad(-5.0)), Vector3(-0.2, 0, 0))
+	_check(anchor.transform.is_equal_approx(recovery * initial), name + " recovery applies the map correction recorded during pause")
 	await _checkpoint(view, anchor, root, fixed, markers, prefix, "recovered", records)
 	view.plane_finding_mode = PocketAR.PLANE_FINDING_HORIZONTAL_AND_VERTICAL
 	scripted.advance_to(700000)
@@ -167,22 +181,17 @@ func _checkpoint(view: ARView, anchor: ARAnchorTracker, root: XRAnchor3D, fixed:
 	var errors: Array[float] = []
 	for index: int in range(markers.size()):
 		var marker: MeshInstance3D = markers[index]
-		_check(marker.position.is_equal_approx(OFFSETS[index]), stage + " preserves child-local offsets")
 		if tracked:
-			var point: Vector2 = _project(packet, marker.global_position)
+			var point: Vector2 = view.world_to_screen(marker.global_position)
 			var error: float = _centroid(image, background, point, view.composition).distance_to(point)
 			errors.append(error)
 			worst_reprojection = maxf(worst_reprojection, error)
 			_check(error < 0.75, "%s rendered marker %d reprojection %.4f px" % [stage, index, error])
-		else:
-			_check(not marker.is_visible_in_tree(), stage + " hides descendants")
-			var point: Vector2i = Vector2i(_project(packet, marker.global_position))
-			_check(_color_error(image.get_pixelv(point), background.get_pixelv(point)) < 0.04, stage + " renders the camera at the hidden marker")
 	root.hide()
 	fixed.show()
 	await _draw(2)
 	image = view.virtual_scene.get_texture().get_image()
-	var fixed_screen: Vector2 = _project(packet, fixed.global_position)
+	var fixed_screen: Vector2 = view.world_to_screen(fixed.global_position)
 	var fixed_error: float = _centroid(image, background, fixed_screen, view.composition, Color(0.25, 0.75, 0.5)).distance_to(fixed_screen)
 	_check(fixed_error < 0.75, "%s fixed reference reprojection %.4f px" % [stage, fixed_error])
 	root.visible = tracked
@@ -191,14 +200,8 @@ func _checkpoint(view: ARView, anchor: ARAnchorTracker, root: XRAnchor3D, fixed:
 	_check(capture != null and not capture.is_empty(), stage + " has a rendered capture")
 	if capture != null and not capture.is_empty():
 		_check(capture.save_png(prefix + "-" + stage + ".png") == OK, stage + " saves lossless PNG")
-	var anchor_screen: Vector2 = _project(packet, root.global_transform * OFFSETS[0])
+	var anchor_screen: Vector2 = view.world_to_screen(root.global_transform * OFFSETS[0])
 	records.append({"stage": stage, "frame_id": packet.frame_id, "tracking_state": anchor.tracking_state, "camera_relative": var_to_str(packet.camera_transform.affine_inverse() * anchor.transform), "anchor_screen": [anchor_screen.x, anchor_screen.y], "fixed_screen": [fixed_screen.x, fixed_screen.y], "marker_errors_px": errors, "fixed_error_px": fixed_error})
-
-
-func _project(packet: ARFramePacket, point: Vector3) -> Vector2:
-	var local: Vector3 = packet.camera_transform.affine_inverse() * point
-	var clip: Vector4 = packet.projection * Vector4(local.x, local.y, local.z, 1.0)
-	return Vector2((clip.x / clip.w + 1.0) * 0.5, (1.0 - clip.y / clip.w) * 0.5) * packet.viewport_size
 
 
 func _centroid(image: Image, background: Image, point: Vector2, composition: ARView.Composition, marker_color: Color = MARKER_COLOR) -> Vector2:

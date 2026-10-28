@@ -8,7 +8,6 @@ struct ARAnchorSnapshot {
 	int64_t anchor_id = 0;
 	Transform3D transform;
 	int tracking_state = 1;
-	uint64_t lifecycle_revision = 0;
 };
 
 class ARAnchorRegistry;
@@ -22,7 +21,6 @@ public:
 
 private:
 	uint64_t owner_id = 0;
-	uint64_t lifecycle_revision = 0;
 	int64_t anchor_id = 0;
 	int64_t session_generation = 0;
 	int64_t source_plane_id = 0;

@@ -59,9 +59,9 @@ class ARKitInterface : public XRInterfaceExtension {
 	void clear_packets();
 	void clear_planes();
 	bool copy_planes(bool p_tracking, ARFramePacket &r_packet);
-	void copy_anchors(void *p_frame, ARFramePacket &r_packet);
+	void copy_anchors(void *p_frame, bool p_tracking, ARFramePacket &r_packet);
 	Ref<ARAnchorTracker> create_native_anchor(const Transform3D &p_pose, int64_t p_source_plane_id);
-	bool can_create_anchor();
+	bool can_create_anchor(void *p_frame);
 	bool on_owner_thread() const;
 
 protected:

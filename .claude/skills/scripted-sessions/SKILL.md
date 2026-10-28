@@ -24,11 +24,8 @@ remembered set. Version 2 map corrections still transform retained map-space
 planes and anchors while plane finding is disabled. Synthetic produces no planes
 and remembers the mode across reset and stop/start.
 
-Both fixture versions support plane additions and geometry changes. Version 1
-keeps game anchors fixed in world space; version 2 adds retained `map_transform`
-and persistent per-slot `anchor_updates`. Read the fixture reference before
-authoring these controls. Slots count successful creations within a generation;
-updates cannot create an anchor or revive a stopped one.
+Both fixture versions support plane additions and geometry changes. Version 2
+adds `map_transform` and `anchor_updates`; read the fixture reference.
 
 Backend selection and replay methods are documented in
 [ARView's editor help](../../../harness/addons/pocketar/ar_view.gd),
@@ -51,8 +48,8 @@ and `PocketAR.AlignmentMask` in [PocketAR.xml](../../../doc_classes/PocketAR.xml
 of `get_global_transform_with_canvas()`, including canvas scaling and rotation.
 
 Anchors follow [the anchor contract](../../../docs/api.md#anchors). Use
-`ARAnchorTracker` and stock `XRAnchor3D`; `ARFramePacket` has no public anchor
-collection. Trackers apply the same packet as the camera before `packet_applied`.
+`ARAnchorTracker` and stock `XRAnchor3D`; inspect applied `ARAnchorTracker` values
+in `packet_applied`.
 The desktop `anchors` step checks map corrections, rigid child offsets and
 lifecycle in both compositions and orientations; it requires rendered PNG
 evidence, not only headless state checks.

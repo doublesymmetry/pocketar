@@ -22,26 +22,23 @@ private:
 	std::map<Key, Entry> entries;
 
 public:
-	template <class Add>
-	void add(int64_t p_id, const Key &p_key, NativeAnchor p_native, const Pose &p_pose, Add p_add) {
+	void add(int64_t p_id, const Key &p_key, NativeAnchor p_native, const Pose &p_pose) {
 		entries.emplace(p_key, Entry{ p_id, p_native, p_pose });
-		p_add(p_native);
 	}
 
-	template <class Remove>
-	void remove(int64_t p_id, Remove p_remove) {
+	NativeAnchor remove(int64_t p_id) {
 		for (auto found = entries.begin(); found != entries.end(); ++found) {
 			if (found->second.id != p_id) continue;
 			NativeAnchor native = found->second.native;
 			entries.erase(found);
-			p_remove(native);
-			return;
+			return native;
 		}
+		return {};
 	}
 
-	int64_t changed(const Key &p_key, bool p_removed) {
+	int64_t removed(const Key &p_key) {
 		auto found = entries.find(p_key);
-		if (found == entries.end() || !p_removed) return 0;
+		if (found == entries.end()) return 0;
 		found->second.stopped = true;
 		return found->second.id;
 	}
@@ -63,8 +60,6 @@ public:
 			p_emit(anchor.id, anchor.pose, anchor.stopped ? STOPPED : p_tracking && anchor.present ? TRACKING : PAUSED);
 		}
 	}
-
-	bool empty() const { return entries.empty(); }
 };
 
 }

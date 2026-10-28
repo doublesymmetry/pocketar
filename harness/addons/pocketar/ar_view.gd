@@ -12,7 +12,7 @@ extends Control
 ## An unconsumed touch or left mouse press, in view-local pixels, when [member handle_presses] is true.
 ## The ray uses the presented packet and can be empty while tracking is unavailable.
 signal screen_pressed(screen_point: Vector2, ray: Dictionary)
-## A new packet was applied before drawing, including the initial application during startup.
+## A new packet was applied at startup, before node _process callbacks, or at frame_pre_draw.
 ## Repeated packets do not emit. This is not a presentation notification; use placement methods for input.
 signal packet_applied(packet: ARFramePacket)
 ## The backend state changed. Forwarded after the native operation finishes; handlers may call [method reset].
@@ -24,7 +24,7 @@ signal session_generation_changed(generation: int)
 ## The current plane snapshot/tracker set changed. Placement still uses the last presented packet.
 signal planes_changed()
 
-## Emitted after anchors are added or removed.
+## Deferred: anchors were added, removed or stopped.
 signal anchors_changed()
 
 ## How camera pixels and virtual objects are combined.
@@ -221,12 +221,15 @@ func _ready() -> void:
 	if not interface.initialize():
 		push_error("%s initialization failed" % interface.get_name())
 		return
+	get_tree().process_frame.connect(_apply_packet)
 	RenderingServer.frame_pre_draw.connect(_apply_packet)
 	RenderingServer.frame_post_draw.connect(_mark_presented)
 	_apply_packet()
 
 
 func _exit_tree() -> void:
+	if get_tree().process_frame.is_connected(_apply_packet):
+		get_tree().process_frame.disconnect(_apply_packet)
 	if RenderingServer.frame_pre_draw.is_connected(_apply_packet):
 		RenderingServer.frame_pre_draw.disconnect(_apply_packet)
 	if RenderingServer.frame_post_draw.is_connected(_mark_presented):
@@ -246,7 +249,7 @@ func _process(_delta: float) -> void:
 		_update_geometry()
 
 
-## Reset an initialized session, clear presentation and planes, and change the generation.
+## Reset an initialized session, clear presentation and planes, stop anchors, and change the generation.
 ## Does nothing before initialization. Game-owned content must be cleared or rebuilt by the game.
 func reset() -> void:
 	if interface != null and interface.is_initialized():
@@ -485,6 +488,7 @@ func remove_anchor(anchor: ARAnchorTracker) -> void:
 
 ## Parent a stock tracker-following node under the private XROrigin3D.
 ## The node does not own the anchor. Use tracking_changed for visibility and interaction policy.
+## Returns null with a warning for a foreign or stopped anchor.
 func add_anchor_node(anchor: ARAnchorTracker) -> XRAnchor3D:
 	if interface == null or not interface.call("owns_anchor", anchor):
 		push_warning("Cannot add anchor node: foreign or stopped anchor.")

@@ -28,7 +28,6 @@ public:
 	void pause();
 	void pause(int64_t p_id);
 	void invalidate_samples() { ++epoch; }
-	uint64_t get_revision(int64_t p_id) const { return trackers.at(p_id)->lifecycle_revision; }
 	uint64_t get_epoch() const { return epoch; }
 	const std::map<int64_t, Ref<ARAnchorTracker>> &get_trackers() const { return trackers; }
 	bool empty() const { return trackers.empty(); }

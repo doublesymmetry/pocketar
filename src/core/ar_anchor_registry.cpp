@@ -1,6 +1,5 @@
 #include "ar_anchor_registry.h"
 #include <godot_cpp/classes/xr_server.hpp>
-#include <cmath>
 
 namespace godot {
 
@@ -10,12 +9,7 @@ void ARAnchorRegistry::configure(Object *p_owner, std::function<void(int64_t)> p
 }
 
 bool ARAnchorRegistry::valid_pose(const Transform3D &p_pose) {
-	if (!p_pose.is_finite()) return false;
-	for (int i = 0; i < 3; ++i) {
-		if (std::abs(p_pose.basis.get_column(i).length_squared() - 1) > 1e-5) return false;
-		for (int j = i + 1; j < 3; ++j) if (std::abs(p_pose.basis.get_column(i).dot(p_pose.basis.get_column(j))) > 1e-5) return false;
-	}
-	return std::abs(p_pose.basis.determinant() - 1) <= 1e-5;
+	return p_pose.is_finite() && p_pose.basis.is_orthonormal() && p_pose.basis.determinant() > 0;
 }
 
 void ARAnchorRegistry::changed() {
@@ -93,7 +87,7 @@ void ARAnchorRegistry::pause(int64_t p_id) {
 	const auto entry = trackers.find(p_id);
 	if (entry == trackers.end()) return;
 	const Ref<ARAnchorTracker> anchor = entry->second;
-	++anchor->lifecycle_revision;
+	++epoch;
 	anchor->update(anchor->transform, ARAnchorTracker::PAUSED);
 }
 
@@ -103,10 +97,9 @@ void ARAnchorRegistry::apply(const Ref<ARFramePacket> &p_packet, int64_t p_gener
 	for (const ARAnchorSnapshot &sample : packet->anchors) {
 		if (packet->anchor_epoch != epoch) break;
 		const auto entry = trackers.find(sample.anchor_id);
-		if (entry == trackers.end() || entry->second->session_generation != p_generation || entry->second->lifecycle_revision != sample.lifecycle_revision) continue;
+		if (entry == trackers.end() || entry->second->session_generation != p_generation) continue;
 		const Ref<ARAnchorTracker> anchor = entry->second;
-		if (sample.tracking_state == ARAnchorTracker::STOPPED) stop(sample.anchor_id);
-		else anchor->update(sample.transform, sample.tracking_state);
+		anchor->update(sample.transform, sample.tracking_state);
 	}
 }
 

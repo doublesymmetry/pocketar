@@ -22,7 +22,7 @@ Ref<ARAnchorTracker> ARCoreInterface::create_native_anchor(const Transform3D &p_
 		UtilityFunctions::push_warning("Cannot create ARCore anchor: invalid pose.");
 		return Ref<ARAnchorTracker>();
 	}
-	if (!initialized || !running || !session || releasing_session || resetting || suspended || application_suspended || state != PocketAR::TRACKING ||
+	if (state != PocketAR::TRACKING ||
 			current_packet.is_null() || current_packet->session_generation != generation || !current_packet->tracking_valid || current_packet->anchor_epoch != anchors.get_epoch()) {
 		UtilityFunctions::push_warning("Cannot create ARCore anchor: not tracking.");
 		return Ref<ARAnchorTracker>();
@@ -116,7 +116,6 @@ void ARCoreInterface::copy_anchors(ARFramePacket &r_packet) {
 		const Ref<ARAnchorTracker> tracker = anchors.get_trackers().at(entry.first);
 		ARAnchorSnapshot snapshot;
 		snapshot.anchor_id = entry.first;
-		snapshot.lifecycle_revision = anchors.get_revision(entry.first);
 		snapshot.transform = tracker->get_transform();
 		snapshot.tracking_state = r_packet.tracking_valid ? int(entry.second.tracking) : int(ARAnchorTracker::PAUSED);
 		if (snapshot.tracking_state == ARAnchorTracker::TRACKING) {

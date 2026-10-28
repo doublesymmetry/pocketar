@@ -37,7 +37,7 @@
 			<return type="ARAnchorTracker" />
 			<param index="0" name="hit" type="ARRaycastHit" />
 			<description>
-				Internal ARView protocol. Requires a fresh presented hit and a current tracking source plane. Android attaches to that native plane; iOS creates an ordinary world anchor at the hit pose. Prefer ARView.create_anchor_from_hit.
+				Internal ARView protocol. Requires a fresh presented hit. Adds an ordinary ARAnchor at the hit pose. Prefer ARView.create_anchor_from_hit.
 			</description>
 		</method>
 		<method name="debug_check_camera_material">
@@ -56,7 +56,7 @@
 		<method name="get_diagnostics" qualifiers="const">
 			<return type="Dictionary" />
 			<description>
-				Advanced diagnostics dictionary with counters, configuration and collected samples. Keys are platform-specific and outside the stable game API.
+				Advanced diagnostics dictionary with counters, configuration and collected samples. [code]native_anchor_count[/code] counts all anchors in the native frame, including detected planes. Keys are platform-specific and outside the stable game API.
 			</description>
 		</method>
 		<method name="get_native_plane_identifiers" qualifiers="const">

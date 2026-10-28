@@ -24,7 +24,7 @@
 			<return type="ARAnchorTracker" />
 			<param index="0" name="hit" type="ARRaycastHit" />
 			<description>
-				Internal ARView protocol. Requires a fresh presented hit and a current tracking source plane. Android attaches to that native plane; iOS creates an ordinary world anchor at the hit pose. Prefer ARView.create_anchor_from_hit.
+				Internal ARView protocol. Requires a fresh presented hit on a tracking debug or fixture plane. Prefer ARView.create_anchor_from_hit.
 			</description>
 		</method>
 		<method name="get_current_packet" qualifiers="const">

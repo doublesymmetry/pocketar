@@ -97,7 +97,6 @@ static int anchor_creations = 0, anchor_detaches = 0, anchor_releases = 0, ancho
 static const ArTrackable *anchor_trackable = nullptr;
 static ArAnchor *created_anchor = nullptr;
 static int64_t anchor_frame_timestamp = 1000;
-static ArTrackingState anchor_camera_tracking = AR_TRACKING_STATE_TRACKING;
 
 static void mock_anchors() {
 	auto &api = arcore_api();
@@ -159,6 +158,9 @@ class ARCoreSessionFixture : public RefCounted {
 	void anchor_pose_changed(const Ref<XRPose> &) {
 		check(!camera_acquired, "anchor pose callback runs after native camera release");
 		anchor_callback_session->reset();
+	}
+	void anchor_removed(const StringName &p_name, int) {
+		if (String(p_name).begins_with("pocketar/anchor/")) anchor_callback_session->_uninitialize();
 	}
 	void check(bool p_condition, const String &p_name) {
 		++checks;
@@ -390,7 +392,7 @@ class ARCoreSessionFixture : public RefCounted {
 		arcore_api().ArSession_getRecordingStatus = [](ArSession *, ArRecordingStatus *r_status) { *r_status = AR_RECORDING_NONE; };
 		arcore_api().ArSession_getPlaybackStatus = [](ArSession *, ArPlaybackStatus *r_status) { *r_status = AR_PLAYBACK_NONE; };
 		arcore_api().ArTrackableList_getSize = [](const ArSession *, const ArTrackableList *, int32_t *r_size) { *r_size = 0; };
-		arcore_api().ArCamera_getTrackingState = [](const ArSession *, const ArCamera *, ArTrackingState *r_tracking) { *r_tracking = anchor_camera_tracking; };
+		arcore_api().ArCamera_getTrackingState = [](const ArSession *, const ArCamera *, ArTrackingState *r_tracking) { *r_tracking = AR_TRACKING_STATE_TRACKING; };
 		arcore_api().ArCamera_getTrackingFailureReason = [](const ArSession *, const ArCamera *, ArTrackingFailureReason *r_reason) { *r_reason = AR_TRACKING_FAILURE_REASON_NONE; };
 		arcore_api().ArFrame_acquireCameraImage = [](ArSession *, ArFrame *, ArImage **) { return AR_ERROR_NOT_YET_AVAILABLE; };
 		bridge.state = PocketAR::READY;
@@ -506,7 +508,8 @@ class ARCoreSessionFixture : public RefCounted {
 		created_anchor->state = AR_TRACKING_STATE_PAUSED;
 		camera->refresh_anchor_states();
 		const Ref<ARAnchorTracker> other = camera->create_anchor_from_hit(hit);
-		check(other.is_valid(), "independent anchor pause preserves fresh presented hit eligibility");
+		check(other.is_null(), "independent anchor pause invalidates pre-pause hit samples");
+		camera->copy_anchors(**fresh);
 		if (other.is_valid()) camera->remove_anchor(other);
 		camera->planes.clear();
 		check(camera->create_anchor_from_hit(hit).is_null(), "missing current plane rejects an otherwise fresh hit");
@@ -566,7 +569,20 @@ class ARCoreSessionFixture : public RefCounted {
 		XRServer::get_singleton()->disconnect("tracker_added", callable_mp(this, &ARCoreSessionFixture::anchor_added));
 		anchor_callback_session.unref();
 		check(reset_during_add.is_null() && camera->native_anchors.empty() && anchor_releases == retired + 3, "engine registration callback can reset without leaking or reviving native anchor");
-		camera->_uninitialize();
+		camera->session = reinterpret_cast<ArSession *>(1);
+		camera->running = true;
+		camera->state = PocketAR::TRACKING;
+		camera->current_packet.instantiate();
+		camera->current_packet->session_generation = camera->generation;
+		camera->current_packet->tracking_valid = true;
+		camera->copy_anchors(**camera->current_packet);
+		const Ref<ARAnchorTracker> shutdown_anchor = camera->create_anchor(placement);
+		anchor_callback_session = camera;
+		XRServer::get_singleton()->connect("tracker_removed", callable_mp(this, &ARCoreSessionFixture::anchor_removed));
+		camera->reset();
+		XRServer::get_singleton()->disconnect("tracker_removed", callable_mp(this, &ARCoreSessionFixture::anchor_removed));
+		anchor_callback_session.unref();
+		check(!camera->initialized && !camera->resetting && camera->session == nullptr && camera->head.is_null() && shutdown_anchor->get_tracking_state() == ARAnchorTracker::STOPPED, "anchor callback can uninitialize during reset without recreating a session");
 	}
 
 #ifdef DEBUG_ENABLED

@@ -432,6 +432,7 @@ void ARCoreInterface::reset() {
 	}
 	current_packet.unref(); presented_packet.unref();
 	release_session();
+	if (!initialized) { resetting = false; return; }
 	last_timestamp = 0;
 	sequence = 0;
 	plane_sequence = 0;
@@ -581,7 +582,7 @@ Dictionary ARCoreInterface::get_diagnostics() const {
 	result["state_history"] = state_history.duplicate();
 	result["update_status_counts"] = update_counts.duplicate();
 	result["plane_count"] = int64_t(planes.size());
-	result["native_anchor_count"] = int64_t(native_anchors.size());
+	result["anchor_count"] = int64_t(native_anchors.size());
 	int stale_trackers = 0;
 	const Dictionary trackers = XRServer::get_singleton()->get_trackers(XRServer::TRACKER_ANCHOR);
 	const Array tracker_names = trackers.keys();

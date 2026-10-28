@@ -145,7 +145,6 @@ private:
 	void refresh_anchor_states();
 	void copy_anchors(ARFramePacket &r_packet);
 	Ref<ARAnchorTracker> create_native_anchor(const Transform3D &p_transform, int64_t p_plane_id);
-	void update_tracking(ArTrackingState p_tracking, ArTrackingFailureReason p_failure);
 	void refresh_planes();
 	bool copy_planes(ARFramePacket &r_packet);
 	int64_t ensure_plane(ArPlane *p_plane);

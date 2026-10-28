@@ -44,9 +44,10 @@ loss/reset. Version 2 adds two optional frame fields:
 
 Slots number successful game creation calls starting at 1 in each generation.
 Failed creation consumes no slot; removal never recycles one. Updates apply in
-file order and persist until another update or reset. Unknown or stopped slots
-are rejected at replay time, since their validity depends on the game's creation
-calls. Controls never create anchors. Reset clears slots and remembered state.
+file order and persist until another update or reset. An update naming an
+unknown or stopped slot fails the replay: it prints an error, the session becomes
+`FAILED` and replay stops until `reset()`. Controls never create anchors. Reset
+clears slots and remembered state.
 
 For world pose `A` created while the map transform is `M`, the backend retains
 anchor-local pose `L = M.affine_inverse() * A`. Each later frame uses its map
@@ -54,14 +55,15 @@ transform to publish `M * L`. That same map transform is applied to the frame's
 physical camera and plane values before display orientation. Plane extent/centre
 changes alone must not drag anchors. Disabling plane finding freezes recorded
 plane geometry/state but does not suppress map correction of retained planes or
-anchors. `ARFramePacket` exposes no public anchors collection; inspect applied
-`ARAnchorTracker` values in `packet_applied`.
+anchors. Inspect applied `ARAnchorTracker` values in `packet_applied`.
 
-The `anchors` desktop step uses the checked-in `anchors-*.jsonl` fixtures for both
-ARKit and ARCore semantics, landscape and portrait, in both compositions. Camera
+The `anchors` desktop step uses the checked-in `anchors-*.jsonl` fixtures in
+landscape and portrait, in both compositions. The semantics header is metadata;
+ScriptedARInterface uses the same anchor behavior for either value. Camera
 records are 100 ms apart and each is held across multiple rendered frames. It
-checks extent growth, map correction, pause/recovery, source-plane removal,
-explicit anchor removal and reset, saving lossless PNGs and numeric reprojections.
+checks extent growth, the first drawn frame of a map correction, pause/recovery,
+source-plane removal, explicit anchor removal and reset, saving lossless PNGs and
+numeric reprojections.
 Run `harness desktop -harness-steps anchors` on both stock and fork engine lanes.
 
 ## Input replay and generated fixtures

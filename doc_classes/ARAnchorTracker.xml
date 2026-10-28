@@ -4,13 +4,9 @@
 		Game-created world anchor applied with the camera packet being drawn.
 	</brief_description>
 	<description>
-		Create through ARView.create_anchor_from_hit(hit) or ARView.create_anchor(pose). Successful creation starts [constant PAUSED] until a usable camera packet is applied. Failure returns null and pushes one warning. Inputs must be finite rigid world-from-anchor transforms in metres, with unit scale and positive determinant; creation requires a running, normally tracking session. Hit creation requires the currently presented frame/generation, the current uninterrupted tracking interval and a still-tracking source plane. A hit saved across later presentation, tracking loss or reset is stale.
-		Android hit creation uses ArTrackable_acquireNewAnchor on the current native plane; free creation uses ArSession_acquireNewAnchor. iOS creates an ordinary ARAnchor at the requested pose for either method, without a plane-parent relationship. The presented hit pose is submitted to the current native session; it does not reconstruct the historical map. [member source_plane_id] is provenance, not an ongoing parent. Plane centre/extent changes do not move an anchor through a saved plane offset.
-		Trackers have type XRServer.TRACKER_ANCHOR and names pocketar/anchor/&lt;generation&gt;/&lt;id&gt;. Filter XRServer results by this class to distinguish them from detected planes. ARView.add_anchor_node(anchor) creates a stock [XRAnchor3D] directly under the view's private [XROrigin3D]. Keep scale, yaw and offsets on descendants. The helper leaves show_when_tracked false; use its tracking_changed signal for explicit visibility policy and gate input/physics separately.
-		The inherited default pose is valid only in [constant TRACKING], with high confidence and zero velocities. Map correction is not physical velocity. ARKit ordinary anchors expose no independent tracking confidence; usability derives from camera/session state and membership in the sampled frame. Pose updates apply from the same packet as the camera before ARView.packet_applied. Anchor-only changes under a repeated camera timestamp do not publish extra packets. ARFramePacket has no public anchor collection.
-		Temporary loss/suspension retains native ownership and the last transform, invalidating tracking until a fresh usable sample. Removal, terminal loss, reset, generation change and uninitialize stop the tracker permanently. Old packets/callbacks cannot revive it. Source plane subsumption/removal or disabled plane finding does not by itself end the anchor. Android session recreation loses anchors; iOS configuration changes without reset retain them.
-		Call ARView.remove_anchor(anchor) to unregister and release native ownership, including while suspended. Repeated removal by the owner is harmless; foreign trackers are rejected. Freeing a helper or dropping a game Ref does not remove the anchor, and removal does not free game nodes. Retained stopped trackers remain readable and own no native handle. Do not mutate inherited provider-owned tracker state or remove it through XRServer.
-		Use one anchor per nearby rigid group and remove it when finished. There is no library count cap; native tracking cost is device-dependent. Anchors do not persist across reset/process death or guarantee zero drift, and provide no shared/cloud/geospatial alignment.
+		Trackers have type XRServer.TRACKER_ANCHOR and names pocketar/anchor/&lt;generation&gt;/&lt;id&gt;. The inherited default pose is valid in [constant TRACKING], with high confidence and zero velocities. [constant PAUSED] retains the last transform with an invalid pose; [constant STOPPED] is terminal.
+		Android hit creation attaches to the native plane through ArTrackable_acquireNewAnchor; free creation uses ArSession_acquireNewAnchor. iOS creates an ordinary ARAnchor at the requested pose for either method. Call ARView.remove_anchor(anchor) to unregister and release native ownership.
+		See the [url=https://github.com/doublesymmetry/pocketar/blob/main/docs/api.md#anchors]anchor contract[/url] for creation freshness, scene nodes and lifecycle.
 	</description>
 	<members>
 		<member name="anchor_id" type="int" setter="" getter="get_anchor_id" default="0">
@@ -20,7 +16,7 @@
 			Owning session generation. A generation change permanently stops old anchors.
 		</member>
 		<member name="source_plane_id" type="int" setter="" getter="get_source_plane_id" default="0">
-			Originally requested plane ID, including when creation resolves a subsumed replacement; zero for free creation. A negative debug-plane ID creates a free native anchor on phones. Clearing that debug plane does not remove the anchor.
+			Originally requested plane ID, including when creation resolves a subsumed replacement; zero for free creation. Negative IDs come from debug-plane hits.
 		</member>
 		<member name="tracking_state" type="int" setter="" getter="get_tracking_state" default="1">
 			Current [enum TrackingState]. Lifecycle invalidation is immediate even without a new camera packet.

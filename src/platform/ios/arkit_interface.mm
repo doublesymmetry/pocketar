@@ -55,7 +55,6 @@ struct ARKitInterface::Impl {
 	ARWorldTrackingConfiguration *config = nil;
 	HARSessionDelegate *delegate = nil;
 	bool running = false, interrupted = false, permission_requested = false;
-	bool anchor_tracking = false;
 	bool reset_pending = false;
 	double last_timestamp = 0, reset_cutoff = 0;
 	uint64_t start_tick = 0;
@@ -117,7 +116,7 @@ static AVAuthorizationStatus camera_authorization(Dictionary &r_diagnostics) {
 
 ARKitInterface::ARKitInterface() : impl(new Impl) {
 	anchors.configure(this, [this](int64_t p_id) {
-		impl->anchors.remove(p_id, [this](ARAnchor *p_anchor) { [impl->session removeAnchor:p_anchor]; });
+		if (ARAnchor *anchor = impl->anchors.remove(p_id)) [impl->session removeAnchor:anchor];
 	});
 }
 ARKitInterface::~ARKitInterface() { if (initialized) _uninitialize(); }
@@ -188,7 +187,6 @@ void ARKitInterface::set_state(PocketAR::SessionState p_state) {
 #endif
 	if (generation != state_generation || state != p_state) return;
 	if (changed && state != PocketAR::TRACKING) {
-		impl->anchor_tracking = false;
 		anchors.pause();
 	}
 }
@@ -275,7 +273,6 @@ void ARKitInterface::_uninitialize() {
 	impl->session = nil;
 	impl->config = nil;
 	impl->delegate = nil;
-	impl->running = false;
 	tracking_status = XR_NOT_TRACKING;
 	current_packet.unref(); presented_packet.unref(); applied_packet.unref();
 	clear_planes();
@@ -494,55 +491,55 @@ void ARKitInterface::reset() {
 	run_session();
 }
 
-bool ARKitInterface::can_create_anchor() {
+bool ARKitInterface::can_create_anchor(void *p_frame) {
 	if (!initialized || !impl->running || impl->interrupted || suspended || application_suspended || state != PocketAR::TRACKING) return false;
 	if (current_packet.is_null() || current_packet->session_generation != generation || current_packet->anchor_epoch != anchors.get_epoch()) return false;
-	ARFrame *frame = impl->session.currentFrame;
+	ARFrame *frame = (__bridge ARFrame *)p_frame;
 	if (!frame || frame.timestamp <= impl->reset_cutoff) return false;
-	if (frame.camera.trackingState == ARTrackingStateNormal) return true;
-	impl->anchor_tracking = false;
-	frame = nil;
-	anchors.pause();
-	return false;
+	return frame.camera.trackingState == ARTrackingStateNormal;
 }
 
 Ref<ARAnchorTracker> ARKitInterface::create_native_anchor(const Transform3D &p_pose, int64_t p_source_plane_id) {
 	ARAnchor *native = [[ARAnchor alloc] initWithTransform:to_simd(p_pose)];
-	if (!native) { WARN_PRINT("Cannot create anchor: native refusal."); return {}; }
-	impl->anchors.add(anchors.next_id(), anchor_key(native.identifier), native, p_pose,
-		[this](ARAnchor *p_anchor) { [impl->session addAnchor:p_anchor]; });
-	native = nil;
+	impl->anchors.add(anchors.next_id(), anchor_key(native.identifier), native, p_pose);
+	[impl->session addAnchor:native];
 	return anchors.add(generation, p_pose, p_source_plane_id);
 }
 
 Ref<ARAnchorTracker> ARKitInterface::create_anchor(const Transform3D &p_pose) {
 	ERR_FAIL_COND_V(initialized && !on_owner_thread(), {});
-	if (!ARAnchorRegistry::valid_pose(p_pose)) { WARN_PRINT("Cannot create anchor: invalid pose."); return {}; }
-	if (!can_create_anchor()) { WARN_PRINT("Cannot create anchor: not tracking."); return {}; }
-	return create_native_anchor(p_pose, 0);
+	@autoreleasepool {
+		ARFrame *frame = impl->session.currentFrame;
+		if (!ARAnchorRegistry::valid_pose(p_pose)) { WARN_PRINT("Cannot create anchor: invalid pose."); return {}; }
+		if (!can_create_anchor((__bridge void *)frame)) { WARN_PRINT("Cannot create anchor: not tracking."); return {}; }
+		return create_native_anchor(p_pose, 0);
+	}
 }
 
 Ref<ARAnchorTracker> ARKitInterface::create_anchor_from_hit(const Ref<ARRaycastHit> &p_hit) {
 	ERR_FAIL_COND_V(initialized && !on_owner_thread(), {});
-	if (!anchors.fresh_hit(p_hit, presented_packet, generation)) { WARN_PRINT("Cannot create anchor: stale hit."); return {}; }
-	if (!can_create_anchor()) { WARN_PRINT("Cannot create anchor: not tracking."); return {}; }
-	const int64_t plane_id = p_hit->get_plane_id();
-	bool tracking_plane = false;
+	@autoreleasepool {
+		ARFrame *frame = impl->session.currentFrame;
+		if (!anchors.fresh_hit(p_hit, presented_packet, generation)) { WARN_PRINT("Cannot create anchor: stale hit."); return {}; }
+		if (!can_create_anchor((__bridge void *)frame)) { WARN_PRINT("Cannot create anchor: not tracking."); return {}; }
+		const int64_t plane_id = p_hit->get_plane_id();
+		bool tracking_plane = false;
 #ifdef DEBUG_ENABLED
-	if (plane_id < 0) tracking_plane = debug_plane.get_plane_id() == plane_id && debug_plane.is_tracking();
+		if (plane_id < 0) tracking_plane = debug_plane.get_plane_id() == plane_id && debug_plane.is_tracking();
 #endif
-	if (plane_id > 0) {
-		for (const auto &entry : planes) {
-			if (entry.second->get_plane_id() != plane_id || entry.second->get_tracking_state() != ARPlaneTracker::TRACKING) continue;
-			for (ARAnchor *native in impl->session.currentFrame.anchors) {
-				if (anchor_key(native.identifier) == entry.first) { tracking_plane = true; break; }
+		if (plane_id > 0) {
+			for (const auto &entry : planes) {
+				if (entry.second->get_plane_id() != plane_id || entry.second->get_tracking_state() != ARPlaneTracker::TRACKING) continue;
+				for (ARAnchor *native in frame.anchors) {
+					if (anchor_key(native.identifier) == entry.first) { tracking_plane = true; break; }
+				}
+				break;
 			}
-			break;
 		}
+		if (!tracking_plane) { WARN_PRINT("Cannot create anchor: stale hit."); return {}; }
+		if (!ARAnchorRegistry::valid_pose(p_hit->get_pose())) { WARN_PRINT("Cannot create anchor: invalid pose."); return {}; }
+		return create_native_anchor(p_hit->get_pose(), plane_id);
 	}
-	if (!tracking_plane) { WARN_PRINT("Cannot create anchor: stale hit."); return {}; }
-	if (!ARAnchorRegistry::valid_pose(p_hit->get_pose())) { WARN_PRINT("Cannot create anchor: invalid pose."); return {}; }
-	return create_native_anchor(p_hit->get_pose(), plane_id);
 }
 
 void ARKitInterface::remove_anchor(const Ref<ARAnchorTracker> &p_anchor) {
@@ -580,8 +577,10 @@ void ARKitInterface::anchors_changed(void *p_session, void *p_anchors, bool p_re
 	for (ARAnchor *anchor in (__bridge NSArray<ARAnchor *> *)p_anchors) {
 		const auto key = anchor_key(anchor.identifier);
 		if (![anchor isKindOfClass:[ARPlaneAnchor class]]) {
-			const int64_t id = impl->anchors.changed(key, p_removed);
-			if (id) stopped.push_back(id);
+			if (p_removed) {
+				const int64_t id = impl->anchors.removed(key);
+				if (id) stopped.push_back(id);
+			}
 			continue;
 		}
 		auto found = planes.find(key);
@@ -658,14 +657,14 @@ bool ARKitInterface::copy_planes(bool p_tracking, ARFramePacket &r_packet) {
 	return changed;
 }
 
-void ARKitInterface::copy_anchors(void *p_frame, ARFramePacket &r_packet) {
+void ARKitInterface::copy_anchors(void *p_frame, bool p_tracking, ARFramePacket &r_packet) {
 	ARFrame *frame = (__bridge ARFrame *)p_frame;
-	impl->anchors.sample(frame.camera.trackingState == ARTrackingStateNormal, [&](auto p_observe) {
+	impl->anchors.sample(p_tracking, [&](auto p_observe) {
 		for (ARAnchor *native in frame.anchors) {
 			p_observe(anchor_key(native.identifier), [&] { return from_simd(native.transform); });
 		}
 	}, [&](int64_t p_id, const Transform3D &p_pose, int p_state) {
-		r_packet.anchors.push_back({ p_id, p_pose, p_state, anchors.get_revision(p_id) });
+		r_packet.anchors.push_back({ p_id, p_pose, p_state });
 	});
 }
 
@@ -682,12 +681,10 @@ void ARKitInterface::_process() {
 		ARFrame *frame = impl->session.currentFrame;
 		if (!frame || frame.timestamp <= impl->reset_cutoff) return;
 		const bool camera_tracking = frame.camera.trackingState == ARTrackingStateNormal;
-		if (!camera_tracking && impl->anchor_tracking) {
-			impl->anchor_tracking = false;
+		if (!camera_tracking && state == PocketAR::TRACKING) {
 			anchors.pause();
 			if (!initialized || generation != frame_generation || !impl->running || suspended || application_suspended) return;
 		}
-		impl->anchor_tracking = camera_tracking;
 		UIView *view = (__bridge UIView *)(void *)DisplayServer::get_singleton()->window_get_native_handle(DisplayServer::WINDOW_VIEW);
 		const CGSize bounds = view.window.bounds.size;
 		const Vector2 window_size(bounds.width, bounds.height);
@@ -806,7 +803,7 @@ void ARKitInterface::_process() {
 			reason == PocketAR::EXCESSIVE_MOTION ? XR_EXCESSIVE_MOTION : reason == PocketAR::INSUFFICIENT_FEATURES ? XR_INSUFFICIENT_FEATURES :
 			reason == PocketAR::NONE ? XR_UNKNOWN_TRACKING : XR_NOT_TRACKING;
 		native_anchor_count = int64_t(frame.anchors.count);
-		if (camera_acquired) copy_anchors((__bridge void *)frame, *packet.ptr());
+		copy_anchors((__bridge void *)frame, camera_tracking && (new_frame || repeated), *packet.ptr());
 		camera = nil;
 		frame = nil;
 		const uint64_t frame_epoch = anchors.get_epoch();

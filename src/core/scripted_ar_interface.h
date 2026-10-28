@@ -18,6 +18,7 @@ class ScriptedARInterface : public SimulatedARInterface {
 	int64_t latest_frame_index = -1;
 	int64_t latest_planes_index = -1;
 	int64_t applied_planes_index = -1;
+	Transform3D applied_plane_map;
 	PocketAR::PlaneFindingMode applied_plane_mode = PocketAR::PLANE_FINDING_DISABLED;
 	PocketAR::SessionState state = PocketAR::INITIALIZING;
 	PocketAR::TrackingReason reason = PocketAR::NONE;
