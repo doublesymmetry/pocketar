@@ -10,12 +10,12 @@ mkdir -p build/ci/godot build/ci/bin
 curl -fsSL -o build/ci/godot.zip \
     "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_$build.zip"
 python -m zipfile -e build/ci/godot.zip build/ci/godot
-if [[ $platform == windows ]]; then
-    cp build/ci/godot/*_console.exe build/ci/bin/godot.exe
-else
-    cp build/ci/godot/Godot_v4.7.2-stable_"$build" build/ci/bin/godot
-    chmod +x build/ci/bin/godot
-fi
+# The Windows console launcher finds the editor by its original name, so neither is renamed.
+executable=$PWD/build/ci/godot/Godot_v4.7.2-stable_$build
+[[ $platform != windows ]] || executable=${executable%.exe}_console.exe
+chmod +x "$executable"
+printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$executable" > build/ci/bin/godot
+chmod +x build/ci/bin/godot
 export PATH="$PWD/build/ci/bin:$PATH"
 godot --headless --path harness --editor --import --quit-after 180 > build/ci/import.log 2>&1
 if rg 'SCRIPT ERROR:|ERROR:' build/ci/import.log; then exit 1; fi
