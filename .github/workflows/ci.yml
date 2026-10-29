@@ -24,7 +24,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  desktop:
+  library:
+    name: library (${{ matrix.platform }}, ${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
@@ -60,8 +61,36 @@ jobs:
           path: |
             build/ci/*.log
             build/tests/
-  check:
-    needs: desktop
+  linux:
+    name: linux (devenv)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      DEVENV_TUI: 'false'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+      - name: Pin devenv
+        run: |
+          mkdir -p build/ci
+          nix build --accept-flake-config github:cachix/devenv/b904dcb51fe48c30db250038241507f60752f222 --out-link build/ci/devenv
+          echo "$PWD/build/ci/devenv/bin" >> "$GITHUB_PATH"
+      - name: Native and headless suites on the fork and stock Godot
+        run: devenv shell -- sh -c 'TMPDIR=/tmp tools/test-native.sh && tools/test-headless.sh && stock tools/test-headless.sh'
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-devenv-logs-${{ github.run_id }}
+          path: build/tests/
+  macos:
+    needs: library
     runs-on: blaze/macos-latest
     timeout-minutes: 120
     env:
