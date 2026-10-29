@@ -4,7 +4,9 @@ cd "$(dirname "$0")/.."
 platform=${1:-android}
 mode=${2:-debug}
 case "$platform" in
-    ios) preset=iOS; suffix=xcodeproj ;;
+    ios)
+        [[ $(uname -s) == Darwin ]] || { echo 'iOS exports require macOS and Xcode' >&2; exit 2; }
+        preset=iOS; suffix=xcodeproj ;;
     android) preset=Android; suffix=apk ;;
     *) echo "Usage: $0 [ios|android] [debug|release]" >&2; exit 2 ;;
 esac

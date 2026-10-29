@@ -5,12 +5,12 @@ compatibility_minimum = "4.7.2"
 android_aar_plugin = true
 
 [libraries]
+linux.editor.x86_64 = "res://addons/pocketar/bin/linux/template_debug/x86_64/libpocketar.so"
+linux.debug.x86_64 = "res://addons/pocketar/bin/linux/template_debug/x86_64/libpocketar.so"
+linux.release.x86_64 = "res://addons/pocketar/bin/linux/template_release/x86_64/libpocketar.so"
 macos.editor.arm64 = "res://addons/pocketar/bin/macos/template_debug/arm64/libpocketar.dylib"
 macos.debug.arm64 = "res://addons/pocketar/bin/macos/template_debug/arm64/libpocketar.dylib"
 macos.release.arm64 = "res://addons/pocketar/bin/macos/template_release/arm64/libpocketar.dylib"
-macos.editor.x86_64 = "res://addons/pocketar/bin/macos/template_debug/x86_64/libpocketar.dylib"
-macos.debug.x86_64 = "res://addons/pocketar/bin/macos/template_debug/x86_64/libpocketar.dylib"
-macos.release.x86_64 = "res://addons/pocketar/bin/macos/template_release/x86_64/libpocketar.dylib"
 ios.debug.arm64 = "res://addons/pocketar/bin/ios/template_debug/pocketar.xcframework"
 ios.release.arm64 = "res://addons/pocketar/bin/ios/template_release/pocketar.xcframework"
 android.debug.arm64 = "res://addons/pocketar/bin/android/template_debug/arm64/libpocketar.so"

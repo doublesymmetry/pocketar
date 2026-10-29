@@ -8,7 +8,7 @@ in
 {
   # Xcode's own toolchain builds the Apple libraries; nixpkgs' Apple SDK or wrapped clang breaks that.
   apple.sdk = null;
-  stdenv = pkgs.stdenvNoCC;
+  stdenv = if pkgs.stdenv.isDarwin then pkgs.stdenvNoCC else pkgs.stdenv;
 
   packages = [
     godot
