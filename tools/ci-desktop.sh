@@ -9,7 +9,7 @@ done
 mkdir -p build/ci/godot build/ci/bin
 curl -fsSL -o build/ci/godot.zip \
     "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_$build.zip"
-unzip -q -o build/ci/godot.zip -d build/ci/godot
+python -m zipfile -e build/ci/godot.zip build/ci/godot
 if [[ $platform == windows ]]; then
     cp build/ci/godot/*_console.exe build/ci/bin/godot.exe
 else
