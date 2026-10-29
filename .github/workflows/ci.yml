@@ -83,7 +83,16 @@ jobs:
           nix build --accept-flake-config github:cachix/devenv/b904dcb51fe48c30db250038241507f60752f222 --out-link build/ci/devenv
           echo "$PWD/build/ci/devenv/bin" >> "$GITHUB_PATH"
       - name: Native and headless suites on the fork and stock Godot
-        run: devenv shell -- sh -c 'TMPDIR=/tmp tools/test-native.sh && tools/test-headless.sh && stock tools/test-headless.sh'
+        run: |
+          # shellcheck disable=SC2016 # expands inside the devenv shell
+          devenv shell -- sh -c '
+            set -e
+            TMPDIR=/tmp tools/test-native.sh
+            tools/build.sh linux debug
+            for engine in "" stock; do
+              $engine godot --headless --path harness --editor --import --quit-after 180
+              $engine tools/test-headless.sh
+            done'
       - uses: actions/upload-artifact@v7
         if: always()
         with:
