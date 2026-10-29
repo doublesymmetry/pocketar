@@ -1,3 +1,4 @@
 self-hosted-runner:
   labels:
     - blaze/macos-latest
+    - blaze/ubuntu-22.04

@@ -24,7 +24,82 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  check:
+  library:
+    name: library (${{ matrix.platform }}, ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux, arch: x86_64, runner: ubuntu-22.04, godot: linux.x86_64, library: so }
+          - { platform: linux, arch: arm64, runner: blaze/ubuntu-22.04, godot: linux.arm64, library: so }
+          - { platform: windows, arch: x86_64, runner: windows-latest, godot: win64.exe, library: dll }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install SCons and ripgrep
+        run: |
+          python -m pip install scons==4.9.1
+          if [[ $RUNNER_OS == Windows ]]; then choco install -y --no-progress ripgrep; else sudo apt-get update -q && sudo apt-get install -y ripgrep; fi
+      - name: Build and run headless suites on Godot 4.7.2
+        run: tools/ci-desktop.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.godot }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: harness/addons/pocketar/bin/${{ matrix.platform }}/template_*/${{ matrix.arch }}/libpocketar.${{ matrix.library }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: desktop-logs-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.run_id }}
+          path: |
+            build/ci/*.log
+            build/tests/
+  linux:
+    name: linux (devenv)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      DEVENV_TUI: 'false'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+      - name: Pin devenv
+        run: |
+          mkdir -p build/ci
+          nix build --accept-flake-config github:cachix/devenv/b904dcb51fe48c30db250038241507f60752f222 --out-link build/ci/devenv
+          echo "$PWD/build/ci/devenv/bin" >> "$GITHUB_PATH"
+      - name: Native and headless suites on the fork and stock Godot
+        run: |
+          # shellcheck disable=SC2016 # expands inside the devenv shell
+          devenv shell -- sh -c '
+            set -e
+            TMPDIR=/tmp tools/test-native.sh
+            tools/build.sh linux debug
+            for engine in "" stock; do
+              $engine godot --headless --path harness --editor --import --quit-after 180
+              $engine tools/test-headless.sh
+            done'
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-devenv-logs-${{ github.run_id }}
+          path: build/tests/
+  macos:
+    needs: library
     runs-on: blaze/macos-latest
     timeout-minutes: 120
     env:
@@ -49,6 +124,16 @@ jobs:
           nix build --accept-flake-config github:cachix/devenv/b904dcb51fe48c30db250038241507f60752f222 --out-link build/ci/devenv
           echo "$PWD/build/ci/devenv/bin" >> "$GITHUB_PATH"
           build/ci/devenv/bin/devenv version | tee build/ci/devenv-version.txt
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: desktop-linux-*
+          path: harness/addons/pocketar/bin/linux
+          merge-multiple: true
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: desktop-windows-*
+          path: harness/addons/pocketar/bin/windows
+          merge-multiple: true
       - name: Tests, release package and installed projects
         run: devenv shell -- tools/ci.sh 2>&1 | tee build/ci/check.log
       - uses: actions/upload-artifact@v7

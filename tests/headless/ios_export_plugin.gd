@@ -24,7 +24,7 @@ func _run() -> void:
 	for version: String in ["16", "16.0", "16.0.1", "17.0", "26.0"]:
 		check(EXPORTER.ios_validation_overrides(version).is_empty(), "preserve supported preset " + version)
 	var exporter: EditorExportPlugin = EXPORTER.new()
-	var directory: String = "/tmp/pocketar-export-test-%d" % Time.get_ticks_usec()
+	var directory: String = ProjectSettings.globalize_path("user://pocketar-export-test-%d" % Time.get_ticks_usec())
 	DirAccess.make_dir_recursive_absolute(directory.path_join("sample"))
 	var plist_path: String = directory.path_join("sample/sample-Info.plist")
 	var original: String = '<plist><dict><key>NSCameraUsageDescription</key><string>My app uses the camera.</string><key>UIRequiredDeviceCapabilities</key><array><string>gps</string><string>iphone-ipad-minimum-performance-a12</string></array></dict></plist>'

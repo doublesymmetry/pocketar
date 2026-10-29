@@ -43,6 +43,11 @@ def main():
     sample = work / "tap_to_place"
     with zipfile.ZipFile(args.package / f"pocketar-{version}.zip") as archive:
         archive.extractall(empty)
+    # Android libraries ship inside the AAR; every other listed library must be in the ZIP.
+    extension = (empty / "addons/pocketar/pocketar.gdextension").read_text()
+    for library in re.findall(r'^(?!android\.)\S+ = "res://(.+)"$', extension, re.M):
+        if not (empty / library).exists():
+            raise SystemExit(f"Missing library in the ZIP: {library}")
     with zipfile.ZipFile(args.package / f"pocketar-tap-to-place-{version}.zip") as archive:
         archive.extractall(work)
     presets = sample / "export_presets.cfg"
@@ -69,7 +74,7 @@ anti_aliasing/quality/use_debanding=true
         run(project, output / f"{name}-import.log", "--headless", "--editor", "--import", "--quit-after", "180")
         run(project, output / f"{name}-gui.log", "--script", str(ROOT / "tests/install/smoke.gd"),
             "--", str(output / f"{name}.png"), timeout=300, marker="INSTALL RESULT PASS")
-    if list(sample.glob("addons/pocketar/**/*.so")):
+    if list(sample.glob("addons/pocketar/bin/android/**/*.so")):
         raise SystemExit("The addon contains loose Android libraries")
     for mode in ("debug", "release"):
         run(sample, output / f"android-{mode}.log", "--headless", "--install-android-build-template",

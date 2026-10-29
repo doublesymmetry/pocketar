@@ -56,13 +56,12 @@ def main():
             path = ROOT / name
             if not path.name.startswith("pocketar_args."):
                 copy(path, addon / path.relative_to(source))
-        for mode in ("debug", "release"):
-            for name in (
-                f"bin/macos/template_{mode}/arm64/libpocketar.dylib",
-                f"bin/ios/template_{mode}/pocketar.xcframework",
-                f"bin/android/pocketar-{mode}.aar",
-            ):
-                copy(source / name, addon / name)
+        # Linux and Windows libraries come from CI's desktop jobs; Android ships in the AARs.
+        listed = re.findall(r'^(?!android\.)\S+ = "res://addons/pocketar/(.+)"$', (source / "pocketar.gdextension").read_text(), re.M)
+        for name in sorted(set(listed)) + [f"bin/android/pocketar-{mode}.aar" for mode in ("debug", "release")]:
+            if not (source / name).exists():
+                raise SystemExit(f"Missing {name}; build it or download CI's desktop artifacts")
+            copy(source / name, addon / name)
         copy(ROOT / "docs/api.md", addon / "docs/api.md")
         provenance = {
             "version": version,
