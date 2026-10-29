@@ -2,14 +2,21 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 arch=${ARCH:-arm64}
-scons platform=macos target=template_debug arch="$arch" api_version=4.7 -j"${JOBS:-8}"
+platform=macos
+compiler=(xcrun clang++ -arch "$arch")
+if [[ $(uname -s) == Linux ]]; then
+    platform=linux
+    arch=${ARCH:-x86_64}
+    compiler=("${CXX:-c++}")
+fi
+scons platform="$platform" target=template_debug arch="$arch" api_version=4.7 -j"${JOBS:-8}"
 mkdir -p build/tests
 cpp_flags=(-Igodot-cpp/include -Igodot-cpp/gen/include -Igodot-cpp/gdextension)
-cpp_archive="godot-cpp/bin/libgodot-cpp.macos.template_debug.$arch.a"
+cpp_archive="godot-cpp/bin/libgodot-cpp.$platform.template_debug.$arch.a"
 run() {
     local name=$1
     shift
-    xcrun clang++ -std=c++17 -arch "$arch" -Isrc "$@" -o "build/tests/$name"
+    "${compiler[@]}" -std=c++17 -Isrc "$@" -o "build/tests/$name"
     "build/tests/$name"
 }
 run test_debug_plane -DDEBUG_ENABLED "${cpp_flags[@]}" tests/native/test_debug_plane.cpp src/core/debug_plane.cpp src/core/ar_plane_tracker.cpp "$cpp_archive"

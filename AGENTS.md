@@ -8,10 +8,11 @@ Work in the task's worktree. Do not commit unless asked.
 Use the repository's devenv for Godot, SCons, Python, Java 17 and the Android SDK.
 When already inside its shell, run commands directly; nested devenv calls fail in
 the coding sandbox. Xcode supplies the Apple compiler. Keep `apple.sdk = null`
-and `stdenv = pkgs.stdenvNoCC`; do not add another C toolchain.
+and `stdenv = pkgs.stdenvNoCC` on macOS; do not add another Apple C toolchain.
+Linux uses the Nix C++ toolchain.
 
 The supported targets are macOS 13+ arm64 (desktop harness), iOS 16+ arm64 on Metal,
-and Android API 29+ arm64 on Mobile/Vulkan. `godot` is PocketAR's engine: Godot
+Linux x86_64 on Mobile/Vulkan, and Android API 29+ arm64 on Mobile/Vulkan. `godot` is PocketAR's engine: Godot
 master plus the patches in doublesymmetry/godot's `PATCHES.md`, pinned to a release of
 that fork in `nix/godot-pocketar.nix` (editor and export templates). It runs
 self-contained from `.devenv/state/godot-pocketar`. Stock Godot 4.7.2 is the oldest
@@ -53,8 +54,9 @@ avoid the shell builtin with the same name.
 | All Python tool tests | `python3 -m unittest discover -s tests/tools` |
 | Kotlin launch argument and AR request tests | `gradle -p android :plugin:testDebugUnitTest` |
 
-`JOBS` controls build concurrency, default 8. `ARCH` defaults to arm64; macOS can
-also build x86_64. `build all` stops on the first failed target. Build both mobile
+`JOBS` controls build concurrency, default 8. `ARCH` defaults to x86_64 on Linux
+and arm64 on macOS. `build linux debug` builds the Linux desktop library. `build all` builds desktop and Android, plus iOS on macOS,
+and stops on the first failed target. Build both mobile
 variants before both exports. Gradle's wrapper downloads its distribution and
 dependencies on first use. Godot's matching export templates must be installed;
 `tools/export.sh android` installs their Gradle build template into the harness project automatically.
