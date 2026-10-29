@@ -29,7 +29,7 @@ if [[ "$mode" == editor && "$platform" != macos && "$platform" != linux ]]; then
     exit 2
 fi
 arch=arm64
-[[ $platform != linux ]] || arch=x86_64
+[[ $platform != linux || $(uname -m) == aarch64 ]] || arch=x86_64
 arch=${ARCH:-$arch}
 if [[ ( $platform == ios || $platform == android ) && "$arch" != arm64 ]]; then
     echo "Mobile packaging requires ARCH=arm64" >&2

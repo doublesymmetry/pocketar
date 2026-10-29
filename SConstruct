@@ -1,9 +1,10 @@
+import platform as host
 import subprocess
 import sys
 
-ARGUMENTS.setdefault("platform", "linux" if sys.platform == "linux" else "macos")
+ARGUMENTS.setdefault("platform", {"linux": "linux", "win32": "windows"}.get(sys.platform, "macos"))
 ARGUMENTS.setdefault("target", "template_debug")
-ARGUMENTS.setdefault("arch", "x86_64" if ARGUMENTS["platform"] == "linux" else "arm64")
+ARGUMENTS.setdefault("arch", {"aarch64": "arm64", "AMD64": "x86_64"}.get(host.machine(), host.machine()))
 ARGUMENTS.setdefault("api_version", "4.7")
 if ARGUMENTS["platform"] == "macos":
     ARGUMENTS.setdefault("macos_deployment_target", "13.0")
@@ -16,7 +17,7 @@ if ARGUMENTS["platform"] == "ios":
     ARGUMENTS.setdefault("IOS_TOOLCHAIN_PATH", developer + "/Toolchains/XcodeDefault.xctoolchain")
 
 env = Environment(tools=["default"], PLATFORM="")
-if ARGUMENTS["platform"] == "linux":
+if ARGUMENTS["platform"] == "linux" and ARGUMENTS["arch"] == "x86_64":
     # GNU2 TLS requires a newer glibc than the desktop addon otherwise needs.
     env.Append(CCFLAGS=["-mtls-dialect=gnu"], LINKFLAGS=["-mtls-dialect=gnu"])
 env = SConscript("godot-cpp/SConstruct", {"env": env, "api_version": "4.7"})
@@ -28,8 +29,8 @@ platform = env["platform"]
 if platform == "android":
     env.Append(LINKFLAGS=["-static-libstdc++", "-Wl,-z,max-page-size=16384"],
                CPPPATH=["thirdparty/arcore/include"], LIBS=["dl", "EGL", "android", "log"])
-if platform not in ("macos", "linux", "ios", "android"):
-    Exit("Supported platforms: macos, linux, ios, android")
+if platform not in ("macos", "linux", "windows", "ios", "android"):
+    Exit("Supported platforms: macos, linux, windows, ios, android")
 if platform in ("ios", "android"):
     sources += Glob("src/platform/" + platform + "/*.cpp")
 if platform == "ios":

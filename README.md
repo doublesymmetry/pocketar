@@ -16,14 +16,15 @@ PocketAR is a handheld AR GDExtension for Godot.
 ## Requirements
 
 Use public Godot 4.7.2+ with matching export templates; no fork is required.
-Editors support Apple Silicon macOS and x86_64 Linux; Windows and Intel Macs are unsupported.
+Editors run on Apple Silicon macOS, Linux (x86_64 or arm64, glibc 2.35+) and Windows x86_64.
+Intel Macs are unsupported. Exporting to iOS needs a Mac.
 
 | Target | Requirements |
 | --- | --- |
 | iOS | iOS 16+, arm64, ARKit world tracking and hardware supported by Godot's Metal renderer. No simulator build. |
 | Android | API 29+, arm64, an ARCore-supported device with Vulkan and Google Play Services for AR 1.48+. |
-| Desktop development | macOS 13+, Apple Silicon, Mobile/Metal; synthetic camera or scripted replay, without live AR. |
-| Linux desktop development | x86_64, Mobile/Vulkan with a Vulkan GPU driver; synthetic camera or scripted replay, without live AR. Build the addon from source. |
+| macOS desktop development | macOS 13+, Apple Silicon, Mobile/Metal; synthetic camera or scripted replay, without live AR. |
+| Linux and Windows desktop development | Mobile/Vulkan with a Vulkan GPU driver; synthetic camera or scripted replay, without live AR. |
 
 OS minimums do not certify device support; iPhone 7 Plus/A10/iOS 15 is unsupported.
 
@@ -54,7 +55,7 @@ falling back to CPU if activation fails.
 
 Download `pocketar-<version>.zip` from [Releases](https://github.com/doublesymmetry/pocketar/releases),
 unzip into your project, and enable **PocketAR** in Project Settings → Plugins.
-`addons/pocketar/` includes macOS, Android and iOS debug/release binaries, shaders, `.uid`
+`addons/pocketar/` includes macOS, Linux, Windows, Android and iOS debug/release binaries, shaders, `.uid`
 files, editor help, license notices and the API contract in `docs/`.
 `release.json` records source and dependency provenance.
 
@@ -88,7 +89,7 @@ In the repository shell, `stock godot` selects public Godot 4.7.2.
 
 ### Linux desktop
 
-Linux source builds need x86_64 and glibc 2.38 or newer. The editor runs on the
+Building PocketAR itself on Linux needs x86_64 or arm64 and glibc 2.38 or newer. The editor runs on the
 host's own libraries and graphics driver, so NixOS is not supported.
 
 ## Add an AR scene
