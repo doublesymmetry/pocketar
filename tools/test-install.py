@@ -74,7 +74,7 @@ anti_aliasing/quality/use_debanding=true
         run(project, output / f"{name}-import.log", "--headless", "--editor", "--import", "--quit-after", "180")
         run(project, output / f"{name}-gui.log", "--script", str(ROOT / "tests/install/smoke.gd"),
             "--", str(output / f"{name}.png"), timeout=300, marker="INSTALL RESULT PASS")
-    if list(sample.glob("addons/pocketar/**/*.so")):
+    if list(sample.glob("addons/pocketar/bin/android/**/*.so")):
         raise SystemExit("The addon contains loose Android libraries")
     for mode in ("debug", "release"):
         run(sample, output / f"android-{mode}.log", "--headless", "--install-android-build-template",
